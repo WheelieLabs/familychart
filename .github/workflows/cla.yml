@@ -1,0 +1,41 @@
+# Dormant until CLA Assistant is activated on the public repository.
+# See CONTRIBUTING.md — outside pull requests are not merged yet (Topology C).
+#
+# To activate when accepting external contributions:
+# 1. Install https://github.com/apps/cla-assistant on WheelieLabs/familychart
+# 2. Add repository secret CLA_ASSISTANT_TOKEN (PAT with repo scope)
+# 3. Enable branch protection requiring the "license/cla" check
+#
+# Lives on public-main (not familychart-dev's main) — recreated here deliberately,
+# not merged over from main. It's pull_request_target-gated, so it only makes
+# sense where external PRs land: the public repo. Ships to WheelieLabs/familychart
+# via the public-export sync workflow, staying inert there until the activation
+# steps above are run.
+
+name: CLA Assistant
+
+on:
+  pull_request_target:
+    types: [opened, closed, synchronize, reopened]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    if: ${{ secrets.CLA_ASSISTANT_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: CLA Assistant
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_ASSISTANT_TOKEN }}
+        with:
+          path-to-signatures: signatures/version1/cla.json
+          path-to-document: CLA.md
+          branch: main
+          allowlist: dependabot[bot],github-actions[bot]

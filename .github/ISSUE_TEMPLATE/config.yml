@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability (private)
+    url: https://github.com/WheelieLabs/familychart/security/advisories/new
+    about: Report security issues privately — do not use public issues. See SECURITY.md.
+  - name: Security email
+    url: mailto:security@wheelielabs.com.au
+    about: Alternative private security contact.

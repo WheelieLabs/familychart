@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@theme {
+  --color-fc-header:    #C8DDEF;
+  --color-fc-blue:      #256AA5;
+  --color-fc-blue-mid:  #1A5F96;
+  --color-fc-blue-dark: #124F7A;
+  --color-fc-ring:      #88B8D8;
+  --color-fc-panel:     #D8E9F5;
+}
+
+/** Person flows + home + management tool surfaces (primary blue canvas). */
+.fc-surface-app {
+  flex: 1;
+  background-color: var(--color-fc-blue);
+  overflow-y: auto;
+}
+
+/** Administration area — darker canvas than app/management. */
+.fc-surface-admin {
+  flex: 1;
+  background-color: var(--color-fc-blue-dark);
+  overflow-y: auto;
+}
+
+html, body {
+  min-height: 100dvh;
+  overscroll-behavior: none;
+  background-color: #C8DDEF;
+}
+
+body {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+
+.fc-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #88B8D8 #1A5F96;
+}
+
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 100;
+  padding: 0.75rem 1.25rem;
+  background-color: #fff;
+  color: var(--color-fc-blue);
+  font-weight: 700;
+  text-decoration: none;
+  border-radius: 0 0 0.75rem 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.skip-to-content:focus {
+  left: 0;
+  top: 0;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  outline: 2px solid var(--color-fc-blue);
+  outline-offset: 2px;
+}
