@@ -1,0 +1,39 @@
+# Docker build context — exclude dev-only and non-runtime files.
+# Runtime image needs: app source, public/, package files, WHATS_NEW (prebuild).
+
+node_modules/
+.next/
+.git/
+.github/
+.claude/
+.cursor/
+.vscode/
+
+# Local data and secrets (mounted at runtime)
+data/
+*.db
+.env
+.env.*
+
+# Generated / dev artifacts
+coverage/
+reports
+*.log
+tsconfig.tsbuildinfo
+
+# Tests (not needed in production image)
+lib/__tests__/
+vitest.config.mts
+
+# Host-only compose (agent writes per-instance copy on provision host)
+docker-compose.yml
+
+# Docs and markdown (not needed at runtime; keeps image smaller)
+docs/
+*.md
+!WHATS_NEW.md
+
+# PWA build artifacts (regenerated at build if applicable)
+public/sw.js
+public/swe-worker-*.js
+public/workbox-*.js
