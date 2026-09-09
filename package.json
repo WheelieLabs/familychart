@@ -1,6 +1,6 @@
 {
   "name": "familychart",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "bin": {
     "fc-db-convert": "./scripts/fc-db-convert-cli.ts",
