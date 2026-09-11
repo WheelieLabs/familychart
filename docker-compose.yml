@@ -1,0 +1,77 @@
+services:
+  familychart:
+    image: ghcr.io/wheelielabs/familychart:latest
+    container_name: familychart
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - familychart-data:/app/data
+    environment:
+      NODE_ENV: "production"
+
+      # --- Required ---
+      # Session encryption key. Generate with: openssl rand -base64 32
+      # NEXTAUTH_SECRET: ""
+      # Public URL of this app (used for OAuth callbacks)
+      NEXTAUTH_URL: "https://familychart.example.com"
+
+      # Reverse proxy: TLS terminated before the container (NPM, Traefik, Caddy).
+      BEHIND_REVERSE_PROXY: "true"
+      # TRUST_PROXY_DEPTH: "1"  # default; use 2 for Cloudflare → nginx
+
+      # --- Auth providers ---
+      # Deprecated boot-seed for auth.entra.enabled (one-time; DB-backed thereafter).
+      # Local credentials are always on. Leave unset unless enabling Entra on first boot.
+      # ENABLED_AUTH_PROVIDERS: "entra"
+
+      # --- Microsoft Entra ID (optional; enables Entra sign-in alongside local credentials) ---
+      # AUTH_MICROSOFT_ENTRA_ID_ID: ""
+      # AUTH_MICROSOFT_ENTRA_ID_SECRET: ""
+      # AUTH_MICROSOFT_ENTRA_ID_TENANT_ID: ""
+      # ENTRA_GROUP_ADMIN: ""
+      # ENTRA_GROUP_MANAGER: ""
+      # ENTRA_GROUP_READWRITE: ""
+      # ENTRA_GROUP_READONLY: ""
+      # ENTRA_GROUP_REPORTS: ""
+
+      # --- Push notifications (Web Push / VAPID) ---
+      # Generate keys with: npx web-push generate-vapid-keys
+      # VAPID_PUBLIC_KEY: ""
+      # VAPID_PRIVATE_KEY: ""
+      # Must be a mailto: or https: URL — required when push notifications are used
+      # VAPID_SUBJECT: "mailto:admin@yourdomain.com"
+      # Minutes after a scheduled slot before an overdue push is sent. Default: 30.
+      # FC_SCHEDULE_OVERDUE_OFFSET_MINUTES: "30"
+
+      # --- Scheduler ---
+      # CRON_MODE=internal runs a built-in scheduler every 5 min — no external cron job needed.
+      # When unset (or not internal), call GET /api/cron from a crontab (optional x-cron-secret header).
+      CRON_MODE: "internal"
+      # Optional: secure the /api/cron endpoint (external mode only)
+      # CRON_SECRET: ""
+
+      # --- Database encryption (ADR-0003) ---
+      # FC_ENCRYPTION_MODE: "none" (default) | "env" | "keyserver"
+      # FC_ENCRYPTION_MODE: "none"
+      # FC_DB_KEY: ""           # env mode — 64-char hex
+      # DB_KEY_SERVER_URL: ""   # keyserver mode
+      # DB_KS_TOKEN: ""
+      # DB_WRAPPED_KEY: ""
+      # DB_KS_CUSTOMER_ID: ""
+
+      # --- Instance settings ---
+      # IANA default timezone. When set, locks the admin System Settings control.
+      # FC_DEFAULT_TIMEZONE: ""
+
+    healthcheck:
+      # 200 (fully ok) and 503 (DB up, keyserver unreachable) both count as container-live —
+      # a keyserver blip must not restart a process that already unwrapped its key. Only a
+      # DB failure (500) or a network error fails the check.
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 || r.statusCode === 503 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  familychart-data:
