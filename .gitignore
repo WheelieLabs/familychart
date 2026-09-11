@@ -1,0 +1,27 @@
+node_modules/
+.next/
+data/
+.env.local
+*.db
+.env
+.vscode/
+.claude/
+.cursor/
+
+# Local symlink to ~/.familychart/reports (created by familychart-skills/install.sh)
+reports
+
+# Build artifacts
+lib/changelog.generated.json
+next-env.d.ts
+tsconfig.tsbuildinfo
+public/sw.js
+public/swe-worker-*.js
+public/workbox-*.js
+
+# Logs
+*.log
+
+# Test output
+coverage/
+.teach/

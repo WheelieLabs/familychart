@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    ignore:
+      # ESLint 10 blocked until eslint-plugin-react (via eslint-config-next) supports it.
+      # Tracking: https://github.com/WheelieLabs/familychart/issues/1
+      - dependency-name: "eslint"
+        update-types:
+          - "version-update:semver-major"
+      # TypeScript 7 blocked until typescript-eslint supports TS 7 API (or alias migration).
+      # Tracking: https://github.com/WheelieLabs/familychart/issues/2
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
+      # Pin @types/node to Node 24 LTS typings until we upgrade Node.
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
+      # nodemailer is pinned in both dependencies and overrides (next-auth's
+      # optional peer range hasn't caught up past ^8), so npm requires both
+      # entries to move in lockstep. Dependabot only bumps one side and its
+      # own dry-run install fails with EOVERRIDE. Bump by hand instead.
+      # Tracking: https://github.com/WheelieLabs/familychart/issues/3
+      - dependency-name: "nodemailer"
+    groups:
+      # Group minor and patch updates together to reduce PR noise
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
