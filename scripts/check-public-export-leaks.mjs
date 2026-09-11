@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 /**
- * Fails loudly if any git-tracked path classified "public" in
- * public-export-manifest.json contains a bare issue-number reference
- * (e.g. "#" followed by digits) or a cross-repo tracker reference
- * (a repo name immediately followed by "#" and digits) that would
- * leak into the public export. Content-level companion to
- * check-public-export-manifest.mjs, which only validates path
+ * Fails loudly if any git-tracked path classified "public" or
+ * "excluded-scanned" in public-export-manifest.json contains a bare
+ * issue-number reference (e.g. "#" followed by digits) or a cross-repo
+ * tracker reference (a repo name immediately followed by "#" and digits)
+ * that would leak into the public export. "excluded-scanned" paths are
+ * stripped from the tree by prepare-public-export-tree.mjs but still get
+ * scanned here because their content reaches the public repo some other
+ * way (e.g. embedded in the orphan commit message) — see
+ * .github/public-release-message.txt's manifest entry. Content-level
+ * companion to check-public-export-manifest.mjs, which only validates path
  * classification — see docs/adr/0013-public-export-scope-manifest.md.
  *
  * Excludes matches that look like quoted hex-color literals (`'#000'`,
@@ -24,8 +28,12 @@ const root = process.env.FC_REPO_ROOT || resolve(__dirname, "..")
 
 const manifestPath = resolve(root, "public-export-manifest.json")
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
-const publicPaths = Object.entries(manifest.paths)
-  .filter(([, value]) => value === "public")
+const scannedPaths = Object.entries(manifest.paths)
+  .filter(
+    ([, value]) =>
+      value === "public" ||
+      (value && typeof value === "object" && value.status === "excluded-scanned"),
+  )
   .map(([path]) => path)
 
 const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
@@ -37,7 +45,7 @@ const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
   .filter(Boolean)
 
 const publicFiles = tracked.filter((path) =>
-  publicPaths.some((p) => path === p || path.startsWith(`${p}/`)),
+  scannedPaths.some((p) => path === p || path.startsWith(`${p}/`)),
 )
 
 // Skip known-binary asset types — content is opaque, and readFileSync would
@@ -95,5 +103,5 @@ if (findings.length > 0) {
 }
 
 console.log(
-  `public-export leak check passed — scanned ${publicFiles.length} files across ${publicPaths.length} public paths.`,
+  `public-export leak check passed — scanned ${publicFiles.length} files across ${scannedPaths.length} paths.`,
 )

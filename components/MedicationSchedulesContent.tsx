@@ -56,7 +56,12 @@ function defaultAmt(row: PersonMedicationRow): string {
 }
 
 function rowToEditor(r: PersonMedicationRow): RowEditorState {
-  const freq = parseScheduleFrequencyUnknown(r.schedule_frequency)
+  const freqRaw = parseScheduleFrequencyUnknown(r.schedule_frequency)
+  // "twice_daily" is a legacy frequency kind that behaved identically to
+  // "daily" (dose count always came from the times list, never the kind).
+  // Normalize it away on load so the count-based label and picker below
+  // don't need a dedicated option per dose count.
+  const freq: MedScheduleFreq = freqRaw.kind === "twice_daily" ? { kind: "daily" } : freqRaw
   const times = parseScheduleTimesJson(r.schedule_times)
   const slots = parseScheduleSlotsJson(r.schedule_slots)
   const slotDosages: Record<string, string> = {}
@@ -75,12 +80,20 @@ function rowToEditor(r: PersonMedicationRow): RowEditorState {
   }
 }
 
-function summarizeFreq(freq: MedScheduleFreq): string {
+/** "Daily" (and legacy "twice_daily") derive their per-day dose count from
+ * however many times are scheduled, so the label scales to any count —
+ * once, twice, three times, etc. — without a dedicated option per count. */
+function timesPerDayLabel(timesCount: number): string {
+  if (timesCount <= 1) return "Daily"
+  if (timesCount === 2) return "Twice daily"
+  return `${timesCount} times daily`
+}
+
+function summarizeFreq(freq: MedScheduleFreq, timesCount: number): string {
   switch (freq.kind) {
     case "daily":
-      return "Daily"
     case "twice_daily":
-      return "Twice daily"
+      return timesPerDayLabel(timesCount)
     case "every_n_days":
       return `Every ${freq.n} days`
     case "weekly":
@@ -94,14 +107,14 @@ function summarizeScheduleRow(row: PersonMedicationRow, ed: RowEditorState): str
   if (Number(row.is_active) !== 1) return "Inactive on this profile"
   const ta = [...ed.times].sort()
   const unit = row.dosage_unit ? ` ${row.dosage_unit}` : ""
-  if (ta.length === 0) return `No scheduled times · ${summarizeFreq(ed.freq)}`
+  if (ta.length === 0) return `No scheduled times · ${summarizeFreq(ed.freq, ta.length)}`
   const doseParts = ta.map(t => {
     const raw = ed.slotDosages[t]?.trim() ?? ""
     const amt = raw !== "" && Number.isFinite(parseFloat(raw)) ? raw : "?"
     return `${t} (${amt}${unit})`
   })
   const datePart = ed.startDate ? ` · from ${ed.startDate}` : ""
-  return doseParts.join(", ") + " · " + summarizeFreq(ed.freq) + datePart
+  return doseParts.join(", ") + " · " + summarizeFreq(ed.freq, ta.length) + datePart
 }
 
 export default function MedicationSchedulesContent({ personId }: { personId: string }) {
@@ -230,10 +243,6 @@ export default function MedicationSchedulesContent({ personId }: { personId: str
 
     if (timeArr.length > 0 && !ed.startDate.trim()) {
       setError("Start date is required when times are scheduled.")
-      return
-    }
-    if (ed.freq.kind === "twice_daily" && timeArr.length !== 2) {
-      setError(`Twice daily: pick exactly two times (${row.medication_name}).`)
       return
     }
     if (ed.freq.kind === "weekly" && ed.freq.weekdays.length === 0) {
@@ -590,12 +599,11 @@ export default function MedicationSchedulesContent({ personId }: { personId: str
                       <div>
                         <label className="font-bold text-gray-800 block mb-1">Frequency</label>
                         <select
-                          value={ed.freq.kind}
+                          value={ed.freq.kind === "twice_daily" ? "daily" : ed.freq.kind}
                           onChange={e => {
-                            const kind = e.target.value as MedScheduleFreq["kind"]
+                            const kind = e.target.value as Exclude<MedScheduleFreq["kind"], "twice_daily">
                             let next: MedScheduleFreq
                             if (kind === "daily") next = { kind: "daily" }
-                            else if (kind === "twice_daily") next = { kind: "twice_daily" }
                             else if (kind === "every_n_days") next = { kind: "every_n_days", n: ed.freq.kind === "every_n_days" ? ed.freq.n : 2 }
                             else next = { kind: "weekly", weekdays: ed.freq.kind === "weekly" ? ed.freq.weekdays : [1, 2, 3, 4, 5] }
                             updateEditor(row.id, { freq: next })
@@ -603,10 +611,15 @@ export default function MedicationSchedulesContent({ personId }: { personId: str
                           className={fieldSelect}
                         >
                           <option value="daily">Daily</option>
-                          <option value="twice_daily">Twice daily (two times)</option>
                           <option value="every_n_days">Every N days</option>
                           <option value="weekly">Weekly</option>
                         </select>
+                        {ed.freq.kind === "daily" && (
+                          <p className="text-xs text-gray-500 mt-1.5">
+                            Add as many times above as this needs — once, twice, three times a day, however many —
+                            the summary updates to match automatically.
+                          </p>
+                        )}
                         {ed.freq.kind === "every_n_days" && (
                           <div className="mt-2 flex items-center gap-2">
                             <label className="text-xs text-gray-700 whitespace-nowrap">Every</label>

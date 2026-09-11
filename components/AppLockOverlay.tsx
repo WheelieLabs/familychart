@@ -13,6 +13,7 @@ import {
   buildGetOptions,
   getWebAuthnAdapter,
   readBiometricCredentialId,
+  withWebAuthnTimeout,
   writeBiometricCredentialId,
 } from "@/lib/webauthn-app-lock"
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
@@ -21,6 +22,8 @@ type Props = {
   userId: string
   onUnlocked: () => void
 }
+
+const WEBAUTHN_TIMEOUT_MS = 20_000
 
 export default function AppLockOverlay({ userId, onUnlocked }: Props) {
   const [storedIdResolved, setStoredIdResolved] = useState(false)
@@ -60,7 +63,11 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
 
     setUnlocking(true)
     try {
-      const result = await getWebAuthnAdapter().create(options)
+      const result = await withWebAuthnTimeout(
+        (signal) => getWebAuthnAdapter().create(options, signal),
+        WEBAUTHN_TIMEOUT_MS,
+        "Setup timed out — try again.",
+      )
       if (!result) {
         setError("Could not complete biometric setup.")
         return
@@ -100,8 +107,16 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
 
     setUnlocking(true)
     try {
-      const result = await getWebAuthnAdapter().get(options)
-      if (result) onUnlocked()
+      const result = await withWebAuthnTimeout(
+        (signal) => getWebAuthnAdapter().get(options, signal),
+        WEBAUTHN_TIMEOUT_MS,
+        "Unlock timed out — try again.",
+      )
+      if (result) {
+        onUnlocked()
+      } else {
+        setError("Could not verify biometric unlock — try again.")
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unlock failed — try again."
       setError(msg)
@@ -174,13 +189,13 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
                   Set up biometric unlock
                 </button>
               )}
-              {!unlocking && error != null && error !== "" && (
+              {!unlocking && hasCredential && (
                 <button
                   type="button"
                   className="mx-auto w-full max-w-xs rounded-xl bg-fc-blue-mid px-4 py-4 text-center text-sm font-bold text-white hover:bg-fc-blue-dark"
-                  onClick={setupMode ? runSetup : runUnlock}
+                  onClick={runUnlock}
                 >
-                  Try again
+                  {error != null && error !== "" ? "Try again" : "Unlock"}
                 </button>
               )}
             </div>

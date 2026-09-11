@@ -10,6 +10,11 @@ Versions before 1.0.0 were internal development releases, not public installs â€
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-09-11
+
+- Improves reliability of biometric unlock behaviour
+- Introduces additional medication schedule frequency options
+
 ## [1.0.0] - 2026-08-03
 
 - Welcome to FamilyChart! Track medications and health observations for everyone in your family, with push reminders so scheduled doses and check-ins don't get missed.

@@ -32,7 +32,8 @@ if (unclassified.length > 0) {
   console.error("The following top-level paths are not classified in public-export-manifest.json:")
   for (const path of unclassified) console.error(`  - ${path}`)
   console.error("\nAdd each path to public-export-manifest.json as \"public\", or as")
-  console.error('{ "status": "excluded", "label": "internal/proprietary — not exported" } before this sync can proceed.')
+  console.error('{ "status": "excluded", "label": "..." } (or "excluded-scanned" if its content')
+  console.error("still reaches the public repo some other way) before this sync can proceed.")
   process.exit(1)
 }
 

@@ -26,6 +26,10 @@
 
 Classification alone does not keep excluded paths off the public remote: the sync workflow historically committed the whole working tree (`git add -A`) after the manifest check. `docs-internal/` was therefore safe only while it was absent from `public-main`. Bringing that branch current with the release line would have published it. The sync workflow now strips excluded paths before the orphan commit, and also runs the content leak check so issue-number / cross-repo tracker references cannot ride along in `"public"` files. Maintainer cutover steps (including token provisioning) live in `docs-internal/public-export-release.md`.
 
+## Amendment (2026-09-11)
+
+Added a third manifest status, `{ "status": "excluded-scanned", "label": "..." }`: stripped from the export tree like `excluded`, but still scanned by `check-public-export-leaks.mjs`. Needed for paths whose *content* reaches the public repo by a route other than being committed as a file — first use is `.github/public-release-message.txt`, an optional maintainer-written file whose content becomes the public orphan commit's message (see `public-export-sync.yml` and `docs-internal/public-export-release.md`). A plain `excluded` entry would have let unreviewed text ride along in that commit message with no leak check at all.
+
 ## References
 
 - No automated safeguard previously existed against admin/agent/keyserver code entering the public export

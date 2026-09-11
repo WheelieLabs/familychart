@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * Removes top-level paths classified `excluded` in public-export-manifest.json
- * from the working tree. Run in the public-export sync workflow after the
- * classification and leak gates, immediately before the orphan commit that
- * is pushed to WheelieLabs/familychart — otherwise `git add -A` would publish
- * excluded directories (docs-internal today). See
+ * Removes paths classified `excluded` or `excluded-scanned` in
+ * public-export-manifest.json from the working tree. Run in the
+ * public-export sync workflow after the classification and leak gates,
+ * immediately before the orphan commit that is pushed to
+ * WheelieLabs/familychart — otherwise `git add -A` would publish excluded
+ * directories (docs-internal today). See
  * docs/adr/0013-public-export-scope-manifest.md.
  *
  * Run manually:  node scripts/prepare-public-export-tree.mjs
@@ -21,7 +22,12 @@ const manifestPath = resolve(root, "public-export-manifest.json")
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
 
 const excluded = Object.entries(manifest.paths)
-  .filter(([, value]) => value && typeof value === "object" && value.status === "excluded")
+  .filter(
+    ([, value]) =>
+      value &&
+      typeof value === "object" &&
+      (value.status === "excluded" || value.status === "excluded-scanned"),
+  )
   .map(([path]) => path)
 
 const stripped = []

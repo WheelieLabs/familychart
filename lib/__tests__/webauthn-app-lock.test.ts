@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   FAMILYCHART_BIOMETRIC_CREDENTIAL_ID_KEY,
   base64urlToUint8Array,
@@ -10,6 +10,7 @@ import {
   clearLegacyBiometricCredentialId,
   createLiveWebAuthnAdapter,
   readBiometricCredentialId,
+  withWebAuthnTimeout,
   writeBiometricCredentialId,
 } from "@/lib/webauthn-app-lock"
 
@@ -229,6 +230,73 @@ describe("live WebAuthnAdapter narrowing", () => {
       } else {
         ;(globalThis as { PublicKeyCredential: unknown }).PublicKeyCredential = previous
       }
+    }
+  })
+
+  it("forwards the given AbortSignal through to credentials.create", async () => {
+    const controller = new AbortController()
+    let receivedSignal: AbortSignal | undefined
+    const adapter = createLiveWebAuthnAdapter({
+      create: async (opts) => {
+        receivedSignal = opts?.signal ?? undefined
+        return null
+      },
+      get: async () => null,
+    })
+    await adapter.create(buildCreateOptions("user-1", "localhost"), controller.signal)
+    expect(receivedSignal).toBe(controller.signal)
+  })
+
+  it("forwards the given AbortSignal through to credentials.get", async () => {
+    const controller = new AbortController()
+    let receivedSignal: AbortSignal | undefined
+    const adapter = createLiveWebAuthnAdapter({
+      create: async () => null,
+      get: async (opts) => {
+        receivedSignal = opts?.signal ?? undefined
+        return null
+      },
+    })
+    await adapter.get(buildGetOptions(new Uint8Array([1]), "localhost"), controller.signal)
+    expect(receivedSignal).toBe(controller.signal)
+  })
+})
+
+describe("withWebAuthnTimeout", () => {
+  it("resolves with the operation's result when it settles before the timeout", async () => {
+    const result = await withWebAuthnTimeout(async () => "ok", 1000, "timed out")
+    expect(result).toBe("ok")
+  })
+
+  it("propagates a non-abort error from the operation unchanged", async () => {
+    await expect(
+      withWebAuthnTimeout(async () => {
+        throw new Error("boom")
+      }, 1000, "timed out"),
+    ).rejects.toThrow("boom")
+  })
+
+  it("aborts the signal and rejects with the timeout message when the operation hangs", async () => {
+    vi.useFakeTimers()
+    try {
+      let receivedSignal: AbortSignal | undefined
+      const pending = withWebAuthnTimeout<never>((signal) => {
+        receivedSignal = signal
+        // Simulates a real navigator.credentials call: it hangs until the
+        // signal aborts, then rejects with an AbortError — as opposed to a
+        // promise that never settles at all, which no timeout can recover.
+        return new Promise((_, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+        })
+      }, 1000, "timed out")
+
+      const assertion = expect(pending).rejects.toThrow("timed out")
+      await vi.advanceTimersByTimeAsync(1000)
+      await assertion
+
+      expect(receivedSignal?.aborted).toBe(true)
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

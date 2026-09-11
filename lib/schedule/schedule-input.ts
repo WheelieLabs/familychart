@@ -149,10 +149,6 @@ export function validateMedicationScheduleInput(
 
   const freq = parseScheduleFrequencyUnknown(freqRaw)
 
-  if (freq.kind === "twice_daily" && timesNormalized.length !== 2) {
-    throw new Error("twice_daily requires exactly two scheduled times")
-  }
-
   parseYmdToLocalDate(startDate)
   let end: string | null = endDate?.trim() || null
   if (end) {

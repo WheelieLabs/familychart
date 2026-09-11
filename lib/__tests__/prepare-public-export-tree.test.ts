@@ -11,12 +11,14 @@ function makeTree(): string {
   mkdirSync(join(dir, "docs-internal"), { recursive: true })
   writeFileSync(join(dir, "docs-internal", "secret.md"), "internal")
   writeFileSync(join(dir, "README.md"), "public")
+  writeFileSync(join(dir, "release-message.txt"), "FamilyChart v1.1.0: adds reminders")
   writeFileSync(
     join(dir, "public-export-manifest.json"),
     JSON.stringify({
       paths: {
         "README.md": "public",
         "docs-internal": { status: "excluded", label: "internal/proprietary — not exported" },
+        "release-message.txt": { status: "excluded-scanned", label: "public commit message" },
       },
     }),
   )
@@ -33,17 +35,19 @@ function runPrepare(dir: string) {
 }
 
 describe("prepare-public-export-tree.mjs", () => {
-  it("removes excluded paths and leaves public paths", () => {
+  it("removes excluded and excluded-scanned paths and leaves public paths", () => {
     const dir = makeTree()
     const output = runPrepare(dir)
     expect(output).toContain("docs-internal")
+    expect(output).toContain("release-message.txt")
     expect(existsSync(join(dir, "docs-internal"))).toBe(false)
+    expect(existsSync(join(dir, "release-message.txt"))).toBe(false)
     expect(existsSync(join(dir, "README.md"))).toBe(true)
   })
 
   it("is a no-op when excluded paths are already absent", () => {
     const dir = makeTree()
-    execFileSync("rm", ["-rf", join(dir, "docs-internal")])
+    execFileSync("rm", ["-rf", join(dir, "docs-internal"), join(dir, "release-message.txt")])
     const output = runPrepare(dir)
     expect(output).toContain("no excluded paths present")
     expect(existsSync(join(dir, "README.md"))).toBe(true)

@@ -132,22 +132,16 @@ describe("validateMedicationScheduleInput", () => {
     ).toThrow(/start_date/)
   })
 
-  it("throws when twice_daily frequency has fewer than 2 times", () => {
-    const slots = [{ time: "08:00", dosage: 1 }]
-    expect(() =>
-      validateMedicationScheduleInput(["08:00"], { kind: "twice_daily" }, "2025-01-01", null, slots)
-    ).toThrow(/twice_daily/)
-  })
-
-  it("throws when twice_daily frequency has more than 2 times", () => {
+  it("accepts any number of scheduled times regardless of frequency kind (e.g. a 3x-daily antibiotic course under legacy twice_daily)", () => {
     const slots = [
       { time: "08:00", dosage: 1 },
       { time: "14:00", dosage: 1 },
       { time: "20:00", dosage: 1 },
     ]
-    expect(() =>
-      validateMedicationScheduleInput(["08:00", "14:00", "20:00"], { kind: "twice_daily" }, "2025-01-01", null, slots)
-    ).toThrow(/twice_daily/)
+    const result = validateMedicationScheduleInput(
+      ["08:00", "14:00", "20:00"], { kind: "twice_daily" }, "2025-01-01", null, slots
+    )
+    expect(result.timesJson).toBe(JSON.stringify(["08:00", "14:00", "20:00"]))
   })
 
   it("throws when end date is before start date", () => {

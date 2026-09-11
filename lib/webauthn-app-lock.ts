@@ -140,8 +140,14 @@ export function buildGetOptions(
 }
 
 export interface WebAuthnAdapter {
-  create(options: PublicKeyCredentialCreationOptions): Promise<{ rawId: ArrayBuffer } | null>
-  get(options: PublicKeyCredentialRequestOptions): Promise<{ ok: true } | null>
+  create(
+    options: PublicKeyCredentialCreationOptions,
+    signal?: AbortSignal,
+  ): Promise<{ rawId: ArrayBuffer } | null>
+  get(
+    options: PublicKeyCredentialRequestOptions,
+    signal?: AbortSignal,
+  ): Promise<{ ok: true } | null>
 }
 
 export type WebAuthnCredentialsApi = {
@@ -157,13 +163,13 @@ export function createLiveWebAuthnAdapter(
   credentials: WebAuthnCredentialsApi,
 ): WebAuthnAdapter {
   return {
-    async create(options) {
-      const cred = await credentials.create({ publicKey: options })
+    async create(options, signal) {
+      const cred = await credentials.create({ publicKey: options, signal })
       if (!isPublicKeyCredential(cred) || !cred.rawId) return null
       return { rawId: cred.rawId }
     },
-    async get(options) {
-      const cred = await credentials.get({ publicKey: options })
+    async get(options, signal) {
+      const cred = await credentials.get({ publicKey: options, signal })
       if (isPublicKeyCredential(cred) && cred.response) return { ok: true }
       return null
     },
@@ -172,12 +178,37 @@ export function createLiveWebAuthnAdapter(
 
 /** Production adapter — reads `navigator.credentials` at call time. */
 export const liveWebAuthnAdapter: WebAuthnAdapter = {
-  create(options) {
-    return createLiveWebAuthnAdapter(navigator.credentials).create(options)
+  create(options, signal) {
+    return createLiveWebAuthnAdapter(navigator.credentials).create(options, signal)
   },
-  get(options) {
-    return createLiveWebAuthnAdapter(navigator.credentials).get(options)
+  get(options, signal) {
+    return createLiveWebAuthnAdapter(navigator.credentials).get(options, signal)
   },
+}
+
+/**
+ * Runs a WebAuthn ceremony but aborts it once `ms` elapses. Needed because
+ * navigator.credentials.get()/create() can hang indefinitely on some
+ * platforms (observed: Android Chrome + Credential Manager, installed PWAs)
+ * when invoked without a fresh, direct user gesture — merely abandoning the
+ * promise leaves that ceremony pending at the browser level, so a retry can
+ * fail immediately with "a request is already pending".
+ */
+export async function withWebAuthnTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  timeoutMessage: string,
+): Promise<T> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    return await run(controller.signal)
+  } catch (err: unknown) {
+    if (controller.signal.aborted) throw new Error(timeoutMessage)
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 let adapter: WebAuthnAdapter = liveWebAuthnAdapter

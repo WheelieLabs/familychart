@@ -5,6 +5,7 @@
     ".gitattributes": "public",
     ".github": "public",
     ".github/workflows/public-export-sync.yml": { "status": "excluded", "label": "internal release process — pointless on the mirror (references a secret that doesn't exist there)" },
+    ".github/public-release-message.txt": { "status": "excluded-scanned", "label": "maintainer-supplied public commit message for the next release — stripped from the mirror, but leak-scanned since its content becomes the public commit message" },
     ".gitignore": "public",
     "AGENTS.md": "public",
     "CHANGELOG.md": "public",
