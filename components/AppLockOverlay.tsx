@@ -11,6 +11,7 @@ import {
   bufferToBase64url,
   buildCreateOptions,
   buildGetOptions,
+  clearBiometricCredentialId,
   getWebAuthnAdapter,
   readBiometricCredentialId,
   withWebAuthnTimeout,
@@ -23,7 +24,12 @@ type Props = {
   onUnlocked: () => void
 }
 
-const WEBAUTHN_TIMEOUT_MS = 20_000
+// A real biometric ceremony that's working resolves in a second or two.
+// Keep this short: on the platforms that hang instead of prompting at all,
+// a long timeout just means a longer stare at "Unlocking…" before the
+// user gives up and force-closes the app — never reaching the retry button
+// this timeout exists to surface.
+const WEBAUTHN_TIMEOUT_MS = 8_000
 
 export default function AppLockOverlay({ userId, onUnlocked }: Props) {
   const [storedIdResolved, setStoredIdResolved] = useState(false)
@@ -125,6 +131,17 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
     }
   }, [storedId, onUnlocked])
 
+  // Some platforms permanently invalidate the stored credential outside the
+  // app's control — e.g. Android drops every platform passkey when the
+  // device's lock-screen credential changes or biometrics are re-enrolled.
+  // get() then rejects instantly, never even reaching the sensor, and no
+  // amount of retrying can succeed. Give a way out of that dead end.
+  const resetCredential = useCallback((): void => {
+    clearBiometricCredentialId(localStorage, userId)
+    setStoredId(null)
+    setError(null)
+  }, [userId])
+
   const hasCredential =
     typeof storedId === "string"
     && storedId.length > 0
@@ -196,6 +213,15 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
                   onClick={runUnlock}
                 >
                   {error != null && error !== "" ? "Try again" : "Unlock"}
+                </button>
+              )}
+              {!unlocking && hasCredential && error != null && error !== "" && (
+                <button
+                  type="button"
+                  className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
+                  onClick={resetCredential}
+                >
+                  Still not working? Reset biometric unlock
                 </button>
               )}
             </div>

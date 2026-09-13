@@ -7,6 +7,7 @@ import {
   bufferToBase64url,
   buildCreateOptions,
   buildGetOptions,
+  clearBiometricCredentialId,
   clearLegacyBiometricCredentialId,
   createLiveWebAuthnAdapter,
   readBiometricCredentialId,
@@ -113,6 +114,26 @@ describe("per-account biometric credential storage", () => {
 
     expect(readBiometricCredentialId(storage, "alice")).toBe("alice-cred")
     expect(readBiometricCredentialId(storage, "bob")).toBe("bob-cred")
+  })
+
+  it("clears only the given account's credential", () => {
+    const storage = memoryStorage()
+    writeBiometricCredentialId(storage, "alice", "alice-cred")
+    writeBiometricCredentialId(storage, "bob", "bob-cred")
+
+    clearBiometricCredentialId(storage, "alice")
+
+    expect(readBiometricCredentialId(storage, "alice")).toBeNull()
+    expect(readBiometricCredentialId(storage, "bob")).toBe("bob-cred")
+  })
+
+  it("does nothing when clearing a blank user id", () => {
+    const storage = memoryStorage()
+    writeBiometricCredentialId(storage, "alice", "alice-cred")
+
+    clearBiometricCredentialId(storage, "   ")
+
+    expect(readBiometricCredentialId(storage, "alice")).toBe("alice-cred")
   })
 
   it("clears the legacy device-wide key without removing per-account credentials", () => {
@@ -276,17 +297,41 @@ describe("withWebAuthnTimeout", () => {
     ).rejects.toThrow("boom")
   })
 
-  it("aborts the signal and rejects with the timeout message when the operation hangs", async () => {
+  it("aborts the signal and rejects with the timeout message when the operation honors abort", async () => {
     vi.useFakeTimers()
     try {
       let receivedSignal: AbortSignal | undefined
       const pending = withWebAuthnTimeout<never>((signal) => {
         receivedSignal = signal
-        // Simulates a real navigator.credentials call: it hangs until the
-        // signal aborts, then rejects with an AbortError — as opposed to a
-        // promise that never settles at all, which no timeout can recover.
+        // Simulates a well-behaved navigator.credentials call: it hangs
+        // until the signal aborts, then rejects with an AbortError.
         return new Promise((_, reject) => {
           signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+        })
+      }, 1000, "timed out")
+
+      const assertion = expect(pending).rejects.toThrow("timed out")
+      await vi.advanceTimersByTimeAsync(1000)
+      await assertion
+
+      expect(receivedSignal?.aborted).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("still rejects with the timeout message when the operation never settles, even after abort", async () => {
+    // Some platforms (observed: Android Chrome + Credential Manager) don't
+    // honor AbortSignal for an in-flight WebAuthn ceremony — the promise
+    // just never settles. Recovery must not depend on the operation ever
+    // reacting to abort(); it has to come from an independent timer race.
+    vi.useFakeTimers()
+    try {
+      let receivedSignal: AbortSignal | undefined
+      const pending = withWebAuthnTimeout<never>((signal) => {
+        receivedSignal = signal
+        return new Promise(() => {
+          /* never settles, even once aborted */
         })
       }, 1000, "timed out")
 

@@ -5,8 +5,20 @@ Household medication and health-observation records for a single instance, with 
 ## Language
 
 **Account**:
-A canonical sign-in identity on this instance — local-password or Entra. Role and Person-linking attach here.
+A canonical sign-in identity on this instance — local-password or Entra. Household Role and Person-linking attach here.
 _Avoid_: user, local user, login
+
+**Household Role**:
+An Account's place on the instance-wide ladder (ReadOnly, ReadWrite, Manager, Admin), or the absence of one. Absence is not a ladder step; an Account with no household Role must hold a Personal-link, and own-Person access comes from that link.
+_Avoid_: No Role (as a rung), Self, user role (when you mean Personal-link)
+
+**Household Reports**:
+The instance-wide report-generation capability: other People, whole-family reports, and scheduled delivery. It requires a household Role; it cannot attach to an Account whose household Role is absent.
+_Avoid_: Reports role (not a ladder step), self-report
+
+**Self-report**:
+On-demand generation of a report whose subject is the Account's Personal-linked Person, including a visit-summary for an appointment of that Person the Account may see. Does not require Household Reports. Offered through the same Reports destination as Household Reports, with the subject locked to that Person.
+_Avoid_: self, own-person report (when a carer uses Household Reports on that Person)
 
 **Local Account sign-in**:
 The password-and-TOTP check that yields a session bag for an active local Account, or a tagged deny. Missing and inactive Accounts are indistinguishable from a wrong password.

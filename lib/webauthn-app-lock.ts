@@ -47,6 +47,26 @@ export function clearLegacyBiometricCredentialId(
   }
 }
 
+/**
+ * Drops the stored credential for an account so the next unlock falls back
+ * to setup mode. Needed when the platform authenticator can no longer
+ * satisfy it — e.g. Android invalidates all platform passkeys when the
+ * device's lock-screen credential changes or biometrics are re-enrolled,
+ * and get() then rejects instantly without ever prompting, forever.
+ */
+export function clearBiometricCredentialId(
+  storage: Pick<Storage, "removeItem">,
+  userId: string,
+): void {
+  const id = userId.trim()
+  if (!id) return
+  try {
+    storage.removeItem(biometricCredentialStorageKey(id))
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Uint8Array → base64url (no padding). */
 export function bufferToBase64url(buf: BufferSource): string {
   const bytes =
@@ -187,12 +207,17 @@ export const liveWebAuthnAdapter: WebAuthnAdapter = {
 }
 
 /**
- * Runs a WebAuthn ceremony but aborts it once `ms` elapses. Needed because
- * navigator.credentials.get()/create() can hang indefinitely on some
- * platforms (observed: Android Chrome + Credential Manager, installed PWAs)
- * when invoked without a fresh, direct user gesture — merely abandoning the
- * promise leaves that ceremony pending at the browser level, so a retry can
- * fail immediately with "a request is already pending".
+ * Runs a WebAuthn ceremony but recovers once `ms` elapses, whether or not
+ * the browser cooperates. Needed because navigator.credentials.get()/
+ * create() can hang indefinitely on some platforms (observed: Android
+ * Chrome + Credential Manager, installed PWAs) when invoked without a
+ * fresh, direct user gesture. `controller.abort()` is a best-effort signal
+ * so a well-behaved browser tears down the pending ceremony (avoiding "a
+ * request is already pending" on retry) — but some platforms don't honor
+ * it for an in-flight WebAuthn call, leaving `run()`'s promise never
+ * settling at all. Racing against an independent timer, instead of solely
+ * awaiting `run()` and relying on the abort to make it reject, is what
+ * guarantees recovery in that case.
  */
 export async function withWebAuthnTimeout<T>(
   run: (signal: AbortSignal) => Promise<T>,
@@ -200,14 +225,26 @@ export async function withWebAuthnTimeout<T>(
   timeoutMessage: string,
 ): Promise<T> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), ms)
-  try {
-    return await run(controller.signal)
-  } catch (err: unknown) {
-    if (controller.signal.aborted) throw new Error(timeoutMessage)
+  let timedOut = false
+  let timer: ReturnType<typeof setTimeout>
+
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+      reject(new Error(timeoutMessage))
+    }, ms)
+  })
+
+  const operation = run(controller.signal).catch((err: unknown) => {
+    if (timedOut) throw new Error(timeoutMessage)
     throw err
+  })
+
+  try {
+    return await Promise.race([operation, timeout])
   } finally {
-    clearTimeout(timer)
+    clearTimeout(timer!)
   }
 }
 

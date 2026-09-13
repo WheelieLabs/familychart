@@ -73,7 +73,7 @@ Update in the **same change** when you:
 - Change **schema**, API patterns, permissions, or project structure → [`docs/architecture.md`](docs/architecture.md)
 - Make a **durable architectural decision** → add or update an ADR in [`docs/adr/`](docs/adr/)
 - Change **dev commands** or verification expectations → this file
-- Ship a **user-visible feature or fix** users should discover → [`WHATS_NEW.md`](WHATS_NEW.md) (in-app modal); technical detail still goes in [`CHANGELOG.md`](CHANGELOG.md)
+- Ship a **user-visible feature or fix** users should discover → [`WHATS_NEW.md`](WHATS_NEW.md) (in-app modal); technical detail still goes in [`CHANGELOG.md`](CHANGELOG.md). The `## [N]` section for version N must be on the **same tree** that sets `package.json` to N (before or in that bump commit, never as a follow-up after deploy) — the modal is baked at image build from `WHATS_NEW.md` and compared to baked `APP_VERSION`.
 
 Do not duplicate deep architecture in README — link to `docs/architecture.md` instead.
 
