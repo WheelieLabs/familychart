@@ -7,14 +7,15 @@ import AppLockOverlay from "@/components/AppLockOverlay"
 import { useBioLockGate } from "@/lib/bio-lock-state"
 
 function BioLockGate({ children }: { children: React.ReactNode }) {
-  const { locked, onUnlocked, eligible, overlayUserId, sessionAuthenticated } = useBioLockGate()
+  const { locked, onUnlocked, disableAppLock, eligible, overlayUserId, sessionAuthenticated } =
+    useBioLockGate()
   const showOverlay = eligible && sessionAuthenticated && locked
 
   return (
     <>
       {children}
       {showOverlay ? (
-        <AppLockOverlay userId={overlayUserId} onUnlocked={onUnlocked} />
+        <AppLockOverlay userId={overlayUserId} onUnlocked={onUnlocked} onDisableAppLock={disableAppLock} />
       ) : null}
     </>
   )

@@ -10,6 +10,8 @@ import {
   clearBiometricCredentialId,
   clearLegacyBiometricCredentialId,
   createLiveWebAuthnAdapter,
+  describeWebAuthnError,
+  isWebAuthnAlreadyPendingError,
   readBiometricCredentialId,
   withWebAuthnTimeout,
   writeBiometricCredentialId,
@@ -158,6 +160,7 @@ describe("buildCreateOptions", () => {
     expect(opts.authenticatorSelection).toEqual({
       authenticatorAttachment: "platform",
       userVerification: "required",
+      residentKey: "preferred",
     })
     expect(opts.pubKeyCredParams).toEqual([
       { type: "public-key", alg: -7 },
@@ -280,6 +283,55 @@ describe("live WebAuthnAdapter narrowing", () => {
     })
     await adapter.get(buildGetOptions(new Uint8Array([1]), "localhost"), controller.signal)
     expect(receivedSignal).toBe(controller.signal)
+  })
+})
+
+describe("describeWebAuthnError", () => {
+  it("appends the DOMException name so a failure carries real diagnostic signal", () => {
+    const e = new DOMException("The operation either timed out or was not allowed.", "NotAllowedError")
+    expect(describeWebAuthnError(e, "fallback")).toBe(
+      "The operation either timed out or was not allowed. (NotAllowedError)",
+    )
+  })
+
+  it("falls back to the given message when a DOMException has no message", () => {
+    const e = new DOMException("", "NotAllowedError")
+    expect(describeWebAuthnError(e, "fallback")).toBe("fallback (NotAllowedError)")
+  })
+
+  it("uses a plain Error's message unchanged", () => {
+    expect(describeWebAuthnError(new Error("boom"), "fallback")).toBe("boom")
+  })
+
+  it("uses the fallback for a non-Error value", () => {
+    expect(describeWebAuthnError("not an error", "fallback")).toBe("fallback")
+  })
+})
+
+describe("isWebAuthnAlreadyPendingError", () => {
+  it("recognizes Android Credential Manager's wedged-request error", () => {
+    const e = new DOMException("A request is already pending.", "OperationError")
+    expect(isWebAuthnAlreadyPendingError(e)).toBe(true)
+  })
+
+  it("is case-insensitive about the message text", () => {
+    const e = new DOMException("A REQUEST IS ALREADY PENDING", "OperationError")
+    expect(isWebAuthnAlreadyPendingError(e)).toBe(true)
+  })
+
+  it("rejects an OperationError with a different message", () => {
+    const e = new DOMException("Something else went wrong.", "OperationError")
+    expect(isWebAuthnAlreadyPendingError(e)).toBe(false)
+  })
+
+  it("rejects a matching message under a different DOMException name", () => {
+    const e = new DOMException("A request is already pending.", "NotAllowedError")
+    expect(isWebAuthnAlreadyPendingError(e)).toBe(false)
+  })
+
+  it("rejects non-DOMException values", () => {
+    expect(isWebAuthnAlreadyPendingError(new Error("A request is already pending."))).toBe(false)
+    expect(isWebAuthnAlreadyPendingError("A request is already pending.")).toBe(false)
   })
 })
 

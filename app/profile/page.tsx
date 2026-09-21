@@ -11,6 +11,7 @@ import FormField from "@/components/FormField"
 import PersonPhotoCapture from "@/components/PersonPhotoCapture"
 import Toggle from "@/components/Toggle"
 import { FcTabBar, type FcTabItem } from "@/components/FcTabBar"
+import { isAppLockDisabled, isBioLockEligible, setAppLockDisabled } from "@/lib/bio-lock-state"
 import { formatHydration } from "@/lib/format"
 import type { HydrationPacingConfig } from "@/lib/hydration/hydration-config"
 import type { HydrationTzSource } from "@/lib/hydration/hydration-timezone"
@@ -216,6 +217,21 @@ function ProfilePageContent() {
     if (searchParams.get("tab")) return
     router.replace("/profile?tab=account")
   }, [me, searchParams, router])
+
+  const [deviceLockEligible, setDeviceLockEligible] = useState(false)
+  const [appLockDisabledOnDevice, setAppLockDisabledOnDevice] = useState(false)
+  useEffect(() => {
+    setDeviceLockEligible(isBioLockEligible())
+  }, [])
+  useEffect(() => {
+    if (!me?.id) return
+    setAppLockDisabledOnDevice(isAppLockDisabled(localStorage, me.id))
+  }, [me])
+  const toggleAppLockDisabled = useCallback((next: boolean) => {
+    if (!me?.id) return
+    setAppLockDisabled(localStorage, me.id, next)
+    setAppLockDisabledOnDevice(next)
+  }, [me])
 
   useEffect(() => {
     if (tab !== "settings" || me?.hydrationGoalMl == null) return
@@ -1097,6 +1113,34 @@ function ProfilePageContent() {
                   Your organisation manages Microsoft sign-in and any extra security (such as their MFA).
                   Password and authenticator settings in FamilyChart apply only to local accounts.
                 </div>
+              </div>
+            )}
+
+            {deviceLockEligible && (
+              <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-3">
+                <h2 className="font-bold text-gray-800 text-lg">Password manager unlock</h2>
+                <p className="text-gray-600 text-sm leading-relaxed">
+                  FamilyChart re-locks this device whenever you leave the app, and asks your
+                  phone&rsquo;s password manager to verify it&rsquo;s you — usually Face, Touch, or
+                  Fingerprint unlock, though it may accept your device PIN or pattern instead. This
+                  setting applies only to this device.
+                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-bold text-gray-800">Disable on this device</span>
+                  <Toggle
+                    value={appLockDisabledOnDevice}
+                    onChange={toggleAppLockDisabled}
+                    ariaLabel="Disable password manager unlock on this device"
+                  />
+                </div>
+                {appLockDisabledOnDevice && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-3 text-sm text-amber-900 leading-relaxed">
+                    Password manager unlock is off on this device only. Anyone who can pick up this
+                    device while you&rsquo;re signed in can open FamilyChart without that
+                    verification. Only turn this off if it keeps failing here — your other devices
+                    are unaffected.
+                  </div>
+                )}
               </div>
             )}
           </>

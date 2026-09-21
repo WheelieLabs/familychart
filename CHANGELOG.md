@@ -10,20 +10,25 @@ User-facing release notes for the in-app What's New screen live in [`WHATS_NEW.m
 
 ---
 
-## [1.0.0-rc.33] - 2026-09-07
+## [1.0.4] - 2026-09-13
 
-### Fixed
-- PRN "coverage gap" alert (e.g. "Next dose may leave a gap") now waits until the medication's cooldown from the prior dose has cleared before showing, instead of firing immediately on recording the second-to-last dose in a 24h window — it was appearing before the person was even eligible to act on it.
-- Reworded the alert from the past-tense "Last dose before gap" to the forward-looking "Next dose may leave a gap", matching its actual predictive intent.
+### Changed
+- v1.0.4 — biometric unlock reset when the stored credential is permanently invalid
 
----
+## [1.0.3] - 2026-09-12
 
-## [1.0.0-rc.32] - 2026-09-07
+### Changed
+- v1.0.3 — recover from hung WebAuthn ceremony when abort isn't honored; shorten unlock timeout to 8s
 
-### Fixed
-- Person Action screen alert warnings (e.g. "Last dose before gap", "At 24h max") had poor color contrast (~2.4:1) and small text on mobile — now use a lighter red (`text-red-200`) meeting WCAG AA contrast and a larger font size.
+## [1.0.2] - 2026-09-11
 
----
+### Changed
+- v1.0.2 — fix biometric unlock getting stuck; medication schedule frequency now scales to any dose count
+
+## [1.0.1] - 2026-09-09
+
+### Changed
+- chore(deps): bump to 1.0.1 — update nodemailer, sharp
 
 ## [1.0.0] - 2026-09-06
 
@@ -31,321 +36,65 @@ First stable release. No functional changes since 1.0.0-rc.31 — the release ca
 
 ---
 
-## [1.0.0-rc.31] - 2026-09-06
-
-### Security
-- Browserslist 4.28.2 → 4.28.9 (unbounded memory growth and custom-stats crash advisories). Regenerated `THIRD-PARTY-NOTICES.md`.
-
----
-
-## [1.0.0-rc.30] - 2026-09-04
-
-### Fixed
-- Accepting an invite (or resetting a password) on an instance that requires MFA now walks the user through authenticator enrollment before sending them on, mirroring the admin `/setup` wizard's MFA step — previously a pending-MFA account could sign in with password alone right after accepting, leaving it permanently "MFA pending" with no in-flow way to enroll.
-
----
-
-## [1.0.0-rc.28] - 2026-09-04
-
-### Fixed
-- Invite emails now link to the instance's configured public URL instead of the app's own bind address (e.g. `0.0.0.0:3000`) — resolved the same way NextAuth resolves the callback URL: `X-Forwarded-Host`/`Proto` behind a reverse proxy, otherwise `NEXTAUTH_URL`.
-- `archiver`, declared in `package.json` but missing from `node_modules` in this checkout, is installed again — restores the person-export test suite and export functionality.
-
----
-
-## [1.0.0-rc.27] - 2026-09-04
-
-Public-export readiness, manager dose-unit variant action, and health/demo hardening.
-
-### Added
-- After a dose-unit mismatch, a Manager can create a catalogue variant in the recorded unit and re-home that one record onto it.
-
-### Fixed
-- `GET /api/health` returns 503 when the key server is unreachable, without putting error detail in the response body.
-- Demo Purgomalum moderation only runs after the local blocklist has already rejected the write.
+## [0.59.11] - 2026-09-06
 
 ### Changed
-- `lib/` naming-cluster modules live in subdirectories with kebab-case filenames.
-- Public-export path: content leak checker, excluded-path strip before the public mirror, docs/ADR/README/env-example redaction and tracker-ref scrub, maintainer cutover runbook.
+- chore(deps): bump to 0.59.11 — browserslist 4.28.9
 
----
-
-## [1.0.0-rc.26] - 2026-09-01
-
-Merge main: Next.js security patch and minor/patch dependencies.
-
-### Security
-- Next.js 16.3.1 → 16.3.4 (Windows-hosted RCE and AVIF image-optimisation RCE advisories in 16.3.3; 16.3.4 re-enables AVIF optimisation).
+## [0.59.10] - 2026-09-01
 
 ### Changed
-- Merged `main` (`otplib` 13.4.1→13.5.0, `eslint-config-next` 16.3.4, `@types/react-dom` 19.2.5; regenerated `THIRD-PARTY-NOTICES.md`).
+- chore(deps): bump to 0.59.10 — next 16.3.4
 
----
-
-## [1.0.0-rc.25] - 2026-09-01
-
-Code quality deepenings: shared Alert readiness, app-lock/WebAuthn seams, and extracted auth/db/history modules.
+## [0.59.9] - 2026-09-01
 
 ### Changed
-- Dashboard and cron share one Alert readiness evaluation (`evaluateAlertReadiness`) for scheduled slots, PRN-blocked scheduled doses, PRN flags, and overdue Observation expectations. Hydration stays on its existing evaluator. PRN `canDose` remains alert-clear only (ADR-0011).
-- App-lock lock/unlock transitions live in `lib/bio-lock-state.ts`; WebAuthn create/get options and a live adapter are seamed in `lib/webauthn-app-lock.ts`.
-- Setup gate reads `setup_complete` in-process in the proxy instead of fetching `/api/setup/status`.
-- Module deepenings for Account Invite, outbound-email readiness, MFA enrollment chrome, local Account sign-in/re-auth, SQLite boot vs domain queries, schema re-squash to the live 1.0.0 shape, account identity/uid, Import spreadsheet parse, and Person history pages.
+- chore(deps): bump to 0.59.9 — next 16.3.3, otplib, eslint-config-next
 
----
-
-## [1.0.0-rc.24] - 2026-08-31
-
-Setup wizard keeps the session after authenticator enrollment.
-
-### Fixed
-- Setup wizard re-sign-in after authenticator enrollment now sends the just-verified TOTP code. Confirming MFA bumps `session_version` and requires OTP on the next credentials sign-in; password-only re-sign-in left the wizard unsigned-in, so later steps (timezone) returned Unauthorised. An unsigned-in stage-1-complete wizard now prompts to sign in instead of offering person/timezone.
-
----
-
-## [1.0.0-rc.23] - 2026-08-31
-
-Post-017 schema baseline no longer 500s on the first request.
-
-### Fixed
-- After migration `017_accounts_unification`, a second schema baseline pass (Next.js request bundle vs instrumentation) no longer throws `SqliteError: no such column: user_uid` by trying to recreate `idx_people_user_uid_unique` on the renamed people column.
-
----
-
-## [1.0.0-rc.22] - 2026-08-31
-
-Invite-based account onboarding.
-
-### Added
-- Invite-based account onboarding: admins send an email invite from **Administration → Accounts**; the invitee sets their own password at `/accept-invite`. Entra/OIDC first sign-in claims a pending invite by email, or auto-creates an `accounts` row as a link anchor (group membership still governs Entra access).
+## [0.59.8] - 2026-08-24
 
 ### Changed
-- **Schema rename (self-hosted and managed alike):** `local_users` becomes `accounts` and `people.user_uid` becomes `people.account_uid` via migration `017_accounts_unification`. Existing rows land as `status=active`, `auth_method=local`. The v1 `initialiseSchema()` literals still create the old names; migration 017 always runs on top.
-- Administration **Local Users** is now **Accounts** (`/admin/accounts`, with `/admin/local-users` redirect). Admins invite by email (optional Person link or create) instead of setting a password. Entra-backed accounts hide the role field and point at Access Control.
+- chore(deps): bump to 0.59.8 — update vitest
 
----
-
-## [1.0.0-rc.19] - 2026-08-22
-
-MFA enrollment moved into the setup wizard, before first person/user creation.
-
-### Fixed
-- The setup wizard's "Add your first person" step silently failed to save whenever this instance's MFA policy was active and the admin hadn't enrolled TOTP yet — the request was redirected instead of erroring, which a `fetch()` POST can't follow. The auth proxy's MFA-enrollment gate now returns an honest JSON 403 for blocked API calls instead of a redirect.
+## [0.59.7] - 2026-08-22
 
 ### Changed
-- MFA enrollment is now its own wizard step (mandatory when the instance's MFA policy is active), positioned right after account creation and before any Person/Local-User creation — for both managed and self-hosted instances. Previously MFA enrollment was only enforced after setup, via a catch-all redirect to the Profile page.
+- Release v0.59.7 (early development; see git history).
 
----
-
-## [1.0.0-rc.18] - 2026-08-22
-
-Managed admin first-login: proxy allowlist for `/reset-password`, plus `fc-create-admin` CLI for host-agent pre-seed.
-
-### Fixed
-- Unauthenticated visitors to `/reset-password` are no longer redirected to `/setup` or `/login`, which dropped the first-login token carried in the URL fragment.
-
-### Added
-- `fc-create-admin` CLI (bundled as `/app/fc-create-admin.cjs` in the production image) creates the pre-seeded managed admin row with `must_reset_password` set; invoked by the host agent, secrets via env vars only.
-
----
-
-## [1.0.0-rc.17] - 2026-08-22
-
-Medication dosage-unit and PRN reminder bug fixes.
-
-### Fixed
-- Recording a medication dose in a catalogue unit that differed from the medication's default (e.g. "applications" vs. "Tabs") was silently rejected server-side, blocking the save entirely. Now accepted — a mismatch is surfaced instead of blocking the write, and it no longer counts toward that medication's unit-scoped 24h cap. Save errors are now shown to the user instead of a generic message.
-- The "PRN reminder cleared" notice fired for reminders that had already been delivered (or should have been), long after the fact, misleadingly framed as cancelling an upcoming reminder. It now only fires for a reminder that was genuinely still pending when superseded by a new dose.
-- A caregiver with no push subscription (or whose send failed to resolve any endpoint) was permanently marked as notified for a PRN reminder, blocking all future retries even after subscribing.
-- PRN reminders with `remind_after_hours` set beyond 24 hours (up to the 168h/7-day clamp) could silently never fire — the cron job's lookback window only considered doses recorded in the last 24 hours.
-
----
-
-## [1.0.0-rc.16] - 2026-08-17
-
-Managed admin forced-reset first-login: token verify + reset-password page.
-
-### Added
-- `lib/reset-token.ts` verifies the stateless, HMAC-signed reset token minted by familychart-admin's provisioner (HKDF-derived key, signature, expiry, and the account's `must_reset_password` flag), reproducing the same cross-repo known-answer test vector familychart-admin carries on its own side.
-- `/reset-password` page and `POST /api/auth/reset-password` route let the pre-seeded managed admin set their own password from the emailed first-login link (token carried in the URL fragment, never a query string) and land signed in automatically, no separate login step.
-- `lib/password-policy.ts`'s `validateNewPassword()` — shared min-length/confirm-match validation, now used by setup bootstrap, `/api/me/password`, and the new reset-password route.
+## [0.59.6] - 2026-08-17
 
 ### Changed
-- `local_users` gains a `must_reset_password` column via a new schema migration (`lib/db-migrations`).
-- `lib/auth-rate-limit.ts`'s per-IP bucket limiter, previously bootstrap-only, is generalised and reused for the reset-password route.
+- chore(release): bump to 0.59.6 — better-sqlite3-multiple-ciphers 13, next 16.3.1, minor/patch deps
 
----
-
-## [1.0.0-rc.15] - 2026-08-17
-
-Merge main, dependency updates.
-
-### Fixed
-- Merged `main` (better-sqlite3-multiple-ciphers 12.11.1→13.0.3, next 16.3.0→16.3.1, read-excel-file, eslint-config-next, tsx minor/patch bumps; regenerated `THIRD-PARTY-NOTICES.md`).
-
----
-
-## [1.0.0-rc.14] - 2026-08-17
-
-Merge main, CI fix.
-
-### Fixed
-- Merged `main` (ADR-0014 doc; dropped the dead `postcss` entry from `package.json` `overrides` and added `nodemailer` to the Dependabot ignore list, fixing recurring `EOVERRIDE` failures in the `Dependabot Updates` workflow).
-
----
-
-## [1.0.0-rc.13] - 2026-08-16
-
-CI fix.
-
-### Fixed
-- Regenerated `THIRD-PARTY-NOTICES.md` to match current dependencies, fixing the "Third-party notices drift check" CI failure on rc.12.
-
----
-
-## [1.0.0-rc.12] - 2026-08-14
-
-Dependency security fix.
-
-### Fixed
-- `npm audit fix` for nanoid infinite-loop DoS (GHSA-2v37-7h3g-55p8).
-
----
-
-## [1.0.0-rc.11] - 2026-08-14
-
-Security header hardening from nuclei scan follow-up.
-
-### Fixed
-- Added missing `X-Permitted-Cross-Domain-Policies: none` and `Cross-Origin-Opener-Policy: same-origin` response headers, flagged by a nuclei scan of the production host.
-
----
-
-## [1.0.0-rc.10] - 2026-08-14
-
-Code Quality remaining bugs — CSV formula prefix, observation timestamps, next-slot suppression, per-account app lock.
-
-### Fixed
-- App lock stores the WebAuthn credential per signed-in account, so a previous enrollee's Face ID / Touch ID cannot dismiss the lock overlay for someone else on the same device. The legacy device-wide localStorage key is ignored for unlock and cleared on enrol and sign-out.
-- Person-export CSVs prefix cells that start with `=`, `+`, `-`, `@`, tab, or CR with a single quote so spreadsheet apps treat caregiver-supplied text as data, not formulas.
-- Observation create/update/import reject a future or implausibly old `recorded_at` using the same bounds as medication writes, so a forged stamp cannot suppress overdue observation reminders.
-- Opt-in next-slot suppression no longer cancels today's earliest reminder for a dose recorded on a previous local day, unless that dose falls in the slot's lead/grace window.
-
----
-
-## [1.0.0-rc.9] - 2026-08-11
-
-Test coverage backfill, schedule-parsing consolidation.
-
-### Added
-- Test coverage backfill from the full test-suite audit: `evaluateDashboardPersonStatus` orchestration, `applyCipherProfile` SQLCipher pragmas, `acquireDbKey`/`probeKeyserverHealth`, `purgeOrphanUploadFiles` guards, `createHydrationEvaluator` composition, `deliverReminder`'s own wiring, and the medium-priority trio (`observation-staleness`, `webauthn-app-lock` base64url, `security-headers`).
+## [0.59.5] - 2026-08-17
 
 ### Changed
-- Consolidated `parseScheduleTimes` and `parseScheduleTimesJson` (two parsers of `person_medications.schedule_times` with different null/empty-array semantics) onto a single function; removed the redundant `lib/parse-schedule-times.ts`.
+- v0.59.5 — Dependabot EOVERRIDE fix
 
----
-
-## [1.0.0-rc.8] - 2026-08-10
-
-Merge `main` — dependency updates.
+## [0.59.4] - 2026-08-14
 
 ### Changed
-- Updated `next` to `^16.3.0`, `eslint-config-next` to `^16.3.0`, and `@types/better-sqlite3` to `^9.6.0`, pulled in from `main`'s dependency-bump chores.
+- chore(release): bump to 0.59.4 — nanoid vulnerability fix
 
----
-
-## [1.0.0-rc.7] - 2026-08-09
-
-Person photo capture rollout, app-lock fix.
-
-### Added
-- Extended the `PersonPhotoCapture` crop/compress pipeline (previously people management only) to the profile page and admin export flow.
-
-### Fixed
-- Biometric app lock no longer fires when a native camera/file picker backgrounds the tab mid-capture; callers now mark a short-lived suppression window (`lib/app-lock-navigation.ts`) before triggering the picker.
-
----
-
-## [1.0.0-rc.6] - 2026-08-07
-
-Mobile UX refinements — login, history chart, person photo.
-
-### Added
-- Mobile login: credentials-first ordering with OAuth below a divider, OTP field reveal gated on email+password both filled, and count-based SSO layout (full-width for one provider, wrapping icon row for 2+).
-- History: period controls and chart stick to the top of the mobile scroll while the records list scrolls beneath (charted observation types only); added 7/30/90-day presets alongside the existing free-form from/to + Go inputs.
-- Person photo capture, crop, and compress pipeline: mobile "Take Photo" / "Choose from Library", desktop Upload/Change picker, fixed 1:1 crop (`PhotoCropModal`), and client-side re-encode to JPEG (max edge 1024px, quality 0.8) via `lib/photo-pipeline.ts` before upload.
-
----
-
-## [1.0.0-rc.5] - 2026-08-07
-
-Code Quality dosing deepenings — dashboard↔cron parity and shared PRN/schedule modules.
+## [0.59.3] - 2026-08-14
 
 ### Changed
-- `lib/blood-pressure-pairing.ts` now owns session grouping, sys/dia pairing, and comment merging for both the API summary and history UI, replacing two divergent implementations.
-- Recording a newer dose now hard-deletes stale pending `prn_push_requests` for the same person+medication (or sibling group) via `lib/prn-push-supersede.ts`, so a superseded request can no longer fire under the newer dose's cooldown clock.
-- Next-suppressible-slot calculation (`findNextSuppressibleSlot`) now lives in `lib/schedule-slot-evaluator.ts` and is shared by client and server, fixing a client/server timezone-model mismatch and a server-side DST-edge divergence.
-- `collectDueScheduledSlots` (`lib/schedule-slot-evaluator.ts`) now backs both the dashboard and cron scheduled-slot evaluation, unifying dose lookback to -3d and applying the PRN-blocks-scheduled check in cron as well as the dashboard.
-- `isObservationAlertEligible` (`lib/observation-schedule.ts`) now backs both dashboard and cron observation-overdue checks, so cron also respects catalogue presence and `max_age_years` gating; cron sends fewer overdue pushes, matching what the dashboard already hides.
+- chore(release): bump to 0.59.3 — security header hardening
 
----
-
-## [1.0.0-rc.4] - 2026-08-07
-
-Merge main (npm audit fixes) plus person-age and PRN-timing deepenings.
-
-### Fixed
-- Person-age birthday boundaries now use `locale.default_timezone` (UTC fallback) on both server gates and client age UX, so catalogue and under-18 checks no longer disagree near a birthday.
-- Resolved npm audit vulnerabilities (postcss, brace-expansion, js-yaml) without requiring an ESLint 10 upgrade; `js-yaml` overridden to `^5.0.0` (safe under flat-config-only ESLint usage).
+## [0.59.2] - 2026-08-14
 
 ### Changed
-- Person age computation moved into a named fractional/calendar-ops module, replacing a parallel validation-cycle implementation; catalogue age gates and under-18 UX now share one pure module with birthday-boundary tests.
-- `evaluatePrnState` gained explicit reset/available instants so dashboard, UI, and cron share one timing seam, replacing parallel dose-ready helpers.
+- 0.59.2 — observation timing, slot suppression, per-account app lock
 
----
-
-## [1.0.0-rc.3] - 2026-08-03
-
-### Fixed
-- `suppressNextSlot` no longer trusts client-supplied `x-fc-client-now` / `x-fc-local-today` headers for the suppression day — a forged header could otherwise plant a future-day `schedule_reminder_suppressions` row.
-- Spreadsheet import now routes medication links through `ensureActivePersonMedicationLink`, so a soft-deleted `person_medications` row is reactivated instead of being left inactive by `INSERT OR IGNORE`.
-- Hydration/timezone reads (`GET /api/me`) no longer merge a personal-link account's `people.user_uid` settings bucket for prefs-only watchers, closing a leak of shared pacing settings after an Entra demotion.
-- Import write now authorises the target `person_id` before any outbound demo profanity-moderation call, so a denied person 404s without a purgomalum fan-out.
-- Typecheck: `rejectDemoImportProfanity` stub explicitly typed so `tsc` accepts its `NextResponse` return.
+## [0.59.1] - 2026-08-10
 
 ### Changed
-- Entra Graph app-only token acquisition (config load + client-credentials cache) unified into one module, shared by revalidation and access-control instead of duplicated per caller.
-- Keyserver unwrap transport (retry/HTTPS/reject handling) extracted into one shared module used by both DB and file key stores.
-- Upload I/O (mode/key/FCE1/path handling) collapsed behind a bucketed `lib/uploads` store seam, distinguishing missing-file from decrypt-failure cases.
+- chore(deps): bump to 0.59.1 — update next, eslint-config-next, tsx, @types/better-sqlite3
 
----
-
-## [1.0.0-rc.2] - 2026-08-03
-
-Public-export documentation sanitisation pass.
+## [0.59.0] - 2026-08-07
 
 ### Changed
-- In-app What's New: pre-1.0.0 dev-cycle history (0.14.0 through 0.58.0) consolidated into a single [1.0.0] welcome entry instead of surfacing 40+ internal entries on first login after upgrade.
-- Removed bare dev-repo issue-number references from source comments, ADRs, README, and CHANGELOG; rewritten to stand on their own since they don't resolve on this repo.
-- Redacted managed-hosting platform internals (admin env-var surface, key-server API/schema, infra topology, provisioning flow) from README/ADRs/docs into a new excluded `docs-internal/`; affected ADRs (0001-0004, 0006, 0007) now describe only this app's own side of the integration.
-- Moved `docs/agents/skills.md` (private agent-tooling repo instructions) to `docs-internal/`, with no public audience.
-
----
-
-## [1.0.0-rc.1] - 2026-08-03
-
-### Added
-- Admin-gated per-person data export: downloadable zip with per-record-type CSVs, a full-fidelity JSON bundle, and person-photo attachments (`/admin/export`, `GET /api/people/[id]/export`).
-- `public-export-manifest.json` classifies every top-level path as public or excluded, with a CI check (`scripts/check-public-export-manifest.mjs`) that fails on drift. See [ADR-0013](docs/adr/0013-public-export-manifest.md).
-
-### Fixed
-- Bare carriage returns in exported CSV fields are now escaped, preventing corrupted row boundaries.
-
-### Changed
-- Database schema baseline squashed: migrations 001-015 folded into `initialiseSchema()` as the sole source of truth for a fresh install; data-reconciliation migrations (011, 012, 014) dropped since they only fix pre-existing data. Assumes every real deployment is already upgraded through migration 014 before this lands.
-- Dropped dead `medication_group_id`/`label` columns from `medication_frequency_rules` (retired group-scoped dosing rules fully removed from DDL, types, API, UI, and tests); `observation_goals.target_date` folded into canonical DDL; `PersonMedication` type declares `schedule_tz`.
-
----
+- chore(release): bump to 0.59.0 — Code Quality dosing deepenings
 
 ## [0.58.10] - 2026-08-07
 
@@ -380,6 +129,11 @@ Public-export documentation sanitisation pass.
 - `fc-db-convert` accepts `FC_CONVERT_FROM_KEY` / `FC_CONVERT_TO_KEY` env vars so the host agent need not put keys on Docker argv.
 
 ---
+
+## [0.58.6] - 2026-07-29
+
+### Changed
+- chore(deps): bump to 0.58.6 — next, react, react-dom, read-excel-file, eslint-config-next
 
 ## [0.58.5] - 2026-07-25
 
@@ -458,6 +212,11 @@ Wave 4 — observations catalogue.
 
 ---
 
+## [0.55.2] - 2026-07-24
+
+### Changed
+- chore(deps): bump to 0.55.2 — next 16.2.11, next-auth beta.32
+
 ## [0.55.1] - 2026-07-19
 
 ### Fixed
@@ -521,6 +280,21 @@ Wave 1 — security fixes and PWA icon touch-up.
 
 ---
 
+## [0.51.5] - 2026-07-15
+
+### Changed
+- chore(deps): bump to 0.51.5 — update tsx
+
+## [0.51.4] - 2026-07-13
+
+### Changed
+- chore(deps): bump to 0.51.4 — read-excel-file, @types/node, eslint, @types/nodemailer
+
+## [0.51.3] - 2026-07-12
+
+### Changed
+- v0.51.3 — surface demo version in footer
+
 ## [0.51.2] - 2026-07-12
 
 Deploy-blocking regression from v0.51.1: containers crashed on every request with `Internal Server Error` / `The Proxy file "/proxy" must export a function named 'proxy' or a default function.`
@@ -549,6 +323,16 @@ Wave 1 (post-replan) — quick fixes and dormant security-setting enforcement.
 - Entra sign-in: the login button and the actual NextAuth provider registration now share one source of truth (`isEntraProviderActive`, env-first with DB fallback), resolved per request in `lib/auth.ts` instead of fixed at module load from env alone. A self-hoster who configures Entra purely through System Settings (no env vars at all) now gets working sign-in, not a visible-but-broken button.
 - PWA splash screen (`manifest.json`) `background_color` updated to the post-rebalance fc-blue (#256AA5).
 - Dashboard PRN cooldown/at-cap/coverage-gap alerts show a "tomorrow" (or weekday) qualifier when the window-end time falls on a different local day, instead of an ambiguous bare `HH:mm`.
+
+## [0.50.2] - 2026-07-10
+
+### Changed
+- chore: bump to 0.50.2 — sync third-party notices
+
+## [0.50.1] - 2026-07-10
+
+### Changed
+- chore(deps): bump to 0.50.1 — update next, nodemailer, tailwind, vitest
 
 ## [0.50.0] - 2026-07-06
 
@@ -610,6 +394,11 @@ Alert deduplication (Wave 5) — duplicate dashboard alerts per medication/obser
 - `dedupeIssuesBySubject()` collapses multiple dashboard issues for the same `medicationId`/`observationType` (e.g. `prescription_overdue` + `prescription_upcoming`, or `prn_at_cap` + `prn_cooldown` for the same medication) into a single alert — the highest-priority issue wins via `compareDashboardIssues`. Called after `suppressScheduledWhenPrnBlocked` in `app/api/dashboard/route.ts`.
 - Confirmed the person-hub alert card's worst-of-all-rows border accent is intentional behaviour, not a bug; documented at `components/PersonPageActions.tsx`.
 
+## [0.49.4] - 2026-07-06
+
+### Changed
+- v0.49.4 - Wave 4: pluralisation helper + save/copy hygiene
+
 ## [0.49.3] - 2026-07-06
 
 Modal primitive + medication UI (Wave 3) — shared accessible Modal, nested-modal fix, group rule-creation removal.
@@ -666,6 +455,21 @@ Security follow-up (run 7) — ZAP baseline hardening: callbackUrl, cookie Secur
 
 ### Documentation
 - ADR-0007 and README updated: `NEXTAUTH_USE_SECURE_COOKIES` no longer affects the cookie `Secure` flag.
+
+## [0.48.3] - 2026-07-05
+
+### Fixed
+- fix: Healthy log ingest companion (5m heartbeat)
+
+## [0.48.2] - 2026-07-05
+
+### Fixed
+- fix(ops): Healthy log visible to Admin ingest
+
+## [0.48.1] - 2026-07-05
+
+### Changed
+- Wave 11: allowScripts + Healthy boot log
 
 ## [0.48.0] - 2026-07-04
 
@@ -730,6 +534,11 @@ Security follow-up (run 6), licensing, AppHeader, and push prune.
 - `THIRD-PARTY-NOTICES.md` attributes `better-sqlite3-multiple-ciphers` / SQLCipher; generator is date-stable and gated in CI.
 - Encryption runbook: pre-convert `.env` expectation and HTTPS keyserver URL.
 
+## [0.45.3] - 2026-07-03
+
+### Changed
+- chore(deps): bump to 0.45.3 — nodemailer 7.0.13 -> 9.0.1 (fixes CRLF injection/SSRF vulns)
+
 ## [0.45.2] - 2026-07-03
 
 Patch — bundle `fc-db-convert` CLI in production Docker image.
@@ -743,6 +552,11 @@ Patch — fix Docker standalone missing SQLCipher native binding.
 
 ### Fixed
 - `next.config.ts` `serverExternalPackages` now lists `better-sqlite3-multiple-ciphers` (was `better-sqlite3`), so the `.node` binding is included in standalone Docker images. v0.45.0 images failed at boot with `Could not locate the bindings file`.
+
+## [0.45.0] - 2026-07-03
+
+### Changed
+- Wave 7: encryption at rest, MFA fix, conversion tooling
 
 ## [0.44.4] - 2026-07-03
 
@@ -1578,6 +1392,11 @@ Wave 1 application security hardening (includes planned 0.38.1 hotfixes).
 - Permissions model: `canReport` is now orthogonal to the `readonly → readwrite → manager → admin` ladder.
 
 ---
+
+## [0.24.10] - 2026-05-09
+
+### Changed
+- patch: various fixes
 
 ## [0.24.9] - 2026-05-09
 

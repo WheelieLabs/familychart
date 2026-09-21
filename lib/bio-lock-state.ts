@@ -104,6 +104,42 @@ export function applyBioLockStorageEffect(
   else if (effect === "set-unlock-key") writeBioUnlockKey(storage)
 }
 
+/** Per-device opt-out key. Device-local by design: a broken authenticator on
+ * one device shouldn't disable app-lock on the account's other devices. */
+const APP_LOCK_DISABLED_KEY = "familychart_app_lock_disabled"
+
+function appLockDisabledStorageKey(userId: string): string {
+  return `${APP_LOCK_DISABLED_KEY}:${encodeURIComponent(userId)}`
+}
+
+export function isAppLockDisabled(
+  storage: Pick<Storage, "getItem">,
+  userId: string,
+): boolean {
+  const id = userId.trim()
+  if (!id) return false
+  try {
+    return storage.getItem(appLockDisabledStorageKey(id)) === "1"
+  } catch {
+    return false
+  }
+}
+
+export function setAppLockDisabled(
+  storage: Pick<Storage, "setItem" | "removeItem">,
+  userId: string,
+  disabled: boolean,
+): void {
+  const id = userId.trim()
+  if (!id) return
+  try {
+    if (disabled) storage.setItem(appLockDisabledStorageKey(id), "1")
+    else storage.removeItem(appLockDisabledStorageKey(id))
+  } catch {
+    /* ignore */
+  }
+}
+
 export function isBioLockEligible(
   nav: Pick<Navigator, "userAgent" | "platform" | "maxTouchPoints"> | null = typeof navigator === "undefined"
     ? null
@@ -124,15 +160,27 @@ export function isBioLockEligible(
 export function useBioLockGate(): {
   locked: boolean
   onUnlocked: () => void
+  disableAppLock: () => void
   eligible: boolean
   overlayUserId: string
   sessionAuthenticated: boolean
 } {
-  const eligible = useMemo(() => isBioLockEligible(), [])
+  const deviceCapable = useMemo(() => isBioLockEligible(), [])
   const { data: session, status } = useSession()
+  const userId = session?.user?.id ?? ""
+  const [optedOut, setOptedOut] = useState(false)
+  const eligible = deviceCapable && !optedOut
   const [locked, setLocked] = useState(true)
   const lockedRef = useRef(true)
   const router = useRouter()
+
+  // Device-local opt-out (lib/bio-lock-state.ts's isAppLockDisabled): lets a
+  // user whose device can't reliably complete WebAuthn escape a permanent
+  // lockout without weakening app-lock on their other, working devices.
+  useLayoutEffect(() => {
+    if (!userId || typeof window === "undefined") return
+    setOptedOut(isAppLockDisabled(localStorage, userId))
+  }, [userId])
 
   useLayoutEffect(() => {
     if (!eligible || status !== "authenticated" || typeof window === "undefined") return
@@ -217,11 +265,18 @@ export function useBioLockGate(): {
     router.push(target)
   }, [router])
 
+  const disableAppLock = useCallback(() => {
+    if (userId) setAppLockDisabled(localStorage, userId, true)
+    setOptedOut(true)
+    onUnlocked()
+  }, [userId, onUnlocked])
+
   return {
     locked,
     onUnlocked,
+    disableAppLock,
     eligible,
-    overlayUserId: session?.user?.id ?? "",
+    overlayUserId: userId,
     sessionAuthenticated: status === "authenticated" && session != null,
   }
 }

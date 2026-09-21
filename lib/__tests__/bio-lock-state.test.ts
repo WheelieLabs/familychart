@@ -5,8 +5,10 @@ import {
   FC_BIO_UNLOCK_KEY,
   bioLockIsLockedFromUnlockKey,
   clearBioUnlockKey,
+  isAppLockDisabled,
   nextBioLockState,
   readBioUnlockKey,
+  setAppLockDisabled,
   writeBioUnlockKey,
 } from "@/lib/bio-lock-state"
 
@@ -29,6 +31,34 @@ describe("bioLockIsLockedFromUnlockKey", () => {
     expect(bioLockIsLockedFromUnlockKey("")).toBe(true)
     expect(bioLockIsLockedFromUnlockKey("0")).toBe(true)
     expect(bioLockIsLockedFromUnlockKey("1")).toBe(false)
+  })
+})
+
+describe("isAppLockDisabled / setAppLockDisabled", () => {
+  it("defaults to not disabled", () => {
+    const storage = memoryStorage()
+    expect(isAppLockDisabled(storage, "alice")).toBe(false)
+  })
+
+  it("disables and re-enables app-lock for a given account", () => {
+    const storage = memoryStorage()
+    setAppLockDisabled(storage, "alice", true)
+    expect(isAppLockDisabled(storage, "alice")).toBe(true)
+
+    setAppLockDisabled(storage, "alice", false)
+    expect(isAppLockDisabled(storage, "alice")).toBe(false)
+  })
+
+  it("scopes the opt-out to a single account, not the whole device", () => {
+    const storage = memoryStorage()
+    setAppLockDisabled(storage, "alice", true)
+    expect(isAppLockDisabled(storage, "bob")).toBe(false)
+  })
+
+  it("does nothing for a blank user id", () => {
+    const storage = memoryStorage()
+    setAppLockDisabled(storage, "   ", true)
+    expect(isAppLockDisabled(storage, "   ")).toBe(false)
   })
 })
 

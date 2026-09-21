@@ -12,6 +12,12 @@ Versions before 1.0.0 were internal development releases, not public installs �
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-09-21
+
+- App lock is more reliable on Android — unlock no longer gets stuck repeatedly re-prompting when your phone's password manager briefly takes over the screen mid-unlock
+- If unlock does get stuck, the lock screen now tells you to fully close and reopen FamilyChart, instead of a "try again" button that couldn't actually fix it
+- We now call this feature "password manager unlock" instead of "biometric unlock" — it's more accurate, since depending on your device and its settings, unlock may use your fingerprint or face, but it can also fall back to your device PIN or pattern
+
 ## [1.0.4] - 2026-09-12
 
 - Fixes biometric unlock getting permanently stuck for some users after changing their device's lock screen or re-enrolling a fingerprint/face — you can now reset and re-register biometric unlock right from the lock screen

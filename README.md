@@ -128,7 +128,7 @@ Contributor workflow, native-module notes, and doc-sync rules: [`CONTRIBUTING.md
 - **Administration** (`/admin`) — **Admin** role: overview dashboard, accounts (invite to sign in), Entra access-control membership (read-only), audit log viewer, household files (`/admin/files`); users with the Reports capability use the separate Reports role / `can_report` flag
 - **RBAC** — hierarchical roles (ReadOnly → ReadWrite → Manager → Admin) via Microsoft Entra ID security groups or local email/password accounts, plus an independent **Reports** capability
 - **MFA** — optional TOTP/authenticator-app second factor for local (email + password) accounts
-- **App lock** — optional WebAuthn gesture re-authentication after idle timeout; the biometric credential is stored per signed-in account
+- **App lock** — optional WebAuthn re-authentication via the device's password manager after idle timeout; the credential is stored per signed-in account
 - **Audit log** — every write action recorded with user, entity, and detail; admins can browse a paginated, filterable viewer under Administration
 
 ### App shell

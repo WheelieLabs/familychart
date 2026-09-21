@@ -6,13 +6,16 @@ import AppFooter from "@/components/AppFooter"
 import AppHeader from "@/components/AppHeader"
 import { useFocusTrap } from "@/components/Modal"
 import { mainContentTargetProps } from "@/lib/a11y"
+import { markAppLockSuppressed } from "@/lib/app-lock-navigation"
 import {
   base64urlToUint8Array,
   bufferToBase64url,
   buildCreateOptions,
   buildGetOptions,
   clearBiometricCredentialId,
+  describeWebAuthnError,
   getWebAuthnAdapter,
+  isWebAuthnAlreadyPendingError,
   readBiometricCredentialId,
   withWebAuthnTimeout,
   writeBiometricCredentialId,
@@ -22,6 +25,9 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 type Props = {
   userId: string
   onUnlocked: () => void
+  /** Device-local escape hatch for a device whose WebAuthn can never
+   * succeed — see lib/bio-lock-state.ts's isAppLockDisabled. */
+  onDisableAppLock: () => void
 }
 
 // A real biometric ceremony that's working resolves in a second or two.
@@ -31,11 +37,15 @@ type Props = {
 // this timeout exists to surface.
 const WEBAUTHN_TIMEOUT_MS = 8_000
 
-export default function AppLockOverlay({ userId, onUnlocked }: Props) {
+export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }: Props) {
   const [storedIdResolved, setStoredIdResolved] = useState(false)
   const [storedId, setStoredId] = useState<string | null>(null)
   const [unlocking, setUnlocking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set when the OS-level WebAuthn request is wedged (see
+  // isWebAuthnAlreadyPendingError) — retrying in-app cannot help, so we hide
+  // the retry button instead of sending the user into a doomed loop.
+  const [requiresRestart, setRequiresRestart] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
 
@@ -50,14 +60,15 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
     try {
       writeBiometricCredentialId(localStorage, userId, bufferToBase64url(rawId))
     } catch {
-      throw new Error("Could not save biometric setup on this device.")
+      throw new Error("Could not save password manager unlock on this device.")
     }
   }, [userId])
 
   const runSetup = useCallback(async (): Promise<void> => {
     setError(null)
+    setRequiresRestart(false)
     if (typeof navigator === "undefined" || !navigator.credentials) {
-      setError("This device cannot use biometric unlock in the browser.")
+      setError("This device cannot use password manager unlock in the browser.")
       return
     }
     if (typeof PublicKeyCredential === "undefined") {
@@ -69,20 +80,53 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
 
     setUnlocking(true)
     try {
+      // A discoverable-credential ceremony (residentKey: "preferred") can
+      // hand off to Android's Credential Manager UI, which backgrounds the
+      // tab and returns — indistinguishable, to the visibilitychange
+      // listener in lib/bio-lock-state.ts, from the user actually leaving.
+      // Without suppressing it, that re-lock unmounts this overlay mid-
+      // ceremony and its mount effect can fire a second, overlapping
+      // credentials call, racing the one already in flight.
+      markAppLockSuppressed(sessionStorage)
       const result = await withWebAuthnTimeout(
         (signal) => getWebAuthnAdapter().create(options, signal),
         WEBAUTHN_TIMEOUT_MS,
         "Setup timed out — try again.",
       )
       if (!result) {
-        setError("Could not complete biometric setup.")
+        setError("Could not complete password manager unlock setup.")
         return
       }
+
+      // create() succeeding isn't sufficient evidence this device can
+      // actually use the credential: get() has been observed to fail
+      // instantly and permanently on some Android/Chrome combinations even
+      // for a credential just created successfully, which otherwise leaves
+      // the user stuck in an unlock-fails / reset-and-repeat loop forever.
+      // Prove the round trip now, before trusting and persisting it.
+      const verifyOptions = buildGetOptions(new Uint8Array(result.rawId), window.location.hostname)
+      markAppLockSuppressed(sessionStorage)
+      const verified = await withWebAuthnTimeout(
+        (signal) => getWebAuthnAdapter().get(verifyOptions, signal),
+        WEBAUTHN_TIMEOUT_MS,
+        "Could not confirm the new credential works on this device — try again.",
+      )
+      if (!verified) {
+        setError(
+          "This device created a credential but could not verify it. Try again, or disable password manager unlock below.",
+        )
+        return
+      }
+
       persistCredentialRawId(result.rawId)
       onUnlocked()
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Setup failed — try again."
-      setError(msg)
+      if (isWebAuthnAlreadyPendingError(e)) {
+        setRequiresRestart(true)
+        setError("Password manager unlock setup is stuck on this device.")
+      } else {
+        setError(describeWebAuthnError(e, "Setup failed — try again."))
+      }
     } finally {
       setUnlocking(false)
     }
@@ -90,12 +134,13 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
 
   const runUnlock = useCallback(async (): Promise<void> => {
     setError(null)
+    setRequiresRestart(false)
     if (!storedId) {
-      setError("No biometric credential is configured.")
+      setError("No password manager credential is configured.")
       return
     }
     if (typeof navigator === "undefined" || !navigator.credentials) {
-      setError("This device cannot use biometric unlock in the browser.")
+      setError("This device cannot use password manager unlock in the browser.")
       return
     }
     if (typeof PublicKeyCredential === "undefined") {
@@ -105,7 +150,7 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
 
     const credentialId = base64urlToUint8Array(storedId)
     if (!credentialId || credentialId.byteLength === 0) {
-      setError("Stored credential is invalid. Set up biometric unlock again.")
+      setError("Stored credential is invalid. Set up password manager unlock again.")
       return
     }
 
@@ -113,6 +158,9 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
 
     setUnlocking(true)
     try {
+      // See the matching comment in runSetup — the same backgrounding
+      // happens on every unlock attempt too, not just first-time setup.
+      markAppLockSuppressed(sessionStorage)
       const result = await withWebAuthnTimeout(
         (signal) => getWebAuthnAdapter().get(options, signal),
         WEBAUTHN_TIMEOUT_MS,
@@ -121,11 +169,15 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
       if (result) {
         onUnlocked()
       } else {
-        setError("Could not verify biometric unlock — try again.")
+        setError("Could not verify password manager unlock — try again.")
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Unlock failed — try again."
-      setError(msg)
+      if (isWebAuthnAlreadyPendingError(e)) {
+        setRequiresRestart(true)
+        setError("Password manager unlock is stuck on this device.")
+      } else {
+        setError(describeWebAuthnError(e, "Unlock failed — try again."))
+      }
     } finally {
       setUnlocking(false)
     }
@@ -140,6 +192,7 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
     clearBiometricCredentialId(localStorage, userId)
     setStoredId(null)
     setError(null)
+    setRequiresRestart(false)
   }, [userId])
 
   const hasCredential =
@@ -197,16 +250,23 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
               {error != null && error !== "" && (
                 <p className="text-center text-sm text-red-300">{error}</p>
               )}
-              {!unlocking && setupMode && (
+              {requiresRestart && (
+                <p className="text-center text-sm text-white/90">
+                  Fully close FamilyChart — swipe it away in your app switcher,
+                  don&rsquo;t just leave it in the background — then reopen it.
+                  Tapping retry won&rsquo;t help until the app has been restarted.
+                </p>
+              )}
+              {!unlocking && !requiresRestart && setupMode && (
                 <button
                   type="button"
                   className="mx-auto w-full max-w-xs rounded-xl bg-fc-blue-mid px-4 py-4 text-center text-sm font-bold text-white hover:bg-fc-blue-dark"
                   onClick={runSetup}
                 >
-                  Set up biometric unlock
+                  Set up password manager unlock
                 </button>
               )}
-              {!unlocking && hasCredential && (
+              {!unlocking && !requiresRestart && hasCredential && (
                 <button
                   type="button"
                   className="mx-auto w-full max-w-xs rounded-xl bg-fc-blue-mid px-4 py-4 text-center text-sm font-bold text-white hover:bg-fc-blue-dark"
@@ -221,8 +281,23 @@ export default function AppLockOverlay({ userId, onUnlocked }: Props) {
                   className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
                   onClick={resetCredential}
                 >
-                  Still not working? Reset biometric unlock
+                  Still not working? Reset password manager unlock
                 </button>
+              )}
+              {!unlocking && error != null && error !== "" && (
+                <div className="mx-auto flex w-full max-w-xs flex-col gap-1">
+                  <button
+                    type="button"
+                    className="rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
+                    onClick={onDisableAppLock}
+                  >
+                    Turn off password manager unlock for this device
+                  </button>
+                  <p className="text-center text-xs text-white/60">
+                    You&rsquo;ll go straight into FamilyChart on this device from now on.
+                    Re-enable it anytime from Profile → Account.
+                  </p>
+                </div>
               )}
             </div>
           )}

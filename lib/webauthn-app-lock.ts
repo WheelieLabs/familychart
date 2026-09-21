@@ -136,6 +136,12 @@ export function buildCreateOptions(
     authenticatorSelection: {
       authenticatorAttachment: "platform",
       userVerification: "required",
+      // Discoverable credentials are the well-supported path through
+      // Android's Credential Manager passkey stack. A non-discoverable
+      // ("discouraged", the spec default) credential has been observed to
+      // create successfully but then fail get() instantly and permanently
+      // on some Android/Chrome combinations, with no sensor prompt at all.
+      residentKey: "preferred",
     },
     timeout: 60_000,
   }
@@ -246,6 +252,37 @@ export async function withWebAuthnTimeout<T>(
   } finally {
     clearTimeout(timer!)
   }
+}
+
+/**
+ * Formats a WebAuthn failure for display, appending the DOMException name
+ * (e.g. "NotAllowedError") when there is one. Prior investigations of
+ * repeated ceremony failures had no evidence of *why* the browser rejected
+ * the call beyond a generic caught Error — this keeps that detail visible
+ * instead of discarding it, so the next report carries real diagnostic
+ * signal instead of another guess.
+ */
+export function describeWebAuthnError(e: unknown, fallback: string): string {
+  if (e instanceof DOMException) return `${e.message || fallback} (${e.name})`
+  if (e instanceof Error) return e.message || fallback
+  return fallback
+}
+
+/**
+ * True when a get()/create() call failed because Android's Credential
+ * Manager already has an earlier request wedged open system-wide — seen
+ * when an in-flight ceremony never settles and our own timeout only
+ * recovers the UI, not the OS-level request. Every retry after that first
+ * hang fails instantly with this same error until the app process is fully
+ * killed and relaunched; showing a plain "try again" for this case sends
+ * the user into a loop that can never succeed.
+ */
+export function isWebAuthnAlreadyPendingError(e: unknown): boolean {
+  return (
+    e instanceof DOMException
+    && e.name === "OperationError"
+    && /already pending/i.test(e.message)
+  )
 }
 
 let adapter: WebAuthnAdapter = liveWebAuthnAdapter
