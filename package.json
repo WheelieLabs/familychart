@@ -1,6 +1,6 @@
 {
   "name": "familychart",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "private": true,
   "bin": {
     "fc-db-convert": "./scripts/fc-db-convert-cli.ts",
@@ -47,7 +47,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/archiver": "^8.0.0",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^24.13.6",
+    "@types/node": "^24.19.1",
     "@types/nodemailer": "^8.0.1",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",

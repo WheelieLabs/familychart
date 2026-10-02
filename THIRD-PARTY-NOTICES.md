@@ -812,7 +812,7 @@ limitations under the License.
 
 </details>
 
-### @types/node@24.13.6
+### @types/node@24.19.1
 
 - **Licence:** MIT
 
@@ -6604,7 +6604,7 @@ PERFORMANCE OF THIS SOFTWARE.
 
 </details>
 
-### undici-types@7.18.2
+### undici-types@7.24.6
 
 - **Licence:** MIT
 
