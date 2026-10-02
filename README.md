@@ -146,7 +146,7 @@ Contributor workflow, native-module notes, and doc-sync rules: [`CONTRIBUTING.md
 | UI | [Tailwind CSS](https://tailwindcss.com/) v4 (CSS variable–based theme) |
 | Data | [better-sqlite3-multiple-ciphers](https://github.com/m4heshd/better-sqlite3-multiple-ciphers) — SQLite, single file, optional SQLCipher encryption at rest |
 | Auth | [NextAuth](https://authjs.dev/) v5 — Microsoft Entra ID and local credentials (bcryptjs) |
-| Email | [nodemailer](https://nodemailer.com/) v9 (managed Microsoft Graph or SMTP) |
+| Email | [nodemailer](https://nodemailer.com/) v10 (managed Microsoft Graph or SMTP) |
 | Tests | [Vitest](https://vitest.dev/) |
 | Runtime | Node 24; Docker for production |
 

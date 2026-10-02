@@ -23,7 +23,7 @@ Instance configuration uses a typed settings registry with env-wins precedence (
 | UI | React 19, Tailwind CSS v4 |
 | Database | SQLite via better-sqlite3-multiple-ciphers 13 (raw SQL, no ORM) |
 | Auth | NextAuth 5 beta (v5.0.0-beta.32) — Microsoft Entra ID (OIDC) + local credentials (bcryptjs) |
-| Email | nodemailer 9 (managed outbound via Microsoft Graph, SMTP settings) |
+| Email | nodemailer 10 (managed outbound via Microsoft Graph, SMTP settings) |
 | Runtime | Node 24 |
 | Deployment | Docker (multi-stage, standalone output) |
 

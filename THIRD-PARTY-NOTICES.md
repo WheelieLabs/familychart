@@ -51,244 +51,244 @@ _No bundled licence file found in package; see the SPDX identifier above._
 
 ### @img/colour@1.1.0
 
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-darwin-arm64@0.35.4
+### @img/sharp-darwin-arm64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-darwin-x64@0.35.4
+### @img/sharp-darwin-x64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-freebsd-wasm32@0.35.4
+### @img/sharp-freebsd-wasm32@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-darwin-arm64@1.3.3
+### @img/sharp-libvips-darwin-arm64@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-darwin-x64@1.3.3
+### @img/sharp-libvips-darwin-x64@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-linux-arm@1.3.3
+### @img/sharp-libvips-linux-arm@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-linux-arm64@1.3.3
+### @img/sharp-libvips-linux-arm64@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-linux-ppc64@1.3.3
+### @img/sharp-libvips-linux-ppc64@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-linux-riscv64@1.3.3
+### @img/sharp-libvips-linux-riscv64@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-linux-s390x@1.3.3
+### @img/sharp-libvips-linux-s390x@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-linux-x64@1.3.3
+### @img/sharp-libvips-linux-x64@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-linuxmusl-arm64@1.3.3
+### @img/sharp-libvips-linuxmusl-arm64@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-libvips-linuxmusl-x64@1.3.3
+### @img/sharp-libvips-linuxmusl-x64@1.3.4
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-linux-arm@0.35.4
+### @img/sharp-linux-arm@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-linux-arm64@0.35.4
+### @img/sharp-linux-arm64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-linux-ppc64@0.35.4
+### @img/sharp-linux-ppc64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-linux-riscv64@0.35.4
+### @img/sharp-linux-riscv64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-linux-s390x@0.35.4
+### @img/sharp-linux-s390x@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-linux-x64@0.35.4
+### @img/sharp-linux-x64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-linuxmusl-arm64@0.35.4
+### @img/sharp-linuxmusl-arm64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-linuxmusl-x64@0.35.4
+### @img/sharp-linuxmusl-x64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-wasm32@0.35.4
+### @img/sharp-wasm32@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-webcontainers-wasm32@0.35.4
+### @img/sharp-webcontainers-wasm32@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-win32-arm64@0.35.4
+### @img/sharp-win32-arm64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-win32-ia32@0.35.4
+### @img/sharp-win32-ia32@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @img/sharp-win32-x64@0.35.4
+### @img/sharp-win32-x64@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/env@16.3.6
+### @next/env@16.3.8
 
 - **Licence:** MIT
 - **Author:** Next.js Team <support@vercel.com>
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-darwin-arm64@16.3.6
+### @next/swc-darwin-arm64@16.3.8
 
-- **Licence:** MIT (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-darwin-x64@16.3.6
-
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-arm64-gnu@16.3.6
+### @next/swc-darwin-x64@16.3.8
 
-- **Licence:** MIT (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-arm64-musl@16.3.6
-
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-x64-gnu@16.3.6
+### @next/swc-linux-arm64-gnu@16.3.8
 
-- **Licence:** MIT (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-x64-musl@16.3.6
-
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-arm64-msvc@16.3.6
+### @next/swc-linux-arm64-musl@16.3.8
 
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-x64-msvc@16.3.6
+### @next/swc-linux-x64-gnu@16.3.8
 
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-linux-x64-musl@16.3.8
+
+- **Licence:** UNKNOWN (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-arm64-msvc@16.3.8
+
+- **Licence:** UNKNOWN (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-x64-msvc@16.3.8
+
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
@@ -1062,7 +1062,7 @@ THE SOFTWARE.
 
 </details>
 
-### b4a@1.8.1
+### b4a@1.9.0
 
 - **Licence:** Apache-2.0
 - **Author:** Holepunch
@@ -1311,7 +1311,7 @@ SOFTWARE.
 
 </details>
 
-### bare-events@2.9.1
+### bare-events@2.9.2
 
 - **Licence:** Apache-2.0
 - **Author:** Holepunch
@@ -1525,7 +1525,7 @@ Apache License
 
 </details>
 
-### bare-fs@4.8.0
+### bare-fs@4.8.2
 
 - **Licence:** Apache-2.0
 - **Author:** Holepunch
@@ -1739,7 +1739,7 @@ Apache License
 
 </details>
 
-### bare-path@3.1.1
+### bare-path@3.1.2
 
 - **Licence:** Apache-2.0
 - **Author:** Holepunch
@@ -1953,7 +1953,7 @@ Apache License
 
 </details>
 
-### bare-stream@2.13.3
+### bare-stream@2.13.4
 
 - **Licence:** Apache-2.0
 - **Author:** Holepunch
@@ -2167,7 +2167,7 @@ Apache License
 
 </details>
 
-### bare-url@2.5.2
+### bare-url@2.5.4
 
 - **Licence:** Apache-2.0
 - **Author:** Holepunch
@@ -2415,7 +2415,7 @@ THE SOFTWARE.
 
 </details>
 
-### baseline-browser-mapping@2.11.21
+### baseline-browser-mapping@2.11.27
 
 - **Licence:** Apache-2.0
 
@@ -2704,7 +2704,7 @@ SOFTWARE.
 
 </details>
 
-### bn.js@4.12.3
+### bn.js@4.12.5
 
 - **Licence:** MIT
 - **Author:** Fedor Indutny <fedor@indutny.com>
@@ -2869,7 +2869,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### caniuse-lite@1.0.30001810
+### caniuse-lite@1.0.30001814
 
 - **Licence:** CC-BY-4.0
 - **Author:** Ben Briggs
@@ -4704,7 +4704,7 @@ _No bundled licence file found in package; see the SPDX identifier above._
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### jose@6.2.4
+### jose@6.2.12
 
 - **Licence:** MIT
 - **Author:** Filip Skokan <panva.ip@gmail.com>
@@ -4970,7 +4970,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### nanoid@3.3.18
+### nanoid@3.3.19
 
 - **Licence:** MIT
 - **Author:** Andrey Sitnik <andrey@sitnik.ru>
@@ -5003,7 +5003,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 </details>
 
-### next@16.3.6
+### next@16.3.8
 
 - **Licence:** MIT
 
@@ -5090,7 +5090,7 @@ THE SOFTWARE.
 
 </details>
 
-### nodemailer@9.1.1
+### nodemailer@10.0.13
 
 - **Licence:** MIT-0
 - **Author:** Andris Reinman
@@ -5196,7 +5196,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 </details>
 
-### oauth4webapi@3.8.6
+### oauth4webapi@3.8.8
 
 - **Licence:** MIT
 - **Author:** Filip Skokan <panva.ip@gmail.com>
@@ -5634,7 +5634,7 @@ SOFTWARE.
 
 </details>
 
-### readable-stream@4.7.0
+### readable-stream@2.3.8
 
 - **Licence:** MIT
 
@@ -6037,7 +6037,7 @@ SOFTWARE.
 
 </details>
 
-### saxen@11.1.1
+### saxen@11.2.0
 
 - **Licence:** MIT
 - **Author:** Nico Rehwaldt
@@ -6106,7 +6106,7 @@ SOFTWARE.
 
 ### semver@7.8.5
 
-- **Licence:** ISC (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
@@ -6137,14 +6137,14 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 </details>
 
-### sharp@0.35.4
+### sharp@0.35.5
 
 - **Licence:** UNKNOWN (optional platform dependency)
 - **Note:** Includes native image-processing components; libvips binaries are LGPL-3.0-or-later where applicable.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### source-map-js@1.2.1
+### source-map-js@1.2.2
 
 - **Licence:** BSD-3-Clause
 - **Author:** Valentin 7rulnik Semirulnik <v7rulnik@gmail.com>
@@ -6184,7 +6184,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 </details>
 
-### streamx@2.28.0
+### streamx@2.28.1
 
 - **Licence:** MIT
 - **Author:** Mathias Buus (@mafintosh)
@@ -6297,7 +6297,7 @@ _No bundled licence file found in package; see the SPDX identifier above._
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### tar-stream@3.2.0
+### tar-stream@3.2.1
 
 - **Licence:** MIT
 - **Author:** Mathias Buus <mathiasbuus@gmail.com>
@@ -6757,7 +6757,7 @@ THIS SOFTWARE.
 
 </details>
 
-### worker-f@0.1.15
+### worker-f@0.1.20
 
 - **Licence:** MIT
 - **Author:** catamphetamine <purecatamphetamine@gmail.com>

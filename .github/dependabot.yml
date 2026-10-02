@@ -22,9 +22,10 @@ updates:
         update-types:
           - "version-update:semver-major"
       # nodemailer is pinned in both dependencies and overrides (next-auth's
-      # optional peer range hasn't caught up past ^8), so npm requires both
-      # entries to move in lockstep. Dependabot only bumps one side and its
-      # own dry-run install fails with EOVERRIDE. Bump by hand instead.
+      # optional peer range still trails behind; confirmed still ^7.0.7 || ^8.0.5
+      # as of nodemailer 10.x), so npm requires both entries to move in
+      # lockstep. Dependabot only bumps one side and its own dry-run install
+      # fails with EOVERRIDE. Bump by hand instead.
       # Tracking: https://github.com/WheelieLabs/familychart/issues/3
       - dependency-name: "nodemailer"
     groups:
