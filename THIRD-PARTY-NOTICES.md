@@ -237,56 +237,56 @@ _No bundled licence file found in package; see the SPDX identifier above._
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/env@16.3.5
+### @next/env@16.3.6
 
 - **Licence:** MIT
 - **Author:** Next.js Team <support@vercel.com>
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-darwin-arm64@16.3.5
+### @next/swc-darwin-arm64@16.3.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-darwin-x64@16.3.5
+### @next/swc-darwin-x64@16.3.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-arm64-gnu@16.3.5
+### @next/swc-linux-arm64-gnu@16.3.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-arm64-musl@16.3.5
+### @next/swc-linux-arm64-musl@16.3.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-x64-gnu@16.3.5
+### @next/swc-linux-x64-gnu@16.3.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-x64-musl@16.3.5
+### @next/swc-linux-x64-musl@16.3.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-arm64-msvc@16.3.5
+### @next/swc-win32-arm64-msvc@16.3.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-x64-msvc@16.3.5
+### @next/swc-win32-x64-msvc@16.3.6
 
 - **Licence:** MIT (optional platform dependency)
 
@@ -812,7 +812,7 @@ limitations under the License.
 
 </details>
 
-### @types/node@24.13.5
+### @types/node@24.13.6
 
 - **Licence:** MIT
 
@@ -2736,7 +2736,7 @@ SOFTWARE.
 
 </details>
 
-### brace-expansion@5.0.9
+### brace-expansion@5.0.12
 
 - **Licence:** MIT
 
@@ -5003,7 +5003,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 </details>
 
-### next@16.3.5
+### next@16.3.6
 
 - **Licence:** MIT
 
