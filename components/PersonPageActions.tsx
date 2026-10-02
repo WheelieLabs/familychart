@@ -208,7 +208,7 @@ export default function PersonPageActions({ personId, name, photoUrl, color = "#
 
                 if (isHydrationAlert) {
                   return (
-                    <div key={i} className={rowClass}>
+                    <div key={`${alert.detail.name}-${alert.detail.sub}`} className={rowClass}>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-white leading-snug">{alert.detail.name}</div>
                         <div className="text-sm text-white leading-snug mt-0.5 flex items-center gap-1">
@@ -250,12 +250,12 @@ export default function PersonPageActions({ personId, name, photoUrl, color = "#
                   </>
                 )
                 return alert.action_url ? (
-                  <Link key={i} href={alert.action_url}
+                  <Link key={`${alert.detail.name}-${alert.detail.sub}`} href={alert.action_url}
                     className={`${rowClass} hover:bg-white/10 active:bg-white/15 transition-colors`}>
                     {inner}
                   </Link>
                 ) : (
-                  <div key={i} className={rowClass}>{inner}</div>
+                  <div key={`${alert.detail.name}-${alert.detail.sub}`} className={rowClass}>{inner}</div>
                 )
               })
             )}

@@ -733,7 +733,7 @@ export default function RecordMedicationPage() {
     router.push(`/${personId}`)
   }
 
-  async function useRecordedUnitAsDefault() {
+  async function applyRecordedUnitAsDefault() {
     if (!unitMismatchNotice) return
     const med = unitMismatchNotice.medication
     const res = await fetch(`/api/medications/${med.id}`, {
@@ -1140,7 +1140,7 @@ export default function RecordMedicationPage() {
         recordedUnit={unitMismatchNotice?.recordedUnit ?? ""}
         prnCleared={unitMismatchNotice?.prnCleared ?? false}
         isManager={isManager}
-        onUseAsDefault={useRecordedUnitAsDefault}
+        onUseAsDefault={applyRecordedUnitAsDefault}
         onCreateVariant={createMedicationVariant}
         onDismiss={dismissUnitMismatchNotice}
       />

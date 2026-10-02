@@ -85,8 +85,8 @@ export default function WhatsNewModal() {
                 </p>
               )}
               <ul className="flex flex-col gap-2">
-                {entry.highlights.map((item, j) => (
-                  <li key={j} className="flex gap-2.5 text-sm text-gray-700 leading-snug">
+                {entry.highlights.map(item => (
+                  <li key={item} className="flex gap-2.5 text-sm text-gray-700 leading-snug">
                     <span className="mt-1 shrink-0 w-1.5 h-1.5 rounded-full bg-fc-blue" />
                     {item}
                   </li>

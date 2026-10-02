@@ -86,7 +86,7 @@ export default function AccountsAdminClient({
   const [loading, setLoading] = useState(true)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteView, setInviteView] = useState<InviteView>("fields")
-  const [invite, setInvite] = useState(emptyInvite())
+  const [invite, setInvite] = useState(emptyInvite)
   const [editing, setEditing] = useState<AccountRow | null>(null)
   const [editForm, setEditForm] = useState<EditForm>({ role: "read", can_report: 0, is_active: 1 })
   const [saving, setSaving] = useState(false)

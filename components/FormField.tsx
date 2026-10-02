@@ -20,6 +20,10 @@ interface FormFieldProps {
 export default function FormField({ label, hint, id: idProp, className, children }: FormFieldProps) {
   const autoId = useId()
   const fieldId = idProp ?? autoId
+  // Deliberate: injects a generated id into the single child control for label association; the
+  // alternative is threading an explicit id through all 15 call sites and their child controls
+  // in sync, which is more fragile than this.
+  // eslint-disable-next-line react-x/no-clone-element
   const control = cloneElement(children, { id: children.props.id ?? fieldId })
   const controlId = (control.props.id as string) ?? fieldId
 

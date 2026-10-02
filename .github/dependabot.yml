@@ -7,16 +7,15 @@ updates:
       day: "monday"
     open-pull-requests-limit: 5
     ignore:
-      # ESLint 10 blocked until eslint-plugin-react (via eslint-config-next) supports it.
-      # Tracking: https://github.com/WheelieLabs/familychart/issues/1
-      - dependency-name: "eslint"
-        update-types:
-          - "version-update:semver-major"
-      # TypeScript 7 blocked until typescript-eslint supports TS 7 API (or alias migration).
-      # Tracking: https://github.com/WheelieLabs/familychart/issues/2
+      # TypeScript 7 adopted via alias migration: `typescript` is aliased to the
+      # @typescript/typescript6 compat shim for typescript-eslint, with the real
+      # 7.x compiler under `typescript-native`. Dependabot's npm alias-spec
+      # handling is known-flaky upstream, so both alias lines are bumped by
+      # hand rather than left to Dependabot.
       - dependency-name: "typescript"
         update-types:
           - "version-update:semver-major"
+      - dependency-name: "typescript-native"
       # Pin @types/node to Node 24 LTS typings until we upgrade Node.
       - dependency-name: "@types/node"
         update-types:

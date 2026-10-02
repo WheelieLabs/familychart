@@ -82,7 +82,7 @@ export default function ImportPage() {
 
   const [mappedRows, setMappedRows]         = useState<MappedRow[]>([])
   const [edits, setEdits]                     = useState<Record<number, RowEdit>>({})
-  const [selected, setSelected]               = useState<Set<number>>(new Set())
+  const [selected, setSelected]               = useState<Set<number>>(() => new Set())
   const [importing, setImporting]             = useState(false)
   const [importResult, setImportResult]       = useState<ImportResult | null>(null)
 
@@ -445,7 +445,7 @@ function Instructions() {
             ["Map the columns", "Date plus medication and/or observation or blood-pressure columns"],
             ["Review and import", "Uncheck or edit rows, then confirm"],
           ].map(([title, desc], i) => (
-            <li key={i} className="flex gap-3">
+            <li key={title} className="flex gap-3">
               <span className="font-bold text-fc-blue shrink-0 text-lg">{i + 1}.</span>
               <div>
                 <p className="font-semibold">{title}</p>
@@ -527,6 +527,10 @@ function ColumnMapper({
                 .map(v => v instanceof Date ? v.toLocaleDateString("en-AU") : String(v))
 
               return (
+                // colIdx is the genuine stable identity here: it's the column's position in the
+                // uploaded spreadsheet, which never reorders, and headers can be empty/duplicate
+                // so there's no other key.
+                // eslint-disable-next-line react-x/no-array-index-key
                 <tr key={`${h}-${colIdx}`} className="hover:bg-gray-50">
                   <td className="px-3 py-2 border border-gray-200 font-medium text-gray-800">{h || `(${colIdx + 1})`}</td>
                   <td className="px-3 py-2 border border-gray-200 text-gray-500 text-xs">
@@ -822,7 +826,13 @@ function ImportSuccess({ result, onReset }: { result: ImportResult; onReset: () 
             {result.errors.length} row{result.errors.length !== 1 ? "s" : ""} had errors during import:
           </p>
           <ul className="text-amber-700 text-sm space-y-1">
-            {result.errors.map((e, i) => <li key={i}>• {e}</li>)}
+            {result.errors.map((e, i) => (
+              // Static list rendered once after import completes, never reordered; error
+              // strings can legitimately repeat across rows (same validation failure), so
+              // the message itself isn't a safe key.
+              // eslint-disable-next-line react-x/no-array-index-key
+              <li key={i}>• {e}</li>
+            ))}
           </ul>
         </div>
       )}

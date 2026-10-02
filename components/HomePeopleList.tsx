@@ -138,8 +138,8 @@ function PersonHomeRow({
                 </span>
               ) : (
                 <>
-                  {entry.alerts.slice(0, 2).map((alert, i) => (
-                    <span key={i} className="text-sm text-white leading-snug">
+                  {entry.alerts.slice(0, 2).map(alert => (
+                    <span key={alert.short} className="text-sm text-white leading-snug">
                       <span className="text-[1.15em]" aria-hidden>{STATUS_EMOJI[alert.severity]}</span>{" "}
                       {alert.short}
                     </span>

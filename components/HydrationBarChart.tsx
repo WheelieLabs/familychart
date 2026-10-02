@@ -92,12 +92,12 @@ export default function HydrationBarChart({ data, goalMl, describedById }: Hydra
             Value (mL)
           </text>
 
-          {gridLines.map((g, i) => (
-            <line key={i} x1={pLeft} y1={g.y} x2={W - pRight} y2={g.y}
+          {gridLines.map(g => (
+            <line key={g.y} x1={pLeft} y1={g.y} x2={W - pRight} y2={g.y}
               stroke="#ffffff20" strokeWidth="1" />
           ))}
-          {gridLines.map((g, i) => (
-            <text key={i} x={pLeft - 8} y={g.y + 4}
+          {gridLines.map(g => (
+            <text key={g.y} x={pLeft - 8} y={g.y + 4}
               fill="#ffffff" fontSize={CHART_SVG_FONT_MD} textAnchor="end">
               {formatHydration(g.v)}
             </text>

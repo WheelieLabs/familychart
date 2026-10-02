@@ -205,7 +205,7 @@ export default function LineChart({
             role="tooltip"
           >
             {tooltip.lines.map((line, i) => (
-              <div key={i} className={i === 0 ? "font-semibold text-white" : "text-white/90"}>
+              <div key={line} className={i === 0 ? "font-semibold text-white" : "text-white/90"}>
                 {line}
               </div>
             ))}
@@ -227,13 +227,13 @@ export default function LineChart({
             {yAxisCaption}
           </text>
 
-          {gridLines.map((g, i) => (
-            <line key={i} x1={pLeft} y1={g.y} x2={W - pRight} y2={g.y}
+          {gridLines.map(g => (
+            <line key={g.y} x1={pLeft} y1={g.y} x2={W - pRight} y2={g.y}
               stroke="#ffffff20" strokeWidth="1" />
           ))}
 
-          {gridLines.map((g, i) => (
-            <text key={i} x={pLeft - 8} y={g.y + 4}
+          {gridLines.map(g => (
+            <text key={g.y} x={pLeft - 8} y={g.y + 4}
               fill="#ffffff" fontSize={CHART_SVG_FONT_MD} textAnchor="end">
               {fmtVal(g.v)}
             </text>
@@ -278,8 +278,8 @@ export default function LineChart({
                 strokeLinecap="round" strokeLinejoin="round" />
               <polyline points={pointsSecondary} fill="none" stroke={secondaryColor} strokeWidth="2.5"
                 strokeLinecap="round" strokeLinejoin="round" />
-              {data.map((d, i) => (
-                <circle key={`p-${i}`}
+              {data.map(d => (
+                <circle key={`p-${d.date}`}
                   cx={xS(new Date(d.date).getTime())}
                   cy={yS(d.value)}
                   r="10" fill="transparent" className="cursor-pointer"
@@ -306,14 +306,14 @@ export default function LineChart({
                   tabIndex={0}
                 />
               ))}
-              {data.map((d, i) => (
-                <circle key={`pv-${i}`}
+              {data.map(d => (
+                <circle key={`pv-${d.date}`}
                   cx={xS(new Date(d.date).getTime())}
                   cy={yS(d.value)}
                   r="4" fill={primaryColor} pointerEvents="none" />
               ))}
-              {secondaryData!.map((d, i) => (
-                <circle key={`s-${i}`}
+              {secondaryData!.map(d => (
+                <circle key={`s-${d.date}`}
                   cx={xS(new Date(d.date).getTime())}
                   cy={yS(d.value)}
                   r="10" fill="transparent" className="cursor-pointer"
@@ -340,8 +340,8 @@ export default function LineChart({
                   tabIndex={0}
                 />
               ))}
-              {secondaryData!.map((d, i) => (
-                <circle key={`sv-${i}`}
+              {secondaryData!.map(d => (
+                <circle key={`sv-${d.date}`}
                   cx={xS(new Date(d.date).getTime())}
                   cy={yS(d.value)}
                   r="4" fill={secondaryColor} pointerEvents="none" />
@@ -351,8 +351,8 @@ export default function LineChart({
             <>
               <polyline points={pointsPrimary} fill="none" stroke={primaryColor} strokeWidth="2.5"
                 strokeLinecap="round" strokeLinejoin="round" />
-              {data.map((d, i) => (
-                <circle key={`h-${i}`}
+              {data.map(d => (
+                <circle key={`h-${d.date}`}
                   cx={xS(new Date(d.date).getTime())}
                   cy={yS(d.value)}
                   r="10" fill="transparent" className="cursor-pointer"
@@ -379,13 +379,13 @@ export default function LineChart({
                   tabIndex={0}
                 />
               ))}
-              {data.map((d, i) => {
+              {data.map(d => {
                 const outOfRange =
                   goalMin !== undefined &&
                   goalMax !== undefined &&
                   (d.value < goalMin || d.value > goalMax)
                 return (
-                  <circle key={i}
+                  <circle key={d.date}
                     cx={xS(new Date(d.date).getTime())}
                     cy={yS(d.value)}
                     r="4" fill={outOfRange ? "#FFD700" : primaryColor} pointerEvents="none" />
@@ -394,8 +394,8 @@ export default function LineChart({
             </>
           )}
 
-          {xLabels.map((lab, i) => (
-            <text key={i} x={lab.x} y={H - pBottom + 18}
+          {xLabels.map(lab => (
+            <text key={lab.x} x={lab.x} y={H - pBottom + 18}
               fill="#ffffff" fontSize={CHART_SVG_FONT_MD} textAnchor="middle">
               {lab.text}
             </text>
