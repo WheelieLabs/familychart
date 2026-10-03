@@ -6,6 +6,7 @@ import { generateSecret, generateSync } from "otplib"
 import Database from "better-sqlite3-multiple-ciphers"
 import {
   changePassword,
+  confirmAppLockReauth,
   confirmEnrollment,
   disableTotp,
   isMfaRequiredPolicyActive,
@@ -288,6 +289,60 @@ describe("Local Account re-auth", () => {
       }
       expect(bcrypt.compareSync("newsecret123", row.password_hash)).toBe(true)
       expect(row.session_version).toBe(1)
+    })
+  })
+
+  describe("confirmAppLockReauth", () => {
+    it("succeeds on the right password when no TOTP is enrolled", async () => {
+      const { id, password } = insertAccount(db)
+      const result = await confirmAppLockReauth(db, id, { password, ip: "1.1.1.1" })
+      expect(result).toEqual({ ok: true })
+    })
+
+    it("rejects the wrong password", async () => {
+      const { id } = insertAccount(db)
+      const result = await confirmAppLockReauth(db, id, { password: "wrong", ip: "1.1.1.1" })
+      expect(result).toEqual({ ok: false, reason: "credentials" })
+    })
+
+    it("requires the current authenticator code when TOTP is enrolled", async () => {
+      const secret = generateSecret()
+      const { id, password } = insertAccount(db, { totpSecret: secret })
+      const missing = await confirmAppLockReauth(db, id, { password, ip: "1.1.1.1" })
+      expect(missing).toEqual({ ok: false, reason: "otp_missing" })
+
+      const wrongCode = generateSync({ secret: generateSecret() })
+      const invalid = await confirmAppLockReauth(db, id, { password, otp: wrongCode, ip: "1.1.1.1" })
+      expect(invalid).toEqual({ ok: false, reason: "otp_invalid" })
+
+      const otp = generateSync({ secret })
+      const ok = await confirmAppLockReauth(db, id, { password, otp, ip: "1.1.1.1" })
+      expect(ok).toEqual({ ok: true })
+    })
+
+    it("mutates nothing on success — no session_version bump, unlike changePassword/disableTotp", async () => {
+      const { id, password } = insertAccount(db)
+      await confirmAppLockReauth(db, id, { password, ip: "1.1.1.1" })
+      const row = db.prepare("SELECT session_version FROM accounts WHERE id = ?").get(id) as {
+        session_version: number
+      }
+      expect(row.session_version).toBe(0)
+    })
+
+    it("is rate-limited after repeated failures", async () => {
+      const { id } = insertAccount(db)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      recordAuthFailureForLocalUser("1.1.1.1", id)
+      const result = await confirmAppLockReauth(db, id, { password: "secret123", ip: "1.1.1.1" })
+      expect(result).toEqual({ ok: false, reason: "rate_limited" })
     })
   })
 })

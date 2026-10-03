@@ -8,6 +8,45 @@ export function biometricCredentialStorageKey(userId: string): string {
   return `${FAMILYCHART_BIOMETRIC_CREDENTIAL_ID_KEY}:${encodeURIComponent(userId)}`
 }
 
+/**
+ * Bumped when the credential options a stored record was created under
+ * change in a way that invalidates it (ADR-0016: moving from the
+ * discoverable "preferred" residentKey to the device-bound "discouraged"
+ * one). A record missing this marker — including every pre-ADR-0016
+ * passkey-style record, which predates the marker entirely — is treated as
+ * "not set up", forcing a one-time re-setup per device. The underlying
+ * passkey the old record pointed to is left on the authenticator; nothing
+ * here deletes it.
+ */
+export const CURRENT_BIOMETRIC_CREDENTIAL_VERSION = 2
+
+interface StoredBiometricCredentialRecord {
+  v: number
+  rawId: string
+}
+
+function parseStoredBiometricCredentialRecord(raw: string): StoredBiometricCredentialRecord | null {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (
+      parsed != null
+      && typeof parsed === "object"
+      && "v" in parsed
+      && "rawId" in parsed
+      && typeof (parsed as { v: unknown }).v === "number"
+      && typeof (parsed as { rawId: unknown }).rawId === "string"
+    ) {
+      return parsed as StoredBiometricCredentialRecord
+    }
+    return null
+  } catch {
+    // A bare base64url string (every record written before the version
+    // marker existed) isn't valid JSON — falls through to "not set up".
+    return null
+  }
+}
+
+/** Returns the stored credential's rawId only when it carries the current version marker. */
 export function readBiometricCredentialId(
   storage: Pick<Storage, "getItem">,
   userId: string,
@@ -16,7 +55,10 @@ export function readBiometricCredentialId(
   if (!id) return null
   try {
     const raw = storage.getItem(biometricCredentialStorageKey(id))
-    return raw != null && raw !== "" ? raw : null
+    if (raw == null || raw === "") return null
+    const record = parseStoredBiometricCredentialRecord(raw)
+    if (!record || record.v !== CURRENT_BIOMETRIC_CREDENTIAL_VERSION) return null
+    return record.rawId
   } catch {
     return null
   }
@@ -30,7 +72,11 @@ export function writeBiometricCredentialId(
   const id = userId.trim()
   if (!id) throw new Error("Cannot save biometric unlock without a signed-in account.")
   try {
-    storage.setItem(biometricCredentialStorageKey(id), encoded)
+    const record: StoredBiometricCredentialRecord = {
+      v: CURRENT_BIOMETRIC_CREDENTIAL_VERSION,
+      rawId: encoded,
+    }
+    storage.setItem(biometricCredentialStorageKey(id), JSON.stringify(record))
     clearLegacyBiometricCredentialId(storage)
   } catch {
     throw new Error("Cannot save biometric unlock on this device.")
@@ -136,12 +182,13 @@ export function buildCreateOptions(
     authenticatorSelection: {
       authenticatorAttachment: "platform",
       userVerification: "required",
-      // Discoverable credentials are the well-supported path through
-      // Android's Credential Manager passkey stack. A non-discoverable
-      // ("discouraged", the spec default) credential has been observed to
-      // create successfully but then fail get() instantly and permanently
-      // on some Android/Chrome combinations, with no sensor prompt at all.
-      residentKey: "preferred",
+      // ADR-0016: a discoverable credential ("preferred"/"required") routes
+      // through Chrome for Android's Credential Manager passkey picker on
+      // every unlock, even when only one credential is registered. The
+      // non-discoverable, device-bound path ("discouraged") stays on the
+      // platform authenticator directly and gives fingerprint/face-only
+      // unlock with no picker — confirmed by an on-device probe, see the ADR.
+      residentKey: "discouraged",
     },
     timeout: 60_000,
   }
@@ -229,9 +276,11 @@ export async function withWebAuthnTimeout<T>(
   run: (signal: AbortSignal) => Promise<T>,
   ms: number,
   timeoutMessage: string,
+  options?: { cancelSignal?: AbortSignal; cancelMessage?: string },
 ): Promise<T> {
   const controller = new AbortController()
   let timedOut = false
+  let cancelled = false
   let timer: ReturnType<typeof setTimeout>
 
   const timeout = new Promise<never>((_, reject) => {
@@ -242,13 +291,29 @@ export async function withWebAuthnTimeout<T>(
     }, ms)
   })
 
+  // A visible Cancel button (ADR-0016: never trap the user staring at a spinner) aborts
+  // immediately rather than waiting for the safety-net timer.
+  const cancelSignal = options?.cancelSignal
+  const cancel = cancelSignal
+    ? new Promise<never>((_, reject) => {
+        const onCancel = () => {
+          cancelled = true
+          controller.abort()
+          reject(new Error(options?.cancelMessage ?? "Cancelled."))
+        }
+        if (cancelSignal.aborted) onCancel()
+        else cancelSignal.addEventListener("abort", onCancel, { once: true })
+      })
+    : null
+
   const operation = run(controller.signal).catch((err: unknown) => {
+    if (cancelled) throw new Error(options?.cancelMessage ?? "Cancelled.")
     if (timedOut) throw new Error(timeoutMessage)
     throw err
   })
 
   try {
-    return await Promise.race([operation, timeout])
+    return await Promise.race(cancel ? [operation, timeout, cancel] : [operation, timeout])
   } finally {
     clearTimeout(timer!)
   }
@@ -268,21 +333,29 @@ export function describeWebAuthnError(e: unknown, fallback: string): string {
   return fallback
 }
 
+export type WebAuthnCeremonyPhase = "create" | "get" | "verify"
+
+export interface WebAuthnFailureReport {
+  phase: WebAuthnCeremonyPhase
+  errorName: string
+  elapsedMs: number
+  userAgent: string
+}
+
 /**
- * True when a get()/create() call failed because Android's Credential
- * Manager already has an earlier request wedged open system-wide — seen
- * when an in-flight ceremony never settles and our own timeout only
- * recovers the UI, not the OS-level request. Every retry after that first
- * hang fails instantly with this same error until the app process is fully
- * killed and relaunched; showing a plain "try again" for this case sends
- * the user into a loop that can never succeed.
+ * Shapes a ceremony failure for the server failure-log endpoint. Deliberately
+ * excludes the credential id, challenge, or any authenticator data — only
+ * enough to notice a recurrence and tell failures apart (ADR-0016).
  */
-export function isWebAuthnAlreadyPendingError(e: unknown): boolean {
-  return (
-    e instanceof DOMException
-    && e.name === "OperationError"
-    && /already pending/i.test(e.message)
-  )
+export function buildWebAuthnFailureReport(
+  phase: WebAuthnCeremonyPhase,
+  error: unknown,
+  elapsedMs: number,
+  userAgent: string,
+): WebAuthnFailureReport {
+  const errorName =
+    error instanceof DOMException || error instanceof Error ? error.name : "Unknown"
+  return { phase, errorName, elapsedMs, userAgent }
 }
 
 let adapter: WebAuthnAdapter = liveWebAuthnAdapter

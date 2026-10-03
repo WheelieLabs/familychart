@@ -2,6 +2,7 @@
 
 "use client"
 
+import { HYDRATION_OBSERVATION_TYPE } from "@/lib/hydration/hydration-presets"
 import { useState, useEffect, useMemo, useCallback } from "react"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
@@ -233,6 +234,9 @@ export default function FavouritesPage() {
         body.default_value = createDefaultValue.trim() || null
       } else {
         body.observation_type = selectedObsType
+        if (selectedObsType === HYDRATION_OBSERVATION_TYPE) {
+          body.default_value = createDefaultValue.trim() || null
+        }
       }
 
       const res = await fetch("/api/favourites", {
@@ -266,7 +270,7 @@ export default function FavouritesPage() {
     try {
       const body: Record<string, unknown> = { label: editLabel.trim() || null }
       const fav = favourites.find(f => f.id === editingId)
-      if (fav?.action_kind === "medication") {
+      if (fav?.action_kind === "medication" || fav?.observation_type === HYDRATION_OBSERVATION_TYPE) {
         body.default_value = editDefaultValue.trim() || null
       }
       const res = await fetch(`/api/favourites/${editingId}`, {
@@ -480,6 +484,20 @@ export default function FavouritesPage() {
                             value={editDefaultValue}
                             onChange={e => setEditDefaultValue(e.target.value)}
                             placeholder="e.g. 2"
+                            className={inputClass}
+                          />
+                        </div>
+                      )}
+                      {fav.observation_type === HYDRATION_OBSERVATION_TYPE && (
+                        <div>
+                          <label className="text-xs font-bold text-gray-700 block mb-1">
+                            Amount, mL (optional)
+                          </label>
+                          <input
+                            value={editDefaultValue}
+                            onChange={e => setEditDefaultValue(e.target.value)}
+                            inputMode="numeric"
+                            placeholder="e.g. 375"
                             className={inputClass}
                           />
                         </div>
@@ -731,6 +749,21 @@ export default function FavouritesPage() {
                         <span className="text-sm text-gray-500">{selectedMedCatalog.dosage_unit}</span>
                       )}
                     </div>
+                  </div>
+                )}
+
+                {selectedKind === "observation" && selectedObsType === HYDRATION_OBSERVATION_TYPE && (
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 block mb-1">
+                      Amount, mL (optional)
+                    </label>
+                    <input
+                      value={createDefaultValue}
+                      onChange={e => setCreateDefaultValue(e.target.value)}
+                      inputMode="numeric"
+                      placeholder="e.g. 375"
+                      className="w-28 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
+                    />
                   </div>
                 )}
 

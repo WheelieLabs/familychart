@@ -5,13 +5,21 @@
 import Link from "next/link"
 import { Suspense, useCallback, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { signIn } from "next-auth/react"
 import AppHeader, { PersonHeader } from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
 import FormField from "@/components/FormField"
 import PersonPhotoCapture from "@/components/PersonPhotoCapture"
 import Toggle from "@/components/Toggle"
 import { FcTabBar, type FcTabItem } from "@/components/FcTabBar"
-import { isAppLockDisabled, isBioLockEligible, setAppLockDisabled } from "@/lib/bio-lock-state"
+import {
+  type AppLockGracePeriod,
+  getAppLockGracePeriod,
+  isAppLockDisabled,
+  isBioLockEligible,
+  setAppLockDisabled,
+  setAppLockGracePeriod,
+} from "@/lib/bio-lock-state"
 import { formatHydration } from "@/lib/format"
 import type { HydrationPacingConfig } from "@/lib/hydration/hydration-config"
 import type { HydrationTzSource } from "@/lib/hydration/hydration-timezone"
@@ -220,17 +228,99 @@ function ProfilePageContent() {
 
   const [deviceLockEligible, setDeviceLockEligible] = useState(false)
   const [appLockDisabledOnDevice, setAppLockDisabledOnDevice] = useState(false)
+  const [gracePeriod, setGracePeriod] = useState<AppLockGracePeriod>("immediate")
+  const [graceSaveOk, setGraceSaveOk] = useState("")
+  const [showAppLockReauth, setShowAppLockReauth] = useState(false)
+  const [reauthPassword, setReauthPassword] = useState("")
+  const [reauthOtp, setReauthOtp] = useState("")
+  const [reauthErr, setReauthErr] = useState("")
+  const [reauthBusy, setReauthBusy] = useState(false)
   useEffect(() => {
     setDeviceLockEligible(isBioLockEligible())
   }, [])
   useEffect(() => {
     if (!me?.id) return
     setAppLockDisabledOnDevice(isAppLockDisabled(localStorage, me.id))
+    setGracePeriod(getAppLockGracePeriod(localStorage, me.id))
   }, [me])
-  const toggleAppLockDisabled = useCallback((next: boolean) => {
+
+  const requestAppLockReauthGrant = useCallback(async (): Promise<boolean> => {
+    setReauthBusy(true)
+    setReauthErr("")
+    try {
+      const res = await fetch("/api/me/app-lock/reauth-grant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(me?.isLocal ? { password: reauthPassword, otp: reauthOtp } : {}),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setReauthErr(typeof j.error === "string" ? j.error : "Could not confirm it's you.")
+        return false
+      }
+      return true
+    } finally {
+      setReauthBusy(false)
+    }
+  }, [me, reauthPassword, reauthOtp])
+
+  // Turning App lock off needs a fresh sign-in check (ADR-0016), so someone who
+  // picks up this device while it's unlocked can't disable it. Re-enabling needs nothing extra.
+  const onToggleAppLockDisabled = useCallback((next: boolean) => {
     if (!me?.id) return
-    setAppLockDisabled(localStorage, me.id, next)
-    setAppLockDisabledOnDevice(next)
+    if (!next) {
+      setAppLockDisabled(localStorage, me.id, false)
+      setAppLockDisabledOnDevice(false)
+      return
+    }
+    setReauthErr("")
+    setShowAppLockReauth(true)
+  }, [me])
+
+  const confirmDisableAppLock = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!me?.id) return
+    const granted = await requestAppLockReauthGrant()
+    if (!granted) return
+    setAppLockDisabled(localStorage, me.id, true)
+    setAppLockDisabledOnDevice(true)
+    setShowAppLockReauth(false)
+    setReauthPassword("")
+    setReauthOtp("")
+  }, [me, requestAppLockReauthGrant])
+
+  const confirmWithMicrosoft = useCallback(() => {
+    void signIn(
+      "microsoft-entra-id",
+      { callbackUrl: "/profile?tab=account&confirmAppLockOff=1" },
+      { prompt: "login", max_age: "0" },
+    )
+  }, [])
+
+  // Lands back here after confirmWithMicrosoft's forced-fresh-login redirect completes —
+  // the session now carries a fresh entraAuthAt, so finish the disable automatically.
+  useEffect(() => {
+    if (searchParams.get("confirmAppLockOff") !== "1" || !me?.id) return
+    router.replace("/profile?tab=account")
+    void (async () => {
+      const granted = await requestAppLockReauthGrant()
+      if (!granted) {
+        setShowAppLockReauth(true)
+        return
+      }
+      setAppLockDisabled(localStorage, me.id, true)
+      setAppLockDisabledOnDevice(true)
+      setShowAppLockReauth(false)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, me?.id])
+
+  const saveGracePeriod = useCallback((period: AppLockGracePeriod) => {
+    if (!me?.id) return
+    setAppLockGracePeriod(localStorage, me.id, period)
+    setGracePeriod(period)
+    setGraceSaveOk("App lock settings saved.")
+    window.setTimeout(() => setGraceSaveOk(""), 3000)
   }, [me])
 
   useEffect(() => {
@@ -1118,27 +1208,113 @@ function ProfilePageContent() {
 
             {deviceLockEligible && (
               <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-3">
-                <h2 className="font-bold text-gray-800 text-lg">Password manager unlock</h2>
+                <h2 className="font-bold text-gray-800 text-lg">App lock</h2>
                 <p className="text-gray-600 text-sm leading-relaxed">
-                  FamilyChart re-locks this device whenever you leave the app, and asks your
-                  phone&rsquo;s password manager to verify it&rsquo;s you — usually Face, Touch, or
-                  Fingerprint unlock, though it may accept your device PIN or pattern instead. This
+                  FamilyChart re-locks this device after you leave the app, and asks you to
+                  unlock with your device — usually fingerprint, face, or screen lock. This
                   setting applies only to this device.
                 </p>
+
+                <form
+                  onSubmit={e => {
+                    e.preventDefault()
+                    saveGracePeriod(gracePeriod)
+                  }}
+                  id="app-lock-grace-form"
+                  className="flex flex-col gap-2"
+                >
+                  <FormField label="Grace period">
+                    <select
+                      value={gracePeriod}
+                      onChange={e => setGracePeriod(e.target.value as AppLockGracePeriod)}
+                      className={inputClass}
+                    >
+                      <option value="immediate">Immediately</option>
+                      <option value="30s">30 seconds</option>
+                      <option value="1m">1 minute</option>
+                      <option value="5m">5 minutes</option>
+                    </select>
+                  </FormField>
+                  <p className="text-gray-500 text-xs leading-relaxed">
+                    How long you can switch to another app and come back without unlocking again.
+                  </p>
+                </form>
+
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-bold text-gray-800">Disable on this device</span>
                   <Toggle
                     value={appLockDisabledOnDevice}
-                    onChange={toggleAppLockDisabled}
-                    ariaLabel="Disable password manager unlock on this device"
+                    onChange={onToggleAppLockDisabled}
+                    ariaLabel="Disable App lock on this device"
                   />
                 </div>
+                {showAppLockReauth && (
+                  <div className="rounded-lg border border-gray-200 bg-white px-3 py-3 flex flex-col gap-3">
+                    <p className="text-sm text-gray-700">
+                      Confirm it&rsquo;s you before turning off App lock on this device.
+                    </p>
+                    {me.isLocal ? (
+                      <form onSubmit={confirmDisableAppLock} className="flex flex-col gap-3">
+                        <FormField label="Current password">
+                          <input
+                            type="password"
+                            value={reauthPassword}
+                            onChange={e => setReauthPassword(e.target.value)}
+                            required
+                            autoComplete="current-password"
+                            className={inputClass}
+                          />
+                        </FormField>
+                        {me.mfaEnrolled && (
+                          <FormField label="Authenticator code">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={reauthOtp}
+                              onChange={e => setReauthOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                              required
+                              className={inputClass + " text-center tracking-widest"}
+                            />
+                          </FormField>
+                        )}
+                        {reauthErr && <p className="text-red-600 text-sm">{reauthErr}</p>}
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowAppLockReauth(false)}
+                            className={secondaryOutlineBtnClass}
+                          >
+                            Cancel
+                          </button>
+                          <button type="submit" disabled={reauthBusy} className={"flex-1 " + primaryBtnClass}>
+                            {reauthBusy ? "…" : "Confirm"}
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowAppLockReauth(false)}
+                          className={secondaryOutlineBtnClass}
+                        >
+                          Cancel
+                        </button>
+                        <button type="button" onClick={confirmWithMicrosoft} className={"flex-1 " + primaryBtnClass}>
+                          Sign in with Microsoft to confirm
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {graceSaveOk && <p className="text-green-700 text-sm">{graceSaveOk}</p>}
+                <button type="submit" form="app-lock-grace-form" className={primaryBtnEndClass}>Save</button>
+
                 {appLockDisabledOnDevice && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-3 text-sm text-amber-900 leading-relaxed">
-                    Password manager unlock is off on this device only. Anyone who can pick up this
-                    device while you&rsquo;re signed in can open FamilyChart without that
-                    verification. Only turn this off if it keeps failing here — your other devices
-                    are unaffected.
+                    App lock is off on this device only. Anyone who can pick up this device while
+                    you&rsquo;re signed in can open FamilyChart without unlocking. Only turn this
+                    off if it keeps failing here — your other devices are unaffected.
                   </div>
                 )}
               </div>

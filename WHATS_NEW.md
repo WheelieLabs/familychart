@@ -12,6 +12,15 @@ Versions before 1.0.0 were internal development releases, not public installs �
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-10-03
+
+- App lock is faster and more dependable on Android — unlock is now just your fingerprint, face, or screen lock, with no passkey picker. You'll be asked to set App lock up once more on each device
+- New "App lock grace period" setting in Profile lets you skip re-locking for 30 seconds, 1 minute or 5 minutes when you switch apps briefly. The default is still to lock immediately
+- App lock now stays locked if your connection drops or the server restarts while you're away, and turning it off needs you to confirm it's you again
+- Taking or choosing a photo no longer re-locks the app and loses the photo
+- Hydration quick amounts are now Mug 250 mL, Can 375 mL, Glass 400 mL and Bottle 600 mL
+- A Hydration favourite can now have an amount: tapping it opens the record page with that amount filled in, ready to save
+
 ## [1.0.5] - 2026-09-21
 
 - App lock is more reliable on Android — unlock no longer gets stuck repeatedly re-prompting when your phone's password manager briefly takes over the screen mid-unlock

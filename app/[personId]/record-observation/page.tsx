@@ -2,7 +2,7 @@
 
 "use client"
 
-import { useState, useEffect, useMemo, useId } from "react"
+import { useState, useEffect, useMemo, useId, useRef } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
@@ -15,6 +15,12 @@ import { formatStaleThresholdHours, isStaleReading } from "@/lib/observation/obs
 import { localDateAndTimeToUtcIso, localDateToIsoYmd } from "@/lib/datetime"
 import { fractionalAgeYears } from "@/lib/person/person-age"
 import { formatHydration } from "@/lib/format"
+import {
+  HYDRATION_OBSERVATION_TYPE,
+  HYDRATION_PRESETS,
+  matchingHydrationPreset,
+  parseHydrationFavouriteAmount,
+} from "@/lib/hydration/hydration-presets"
 import { dashboardScheduleHeaders } from "@/lib/dashboard/dashboard-client-context"
 import { mainContentTargetProps } from "@/lib/a11y"
 
@@ -49,6 +55,9 @@ export default function RecordObservationPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialType = searchParams.get("type")
+  // A Hydration favourite's pre-set amount (mL); the person still presses Save.
+  const prefillAmount = parseHydrationFavouriteAmount(searchParams.get("amount") ?? "")
+  const prefillApplied = useRef(false)
   const personId = params.personId as string
 
   const [person, setPerson] = useState<Person | null>(null)
@@ -170,8 +179,17 @@ export default function RecordObservationPage() {
       (localeDefault && opts.includes(localeDefault)
         ? localeDefault
         : opts[0]) ?? ""
-    setUnit(def)
-  }, [currentConfig, measurementSystem])
+    const hydrationPrefill =
+      currentConfig.observation_type === HYDRATION_OBSERVATION_TYPE && prefillAmount != null
+    setUnit(hydrationPrefill ? "mL" : def)
+  }, [currentConfig, measurementSystem, prefillAmount])
+
+  useEffect(() => {
+    if (prefillApplied.current || prefillAmount == null) return
+    if (currentConfig?.observation_type !== HYDRATION_OBSERVATION_TYPE) return
+    prefillApplied.current = true
+    setValue(String(prefillAmount))
+  }, [currentConfig, prefillAmount])
 
   useEffect(() => {
     if (!isStatic || !currentConfig) {
@@ -413,15 +431,15 @@ export default function RecordObservationPage() {
             <div className="flex flex-col gap-3">
               <label className="font-bold text-gray-800">Amount:</label>
               <div className="grid grid-cols-2 gap-2">
-                {([
-                  { ml: 150, label: "Small glass" },
-                  { ml: 250, label: "Glass" },
-                  { ml: 330, label: "Can" },
-                  { ml: 500, label: "Bottle" },
-                ] as const).map(p => (
+                {HYDRATION_PRESETS.map(p => (
                   <button key={p.ml} type="button"
                     onClick={() => { setValue(String(p.ml)); setUnit("mL") }}
-                    className="rounded-xl px-4 py-3 text-sm font-semibold border-2 transition-colors bg-white text-gray-800 border-gray-300 hover:border-fc-blue active:bg-fc-blue active:text-white active:border-fc-blue">
+                    aria-pressed={matchingHydrationPreset(value, unit)?.ml === p.ml}
+                    className={`rounded-xl px-4 py-3 text-sm font-semibold border-2 transition-colors hover:border-fc-blue active:bg-fc-blue active:text-white active:border-fc-blue ${
+                      matchingHydrationPreset(value, unit)?.ml === p.ml
+                        ? "bg-fc-blue text-white border-fc-blue"
+                        : "bg-white text-gray-800 border-gray-300"
+                    }`}>
                     {p.ml}mL<br />
                     <span className="font-normal text-xs">{p.label}</span>
                   </button>

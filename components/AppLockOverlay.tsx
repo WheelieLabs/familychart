@@ -6,19 +6,23 @@ import AppFooter from "@/components/AppFooter"
 import AppHeader from "@/components/AppHeader"
 import { useFocusTrap } from "@/components/Modal"
 import { mainContentTargetProps } from "@/lib/a11y"
-import { markAppLockSuppressed } from "@/lib/app-lock-navigation"
+import { parseLocalAccountUid } from "@/lib/account/account-uid"
+import { shouldOfferAppLockOptOut } from "@/lib/app-lock-opt-out"
+import { signIn, signOut } from "next-auth/react"
 import {
   base64urlToUint8Array,
   bufferToBase64url,
   buildCreateOptions,
   buildGetOptions,
+  buildWebAuthnFailureReport,
   clearBiometricCredentialId,
+  clearLegacyBiometricCredentialId,
   describeWebAuthnError,
   getWebAuthnAdapter,
-  isWebAuthnAlreadyPendingError,
   readBiometricCredentialId,
   withWebAuthnTimeout,
   writeBiometricCredentialId,
+  type WebAuthnCeremonyPhase,
 } from "@/lib/webauthn-app-lock"
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 
@@ -26,26 +30,56 @@ type Props = {
   userId: string
   onUnlocked: () => void
   /** Device-local escape hatch for a device whose WebAuthn can never
-   * succeed — see lib/bio-lock-state.ts's isAppLockDisabled. */
+   * succeed — see lib/bio-lock-state.ts's isAppLockDisabled. Only called after a fresh
+   * re-auth grant (ADR-0016). */
   onDisableAppLock: () => void
 }
 
-// A real biometric ceremony that's working resolves in a second or two.
-// Keep this short: on the platforms that hang instead of prompting at all,
-// a long timeout just means a longer stare at "Unlocking…" before the
-// user gives up and force-closes the app — never reaching the retry button
-// this timeout exists to surface.
-const WEBAUTHN_TIMEOUT_MS = 8_000
+// The WebAuthn spec timeout requested in buildCreateOptions/buildGetOptions is 60s. This is
+// a safety net just above it (ADR-0016) for a promise that never settles at all — observed
+// on some Android/Chrome combinations when the platform ignores AbortSignal. A real ceremony
+// resolves in a second or two; a visible Cancel covers the case where the user wants out
+// sooner than either of these.
+const WEBAUTHN_SAFETY_NET_MS = 65_000
+
+/** Query flag marking a return from the Microsoft re-auth started on the lock screen. */
+const LOCK_SCREEN_OPT_OUT_PARAM = "appLockOptOut"
+
+function reportWebAuthnFailure(phase: WebAuthnCeremonyPhase, error: unknown, startedAtMs: number): void {
+  const report = buildWebAuthnFailureReport(
+    phase,
+    error,
+    Date.now() - startedAtMs,
+    typeof navigator === "undefined" ? "" : navigator.userAgent,
+  )
+  try {
+    void fetch("/api/me/app-lock/failure-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(report),
+      keepalive: true,
+    })
+  } catch {
+    /* best-effort only */
+  }
+}
 
 export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }: Props) {
   const [storedIdResolved, setStoredIdResolved] = useState(false)
   const [storedId, setStoredId] = useState<string | null>(null)
   const [unlocking, setUnlocking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Set when the OS-level WebAuthn request is wedged (see
-  // isWebAuthnAlreadyPendingError) — retrying in-app cannot help, so we hide
-  // the retry button instead of sending the user into a doomed loop.
-  const [requiresRestart, setRequiresRestart] = useState(false)
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0)
+  const [didReset, setDidReset] = useState(false)
+  const [setupAfterResetFailed, setSetupAfterResetFailed] = useState(false)
+  const [optOutStep, setOptOutStep] = useState<"idle" | "confirm" | "reauth">("idle")
+  const [reauthPassword, setReauthPassword] = useState("")
+  const [reauthOtp, setReauthOtp] = useState("")
+  const [needsOtp, setNeedsOtp] = useState(false)
+  const [reauthErr, setReauthErr] = useState("")
+  const [reauthBusy, setReauthBusy] = useState(false)
+  const isLocalAccount = parseLocalAccountUid(userId) != null
+  const cancelControllerRef = useRef<AbortController | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
 
@@ -60,15 +94,23 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
     try {
       writeBiometricCredentialId(localStorage, userId, bufferToBase64url(rawId))
     } catch {
-      throw new Error("Could not save password manager unlock on this device.")
+      throw new Error("Could not save App lock on this device.")
     }
   }, [userId])
 
+  const cancelCeremony = useCallback((): void => {
+    cancelControllerRef.current?.abort()
+  }, [])
+
+  const recordSetupFailure = useCallback((): void => {
+    setConsecutiveFailures((n) => n + 1)
+    if (didReset) setSetupAfterResetFailed(true)
+  }, [didReset])
+
   const runSetup = useCallback(async (): Promise<void> => {
     setError(null)
-    setRequiresRestart(false)
     if (typeof navigator === "undefined" || !navigator.credentials) {
-      setError("This device cannot use password manager unlock in the browser.")
+      setError("This device cannot use App lock in the browser.")
       return
     }
     if (typeof PublicKeyCredential === "undefined") {
@@ -77,24 +119,21 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
     }
 
     const options = buildCreateOptions(userId, window.location.hostname)
+    const cancelController = new AbortController()
+    cancelControllerRef.current = cancelController
+    const startedAt = Date.now()
 
     setUnlocking(true)
     try {
-      // A discoverable-credential ceremony (residentKey: "preferred") can
-      // hand off to Android's Credential Manager UI, which backgrounds the
-      // tab and returns — indistinguishable, to the visibilitychange
-      // listener in lib/bio-lock-state.ts, from the user actually leaving.
-      // Without suppressing it, that re-lock unmounts this overlay mid-
-      // ceremony and its mount effect can fire a second, overlapping
-      // credentials call, racing the one already in flight.
-      markAppLockSuppressed(sessionStorage)
       const result = await withWebAuthnTimeout(
         (signal) => getWebAuthnAdapter().create(options, signal),
-        WEBAUTHN_TIMEOUT_MS,
+        WEBAUTHN_SAFETY_NET_MS,
         "Setup timed out — try again.",
+        { cancelSignal: cancelController.signal, cancelMessage: "Setup cancelled." },
       )
       if (!result) {
-        setError("Could not complete password manager unlock setup.")
+        setError("Could not complete App lock setup.")
+        recordSetupFailure()
         return
       }
 
@@ -105,42 +144,46 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
       // the user stuck in an unlock-fails / reset-and-repeat loop forever.
       // Prove the round trip now, before trusting and persisting it.
       const verifyOptions = buildGetOptions(new Uint8Array(result.rawId), window.location.hostname)
-      markAppLockSuppressed(sessionStorage)
+      const verifyCancelController = new AbortController()
+      cancelControllerRef.current = verifyCancelController
       const verified = await withWebAuthnTimeout(
         (signal) => getWebAuthnAdapter().get(verifyOptions, signal),
-        WEBAUTHN_TIMEOUT_MS,
+        WEBAUTHN_SAFETY_NET_MS,
         "Could not confirm the new credential works on this device — try again.",
+        { cancelSignal: verifyCancelController.signal, cancelMessage: "Setup cancelled." },
       )
       if (!verified) {
         setError(
-          "This device created a credential but could not verify it. Try again, or disable password manager unlock below.",
+          "This device created a credential but could not verify it. Try again.",
         )
+        recordSetupFailure()
+        reportWebAuthnFailure("verify", new Error("Verification returned no result"), startedAt)
         return
       }
 
       persistCredentialRawId(result.rawId)
       onUnlocked()
     } catch (e: unknown) {
-      if (isWebAuthnAlreadyPendingError(e)) {
-        setRequiresRestart(true)
-        setError("Password manager unlock setup is stuck on this device.")
-      } else {
-        setError(describeWebAuthnError(e, "Setup failed — try again."))
+      setError(describeWebAuthnError(e, "Setup failed — try again."))
+      // A user-initiated Cancel is not a device failure and must not count toward the opt-out.
+      if (!cancelController.signal.aborted) {
+        recordSetupFailure()
+        reportWebAuthnFailure("create", e, startedAt)
       }
     } finally {
+      cancelControllerRef.current = null
       setUnlocking(false)
     }
-  }, [onUnlocked, persistCredentialRawId, userId])
+  }, [onUnlocked, persistCredentialRawId, userId, recordSetupFailure])
 
   const runUnlock = useCallback(async (): Promise<void> => {
     setError(null)
-    setRequiresRestart(false)
     if (!storedId) {
-      setError("No password manager credential is configured.")
+      setError("No App lock credential is configured.")
       return
     }
     if (typeof navigator === "undefined" || !navigator.credentials) {
-      setError("This device cannot use password manager unlock in the browser.")
+      setError("This device cannot use App lock in the browser.")
       return
     }
     if (typeof PublicKeyCredential === "undefined") {
@@ -150,35 +193,37 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
 
     const credentialId = base64urlToUint8Array(storedId)
     if (!credentialId || credentialId.byteLength === 0) {
-      setError("Stored credential is invalid. Set up password manager unlock again.")
+      setError("Stored credential is invalid. Set up App lock again.")
       return
     }
 
     const options = buildGetOptions(credentialId, window.location.hostname)
+    const cancelController = new AbortController()
+    cancelControllerRef.current = cancelController
+    const startedAt = Date.now()
 
     setUnlocking(true)
     try {
-      // See the matching comment in runSetup — the same backgrounding
-      // happens on every unlock attempt too, not just first-time setup.
-      markAppLockSuppressed(sessionStorage)
       const result = await withWebAuthnTimeout(
         (signal) => getWebAuthnAdapter().get(options, signal),
-        WEBAUTHN_TIMEOUT_MS,
+        WEBAUTHN_SAFETY_NET_MS,
         "Unlock timed out — try again.",
+        { cancelSignal: cancelController.signal, cancelMessage: "Unlock cancelled." },
       )
       if (result) {
         onUnlocked()
       } else {
-        setError("Could not verify password manager unlock — try again.")
+        setError("Could not verify App lock — try again.")
+        setConsecutiveFailures((n) => n + 1)
       }
     } catch (e: unknown) {
-      if (isWebAuthnAlreadyPendingError(e)) {
-        setRequiresRestart(true)
-        setError("Password manager unlock is stuck on this device.")
-      } else {
-        setError(describeWebAuthnError(e, "Unlock failed — try again."))
+      setError(describeWebAuthnError(e, "Unlock failed — try again."))
+      if (!cancelController.signal.aborted) {
+        setConsecutiveFailures((n) => n + 1)
+        reportWebAuthnFailure("get", e, startedAt)
       }
     } finally {
+      cancelControllerRef.current = null
       setUnlocking(false)
     }
   }, [storedId, onUnlocked])
@@ -192,8 +237,61 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
     clearBiometricCredentialId(localStorage, userId)
     setStoredId(null)
     setError(null)
-    setRequiresRestart(false)
+    setDidReset(true)
   }, [userId])
+
+  const offerOptOut = shouldOfferAppLockOptOut({ consecutiveFailures, setupAfterResetFailed })
+
+  const requestReauthGrant = useCallback(async (): Promise<boolean> => {
+    setReauthBusy(true)
+    setReauthErr("")
+    try {
+      const res = await fetch("/api/me/app-lock/reauth-grant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isLocalAccount ? { password: reauthPassword, otp: reauthOtp } : {}),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message = typeof j.error === "string" ? j.error : "Could not confirm it's you."
+        if (message === "Authenticator code is required") setNeedsOtp(true)
+        setReauthErr(message)
+        return false
+      }
+      return true
+    } finally {
+      setReauthBusy(false)
+    }
+  }, [isLocalAccount, reauthPassword, reauthOtp])
+
+  const confirmTurnOff = useCallback(async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault()
+    if (await requestReauthGrant()) onDisableAppLock()
+  }, [requestReauthGrant, onDisableAppLock])
+
+  const confirmWithMicrosoft = useCallback((): void => {
+    const url = new URL(window.location.href)
+    url.searchParams.set(LOCK_SCREEN_OPT_OUT_PARAM, "1")
+    void signIn(
+      "microsoft-entra-id",
+      { callbackUrl: url.pathname + url.search },
+      { prompt: "login", max_age: "0" },
+    )
+  }, [])
+
+  // Returning from confirmWithMicrosoft's forced-fresh-login redirect: the session now carries
+  // a fresh sign-in time, so finish turning App lock off.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get(LOCK_SCREEN_OPT_OUT_PARAM) !== "1") return
+    url.searchParams.delete(LOCK_SCREEN_OPT_OUT_PARAM)
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash)
+    void (async () => {
+      if (await requestReauthGrant()) onDisableAppLock()
+      else setOptOutStep("reauth")
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const hasCredential =
     typeof storedId === "string"
@@ -250,29 +348,31 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
               {error != null && error !== "" && (
                 <p className="text-center text-sm text-red-300">{error}</p>
               )}
-              {requiresRestart && (
-                <p className="text-center text-sm text-white/90">
-                  Fully close FamilyChart — swipe it away in your app switcher,
-                  don&rsquo;t just leave it in the background — then reopen it.
-                  Tapping retry won&rsquo;t help until the app has been restarted.
-                </p>
+              {unlocking && (
+                <button
+                  type="button"
+                  className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
+                  onClick={cancelCeremony}
+                >
+                  Cancel
+                </button>
               )}
-              {!unlocking && !requiresRestart && setupMode && (
+              {!unlocking && setupMode && (
                 <button
                   type="button"
                   className="mx-auto w-full max-w-xs rounded-xl bg-fc-blue-mid px-4 py-4 text-center text-sm font-bold text-white hover:bg-fc-blue-dark"
                   onClick={runSetup}
                 >
-                  Set up password manager unlock
+                  Set up App lock
                 </button>
               )}
-              {!unlocking && !requiresRestart && hasCredential && (
+              {!unlocking && hasCredential && (
                 <button
                   type="button"
                   className="mx-auto w-full max-w-xs rounded-xl bg-fc-blue-mid px-4 py-4 text-center text-sm font-bold text-white hover:bg-fc-blue-dark"
                   onClick={runUnlock}
                 >
-                  {error != null && error !== "" ? "Try again" : "Unlock"}
+                  {error != null && error !== "" ? "Try again" : "Unlock with your device"}
                 </button>
               )}
               {!unlocking && hasCredential && error != null && error !== "" && (
@@ -281,28 +381,124 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
                   className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
                   onClick={resetCredential}
                 >
-                  Still not working? Reset password manager unlock
+                  Still not working? Reset and set up again
                 </button>
               )}
-              {!unlocking && error != null && error !== "" && (
-                <div className="mx-auto flex w-full max-w-xs flex-col gap-1">
-                  <button
-                    type="button"
-                    className="rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
-                    onClick={onDisableAppLock}
-                  >
-                    Turn off password manager unlock for this device
-                  </button>
-                  <p className="text-center text-xs text-white/60">
-                    You&rsquo;ll go straight into FamilyChart on this device from now on.
-                    Re-enable it anytime from Profile → Account.
+              {!unlocking && offerOptOut && optOutStep === "idle" && (
+                <button
+                  type="button"
+                  className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
+                  onClick={() => setOptOutStep("confirm")}
+                >
+                  Turn off App lock on this device
+                </button>
+              )}
+              {!unlocking && optOutStep === "confirm" && (
+                <div className="mx-auto flex w-full max-w-xs flex-col gap-2 rounded-xl bg-white/10 p-3">
+                  <p className="text-sm font-semibold text-white">Turn off App lock on this device?</p>
+                  <p className="text-xs text-white/70">
+                    Anyone who picks up this device while you&rsquo;re signed in will be able to open
+                    FamilyChart and see your household&rsquo;s health records. You&rsquo;ll need to confirm
+                    it&rsquo;s you first, and you can turn App lock back on from Profile → Account.
                   </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-white/80 underline"
+                      onClick={() => setOptOutStep("idle")}
+                    >
+                      Keep App lock
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-1 rounded-lg bg-white px-3 py-2 text-sm font-bold text-gray-800"
+                      onClick={() => setOptOutStep("reauth")}
+                    >
+                      Continue
+                    </button>
+                  </div>
                 </div>
               )}
+              {!unlocking && optOutStep === "reauth" && (
+                <div className="mx-auto flex w-full max-w-xs flex-col gap-2 rounded-xl bg-white/10 p-3">
+                  <p className="text-sm text-white/90">Confirm it&rsquo;s you to turn off App lock.</p>
+                  {isLocalAccount ? (
+                    <form onSubmit={confirmTurnOff} className="flex flex-col gap-2">
+                      <input
+                        type="password"
+                        value={reauthPassword}
+                        onChange={(e) => setReauthPassword(e.target.value)}
+                        required
+                        autoComplete="current-password"
+                        placeholder="Current password"
+                        aria-label="Current password"
+                        className="rounded-lg px-3 py-2 text-sm text-gray-900"
+                      />
+                      {needsOtp && (
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={reauthOtp}
+                          onChange={(e) => setReauthOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          required
+                          placeholder="Authenticator code"
+                          aria-label="Authenticator code"
+                          className="rounded-lg px-3 py-2 text-center text-sm tracking-widest text-gray-900"
+                        />
+                      )}
+                      {reauthErr && <p className="text-sm text-red-300">{reauthErr}</p>}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-white/80 underline"
+                          onClick={() => setOptOutStep("idle")}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={reauthBusy}
+                          className="flex-1 rounded-lg bg-white px-3 py-2 text-sm font-bold text-gray-800 disabled:opacity-50"
+                        >
+                          {reauthBusy ? "…" : "Confirm"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {reauthErr && <p className="text-sm text-red-300">{reauthErr}</p>}
+                      <button
+                        type="button"
+                        className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-gray-800"
+                        onClick={confirmWithMicrosoft}
+                      >
+                        Sign in with Microsoft to confirm
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg px-3 py-2 text-sm font-semibold text-white/80 underline"
+                        onClick={() => setOptOutStep("idle")}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              <button
+                type="button"
+                className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/60 underline hover:text-white"
+                onClick={() => {
+                  clearLegacyBiometricCredentialId(localStorage)
+                  void signOut({ callbackUrl: "/login" })
+                }}
+              >
+                Sign out
+              </button>
             </div>
           )}
         </main>
-        <AppFooter />
+        <AppFooter showDiagnostics={false} />
       </div>
     </div>
   )

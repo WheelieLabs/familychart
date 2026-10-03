@@ -6,6 +6,7 @@ import { canonicalAccountUid } from "@/lib/account/account-identity"
 import { rejectDemoProfanity } from "@/lib/demo/demo-profanity-guard"
 import { getDb } from "@/lib/db"
 import { auditLog } from "@/lib/audit-log"
+import { validateFavouriteDefaultValue } from "@/lib/hydration/hydration-presets"
 import type { Favourite } from "@/lib/domain-types"
 
 interface Params {
@@ -48,9 +49,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     values.push(typeof v === "string" && v.trim() !== "" ? v.trim() : null)
   }
   if ("default_value" in body) {
-    const v = body.default_value
+    const result = validateFavouriteDefaultValue(existing.action_kind, existing.observation_type, body.default_value)
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 400 })
+    }
     updates.push("default_value = ?")
-    values.push(typeof v === "string" && v.trim() !== "" ? v.trim() : null)
+    values.push(result.value)
   }
   if ("sort_order" in body) {
     const v = body.sort_order

@@ -2,6 +2,7 @@
 
 "use client"
 
+import { favouriteRecordHref } from "@/lib/hydration/hydration-presets"
 import { useState, useEffect } from "react"
 import { createPortal } from "react-dom"
 import Link from "next/link"
@@ -56,13 +57,7 @@ export default function QuickRecordSheet({ open, onClose }: QuickRecordSheetProp
   function handleTap(fav: FavouriteResolved) {
     if (!fav.resolved) return
     onClose()
-    if (fav.action_kind === "medication") {
-      const params = new URLSearchParams({ medication_id: String(fav.medication_id) })
-      if (fav.default_value) params.set("dosage", fav.default_value)
-      router.push(`/${fav.person_id}/record-medication?${params}`)
-    } else {
-      router.push(`/${fav.person_id}/record-observation?type=${encodeURIComponent(fav.observation_type!)}`)
-    }
+    router.push(favouriteRecordHref(fav))
   }
 
   if (!mounted) return null

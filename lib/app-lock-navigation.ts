@@ -86,10 +86,14 @@ export function locationPath(loc: Pick<Location, "pathname" | "search" | "hash">
 export const FC_APP_LOCK_SUPPRESS_KEY = "fc_app_lock_suppress_until"
 
 /**
- * Covers only the genuine picker round-trip (tap → native picker opens → tab hides, and back).
- * Re-validated on the `visible` transition too, so it can't be used to hold a lock open indefinitely.
+ * Covers the camera/file-picker round trip (tap → native picker opens → tab
+ * hides, and back). Capped at 2 minutes (ADR-0016 / issue spec) rather than a
+ * short fixed window: a camera launch or a slow gallery scroll can easily
+ * exceed 10 seconds, and the earlier, shorter TTL re-locked mid-picker and
+ * discarded the in-progress photo. Re-validated on the `visible` transition
+ * too, so it can't be used to hold a lock open indefinitely.
  */
-const APP_LOCK_SUPPRESS_TTL_MS = 10 * 1000
+const APP_LOCK_SUPPRESS_TTL_MS = 2 * 60 * 1000
 
 /** Call right before triggering a native camera/file input, so AppLock doesn't fire on the resulting backgrounding. */
 export function markAppLockSuppressed(storage: Pick<Storage, "setItem">): void {
@@ -116,5 +120,41 @@ export function isAppLockSuppressed(storage: Pick<Storage, "getItem">): boolean 
     return Number.isFinite(expiry) && Date.now() < expiry
   } catch {
     return false
+  }
+}
+
+/** sessionStorage key marking when the tab was last hidden, for the App lock grace period. */
+export const FC_APP_LOCK_LEFT_AT_KEY = "fc_app_lock_left_at"
+
+/** Call when the tab is hidden (not a suppressed picker round trip) so a later `returned` can measure elapsed time. */
+export function writeAppLockLeftAt(storage: Pick<Storage, "setItem">, nowMs: number): void {
+  try {
+    storage.setItem(FC_APP_LOCK_LEFT_AT_KEY, String(nowMs))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** ms elapsed since the tab was last hidden, or null if unknown (never left, or storage unavailable). */
+export function readAppLockElapsedSinceLeftMs(
+  storage: Pick<Storage, "getItem">,
+  nowMs: number,
+): number | null {
+  try {
+    const raw = storage.getItem(FC_APP_LOCK_LEFT_AT_KEY)
+    if (!raw) return null
+    const leftAt = Number(raw)
+    if (!Number.isFinite(leftAt)) return null
+    return Math.max(0, nowMs - leftAt)
+  } catch {
+    return null
+  }
+}
+
+export function clearAppLockLeftAt(storage: Pick<Storage, "removeItem">): void {
+  try {
+    storage.removeItem(FC_APP_LOCK_LEFT_AT_KEY)
+  } catch {
+    /* ignore */
   }
 }

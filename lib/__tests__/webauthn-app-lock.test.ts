@@ -2,16 +2,18 @@
 
 import { describe, expect, it, vi } from "vitest"
 import {
+  CURRENT_BIOMETRIC_CREDENTIAL_VERSION,
   FAMILYCHART_BIOMETRIC_CREDENTIAL_ID_KEY,
   base64urlToUint8Array,
+  biometricCredentialStorageKey,
   bufferToBase64url,
   buildCreateOptions,
   buildGetOptions,
+  buildWebAuthnFailureReport,
   clearBiometricCredentialId,
   clearLegacyBiometricCredentialId,
   createLiveWebAuthnAdapter,
   describeWebAuthnError,
-  isWebAuthnAlreadyPendingError,
   readBiometricCredentialId,
   withWebAuthnTimeout,
   writeBiometricCredentialId,
@@ -148,6 +150,31 @@ describe("per-account biometric credential storage", () => {
     expect(storage.getItem(FAMILYCHART_BIOMETRIC_CREDENTIAL_ID_KEY)).toBeNull()
     expect(readBiometricCredentialId(storage, "alice")).toBe("alice-cred")
   })
+
+  it("stores the current version marker alongside the credential id", () => {
+    const storage = memoryStorage()
+    writeBiometricCredentialId(storage, "alice", "alice-cred")
+
+    const raw = storage.getItem(biometricCredentialStorageKey("alice"))
+    expect(JSON.parse(raw ?? "")).toEqual({
+      v: CURRENT_BIOMETRIC_CREDENTIAL_VERSION,
+      rawId: "alice-cred",
+    })
+  })
+
+  it("treats a bare pre-version-marker string as not set up (ADR-0016 migration)", () => {
+    const storage = memoryStorage({
+      [biometricCredentialStorageKey("alice")]: "pre-adr-0016-raw-cred",
+    })
+    expect(readBiometricCredentialId(storage, "alice")).toBeNull()
+  })
+
+  it("treats a record under an older version marker as not set up", () => {
+    const storage = memoryStorage({
+      [biometricCredentialStorageKey("alice")]: JSON.stringify({ v: 1, rawId: "alice-cred" }),
+    })
+    expect(readBiometricCredentialId(storage, "alice")).toBeNull()
+  })
 })
 
 describe("buildCreateOptions", () => {
@@ -160,7 +187,7 @@ describe("buildCreateOptions", () => {
     expect(opts.authenticatorSelection).toEqual({
       authenticatorAttachment: "platform",
       userVerification: "required",
-      residentKey: "preferred",
+      residentKey: "discouraged",
     })
     expect(opts.pubKeyCredParams).toEqual([
       { type: "public-key", alg: -7 },
@@ -308,30 +335,33 @@ describe("describeWebAuthnError", () => {
   })
 })
 
-describe("isWebAuthnAlreadyPendingError", () => {
-  it("recognizes Android Credential Manager's wedged-request error", () => {
-    const e = new DOMException("A request is already pending.", "OperationError")
-    expect(isWebAuthnAlreadyPendingError(e)).toBe(true)
+describe("buildWebAuthnFailureReport", () => {
+  it("captures the DOMException name, phase, elapsed time, and user agent", () => {
+    const e = new DOMException("nope", "NotAllowedError")
+    expect(buildWebAuthnFailureReport("get", e, 1234, "ua-string")).toEqual({
+      phase: "get",
+      errorName: "NotAllowedError",
+      elapsedMs: 1234,
+      userAgent: "ua-string",
+    })
   })
 
-  it("is case-insensitive about the message text", () => {
-    const e = new DOMException("A REQUEST IS ALREADY PENDING", "OperationError")
-    expect(isWebAuthnAlreadyPendingError(e)).toBe(true)
+  it("captures a plain Error's name", () => {
+    expect(buildWebAuthnFailureReport("create", new Error("boom"), 5, "ua")).toEqual({
+      phase: "create",
+      errorName: "Error",
+      elapsedMs: 5,
+      userAgent: "ua",
+    })
   })
 
-  it("rejects an OperationError with a different message", () => {
-    const e = new DOMException("Something else went wrong.", "OperationError")
-    expect(isWebAuthnAlreadyPendingError(e)).toBe(false)
-  })
-
-  it("rejects a matching message under a different DOMException name", () => {
-    const e = new DOMException("A request is already pending.", "NotAllowedError")
-    expect(isWebAuthnAlreadyPendingError(e)).toBe(false)
-  })
-
-  it("rejects non-DOMException values", () => {
-    expect(isWebAuthnAlreadyPendingError(new Error("A request is already pending."))).toBe(false)
-    expect(isWebAuthnAlreadyPendingError("A request is already pending.")).toBe(false)
+  it("falls back to 'Unknown' for a non-Error value, never including it verbatim", () => {
+    expect(buildWebAuthnFailureReport("verify", "some string", 0, "ua")).toEqual({
+      phase: "verify",
+      errorName: "Unknown",
+      elapsedMs: 0,
+      userAgent: "ua",
+    })
   })
 })
 
@@ -370,6 +400,46 @@ describe("withWebAuthnTimeout", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("rejects immediately with the cancel message when the cancel signal fires, well before the timeout", async () => {
+    vi.useFakeTimers()
+    try {
+      const cancelController = new AbortController()
+      let receivedSignal: AbortSignal | undefined
+      const pending = withWebAuthnTimeout<never>(
+        (signal) => {
+          receivedSignal = signal
+          return new Promise(() => {
+            /* never settles on its own */
+          })
+        },
+        60_000,
+        "timed out",
+        { cancelSignal: cancelController.signal, cancelMessage: "Cancelled." },
+      )
+
+      const assertion = expect(pending).rejects.toThrow("Cancelled.")
+      cancelController.abort()
+      await assertion
+
+      expect(receivedSignal?.aborted).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("rejects immediately if the cancel signal is already aborted before the call starts", async () => {
+    const cancelController = new AbortController()
+    cancelController.abort()
+    await expect(
+      withWebAuthnTimeout<never>(
+        () => new Promise(() => {}),
+        60_000,
+        "timed out",
+        { cancelSignal: cancelController.signal, cancelMessage: "Cancelled." },
+      ),
+    ).rejects.toThrow("Cancelled.")
   })
 
   it("still rejects with the timeout message when the operation never settles, even after abort", async () => {

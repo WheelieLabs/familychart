@@ -258,6 +258,43 @@ export async function changePassword(
   return { ok: true }
 }
 
+export type ConfirmAppLockReauthResult =
+  | { ok: true }
+  | { ok: false; reason: "rate_limited" | "credentials" | "otp_missing" | "otp_invalid" }
+
+/**
+ * Proves a Local Account holder is present again before App lock can be turned off
+ * (ADR-0016 / issue spec: "a fresh sign-in check"). Password, plus the current
+ * authenticator code when TOTP is enrolled — matches the existing-credential check in
+ * confirmEnrollment. Unlike changePassword/disableTotp, nothing is mutated on success:
+ * the caller (the app-lock reauth-grant endpoint) issues the grant itself.
+ */
+export async function confirmAppLockReauth(
+  db: Database.Database,
+  localAccountId: number,
+  { password, otp, ip }: LocalReauthProof,
+): Promise<ConfirmAppLockReauthResult> {
+  const proof = await proveLocalAccount(db, localAccountId, { password, ip })
+  if (!proof.ok) return proof
+  const { user } = proof
+
+  if (user.totp_secret) {
+    const code = normaliseOtp(otp)
+    if (!code) {
+      recordAuthFailureForLocalUser(ip, localAccountId)
+      return { ok: false, reason: "otp_missing" }
+    }
+    const { valid } = verifySync({ token: code, secret: user.totp_secret, epochTolerance: 30 })
+    if (!valid) {
+      recordAuthFailureForLocalUser(ip, localAccountId)
+      return { ok: false, reason: "otp_invalid" }
+    }
+  }
+
+  clearAuthFailuresForLocalUser(ip, localAccountId)
+  return { ok: true }
+}
+
 /**
  * True when `security.mfa_required` is in effect: always on managed hosting (mandatory
  * regardless of the DB/env setting), otherwise follows the resolved setting.

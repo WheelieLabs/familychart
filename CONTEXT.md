@@ -28,6 +28,14 @@ _Avoid_: authorize, credentials provider, login
 The authenticated password check (and TOTP when enrolled) that authorises changing that Account's password or authenticator. Distinct from Local Account sign-in.
 _Avoid_: step-up, reauthenticate, authorize
 
+**App lock**:
+The per-device, per-Account re-verification that hides an already signed-in session after the app is left until the device's owner proves presence. It guards the session; it is not sign-in and grants nothing a session doesn't already have.
+_Avoid_: biometric unlock, password manager unlock (user-facing labels, not the concept), lock screen
+
+**App lock grace period**:
+The opt-in, per-device span after leaving the app during which returning to the still-running app does not re-lock. A fresh start always locks regardless.
+_Avoid_: idle timeout (App lock has none), lock delay
+
 **Person**:
 A household-roster individual whose medications and observations are recorded. At most one Account may hold a Personal-link.
 _Avoid_: patient, user, profile, resident

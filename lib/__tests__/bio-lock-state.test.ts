@@ -2,13 +2,16 @@
 
 import { describe, expect, it } from "vitest"
 import {
+  APP_LOCK_GRACE_PERIOD_MS,
   FC_BIO_UNLOCK_KEY,
   bioLockIsLockedFromUnlockKey,
   clearBioUnlockKey,
+  getAppLockGracePeriod,
   isAppLockDisabled,
   nextBioLockState,
   readBioUnlockKey,
   setAppLockDisabled,
+  setAppLockGracePeriod,
   writeBioUnlockKey,
 } from "@/lib/bio-lock-state"
 
@@ -62,82 +65,173 @@ describe("isAppLockDisabled / setAppLockDisabled", () => {
   })
 })
 
+describe("getAppLockGracePeriod / setAppLockGracePeriod", () => {
+  it("defaults to immediate", () => {
+    const storage = memoryStorage()
+    expect(getAppLockGracePeriod(storage, "alice")).toBe("immediate")
+  })
+
+  it("stores and reads each grace choice, per account", () => {
+    const storage = memoryStorage()
+    for (const period of ["30s", "1m", "5m"] as const) {
+      setAppLockGracePeriod(storage, "alice", period)
+      expect(getAppLockGracePeriod(storage, "alice")).toBe(period)
+      expect(getAppLockGracePeriod(storage, "bob")).toBe("immediate")
+    }
+  })
+
+  it("setting back to immediate clears the stored value", () => {
+    const storage = memoryStorage()
+    setAppLockGracePeriod(storage, "alice", "5m")
+    setAppLockGracePeriod(storage, "alice", "immediate")
+    expect(getAppLockGracePeriod(storage, "alice")).toBe("immediate")
+  })
+
+  it("falls back to immediate for a corrupt/unknown stored value", () => {
+    const storage = memoryStorage({ "familychart_app_lock_grace:alice": "9001-seconds" })
+    expect(getAppLockGracePeriod(storage, "alice")).toBe("immediate")
+  })
+
+  it("the grace choices map to the expected millisecond values", () => {
+    expect(APP_LOCK_GRACE_PERIOD_MS).toEqual({
+      immediate: 0,
+      "30s": 30_000,
+      "1m": 60_000,
+      "5m": 300_000,
+    })
+  })
+})
+
+function transition(overrides: Partial<Parameters<typeof nextBioLockState>[0]>) {
+  return nextBioLockState({
+    locked: false,
+    event: "left",
+    suppressed: false,
+    hasAuthenticatedThisPage: true,
+    graceMs: 0,
+    elapsedSinceLeftMs: null,
+    ...overrides,
+  })
+}
+
 describe("nextBioLockState", () => {
-  it("locks on hide when suppression is not live", () => {
-    expect(
-      nextBioLockState({
-        locked: false,
-        event: "visibility-hidden",
-        suppressed: false,
-      }),
-    ).toEqual({ locked: true, effect: "clear-unlock-key" })
+  it("'left' never changes the lock state by itself — the decision happens on 'returned'", () => {
+    expect(transition({ locked: false, event: "left" })).toEqual({ locked: false, effect: "none" })
+    expect(transition({ locked: true, event: "left" })).toEqual({ locked: true, effect: "none" })
   })
 
-  it("does not lock on hide while suppression is live", () => {
-    expect(
-      nextBioLockState({
-        locked: false,
-        event: "visibility-hidden",
-        suppressed: true,
-      }),
-    ).toEqual({ locked: false, effect: "none" })
+  describe("'returned'", () => {
+    it("re-locks when there is no grace and no suppression", () => {
+      expect(
+        transition({ locked: false, event: "returned", graceMs: 0, elapsedSinceLeftMs: 1 }),
+      ).toEqual({ locked: true, effect: "clear-unlock-key" })
+    })
+
+    it("does not re-lock while a picker suppression is live, regardless of elapsed time", () => {
+      expect(
+        transition({
+          locked: false,
+          event: "returned",
+          suppressed: true,
+          elapsedSinceLeftMs: 10 * 60_000,
+        }),
+      ).toEqual({ locked: false, effect: "none" })
+    })
+
+    it.each([
+      ["30s", 30_000],
+      ["1m", 60_000],
+      ["5m", 300_000],
+    ] as const)("grace '%s': stays unlocked just under, re-locks just over", (_label, graceMs) => {
+      expect(
+        transition({ locked: false, event: "returned", graceMs, elapsedSinceLeftMs: graceMs - 1 }),
+      ).toEqual({ locked: false, effect: "none" })
+      expect(
+        transition({ locked: false, event: "returned", graceMs, elapsedSinceLeftMs: graceMs + 1 }),
+      ).toEqual({ locked: true, effect: "clear-unlock-key" })
+    })
+
+    it("elapsed exactly at the grace boundary still counts as within grace", () => {
+      expect(
+        transition({ locked: false, event: "returned", graceMs: 60_000, elapsedSinceLeftMs: 60_000 }),
+      ).toEqual({ locked: false, effect: "none" })
+    })
+
+    it("the 'immediate' default (graceMs 0) re-locks on any elapsed time", () => {
+      expect(
+        transition({ locked: false, event: "returned", graceMs: 0, elapsedSinceLeftMs: 1 }),
+      ).toEqual({ locked: true, effect: "clear-unlock-key" })
+    })
+
+    it("re-locks when elapsed time since leaving is unknown", () => {
+      expect(
+        transition({ locked: false, event: "returned", graceMs: 60_000, elapsedSinceLeftMs: null }),
+      ).toEqual({ locked: true, effect: "clear-unlock-key" })
+    })
   })
 
-  it("re-locks on visible when suppression has already expired", () => {
-    expect(
-      nextBioLockState({
-        locked: false,
-        event: "visibility-shown",
-        suppressed: false,
-      }),
-    ).toEqual({ locked: true, effect: "clear-unlock-key" })
+  it("'fresh-start' always locks, regardless of any prior state", () => {
+    expect(transition({ locked: false, event: "fresh-start" })).toEqual({
+      locked: true,
+      effect: "clear-unlock-key",
+    })
+    expect(transition({ locked: true, event: "fresh-start" })).toEqual({
+      locked: true,
+      effect: "clear-unlock-key",
+    })
   })
 
-  it("does not re-lock on visible while suppression is still live", () => {
-    expect(
-      nextBioLockState({
-        locked: false,
-        event: "visibility-shown",
-        suppressed: true,
-      }),
-    ).toEqual({ locked: false, effect: "none" })
+  it("'in-app-navigation' never changes the lock state", () => {
+    expect(transition({ locked: false, event: "in-app-navigation" })).toEqual({
+      locked: false,
+      effect: "none",
+    })
+    expect(transition({ locked: true, event: "in-app-navigation" })).toEqual({
+      locked: true,
+      effect: "none",
+    })
   })
 
-  it("clears the unlock key on unload without changing locked", () => {
-    expect(
-      nextBioLockState({
-        locked: false,
-        event: "pagehide",
-        suppressed: false,
-      }),
-    ).toEqual({ locked: false, effect: "clear-unlock-key" })
-    expect(
-      nextBioLockState({
-        locked: true,
-        event: "beforeunload",
-        suppressed: true,
-      }),
-    ).toEqual({ locked: true, effect: "clear-unlock-key" })
+  describe("'session-unconfirmed' (fail-closed)", () => {
+    it("never unlocks once the Account has been authenticated in this page", () => {
+      expect(
+        transition({ locked: true, event: "session-unconfirmed", hasAuthenticatedThisPage: true }),
+      ).toEqual({ locked: true, effect: "clear-unlock-key" })
+      expect(
+        transition({ locked: false, event: "session-unconfirmed", hasAuthenticatedThisPage: true }),
+      ).toEqual({ locked: true, effect: "clear-unlock-key" })
+    })
+
+    it("is a no-op before the first authentication in this page", () => {
+      expect(
+        transition({ locked: true, event: "session-unconfirmed", hasAuthenticatedThisPage: false }),
+      ).toEqual({ locked: true, effect: "none" })
+    })
   })
 
-  it("unlocks and clears the unlock key when the session becomes unauthenticated", () => {
-    expect(
-      nextBioLockState({
-        locked: true,
-        event: "session-status-unauthenticated",
-        suppressed: false,
-      }),
-    ).toEqual({ locked: false, effect: "clear-unlock-key" })
+  it("'session-confirmed-signed-out' unlocks and clears the unlock key", () => {
+    expect(transition({ locked: true, event: "session-confirmed-signed-out" })).toEqual({
+      locked: false,
+      effect: "clear-unlock-key",
+    })
   })
 
-  it("unlocks and sets the unlock key on an explicit unlock", () => {
-    expect(
-      nextBioLockState({
-        locked: true,
-        event: "explicit-unlock",
-        suppressed: false,
-      }),
-    ).toEqual({ locked: false, effect: "set-unlock-key" })
+  it("'explicit-unlock' unlocks and sets the unlock key", () => {
+    expect(transition({ locked: true, event: "explicit-unlock" })).toEqual({
+      locked: false,
+      effect: "set-unlock-key",
+    })
+  })
+
+  it("'settings-changed' never changes the lock state", () => {
+    expect(transition({ locked: false, event: "settings-changed" })).toEqual({
+      locked: false,
+      effect: "none",
+    })
+    expect(transition({ locked: true, event: "settings-changed" })).toEqual({
+      locked: true,
+      effect: "none",
+    })
   })
 })
 

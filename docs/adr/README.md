@@ -19,6 +19,7 @@ Durable decisions for the FamilyChart app (`familychart-dev`). Supersede with a 
 | [0013](0013-public-export-scope-manifest.md) | Public-export scope manifest | Accepted — pre-v1.0.0 |
 | [0014](0014-managed-admin-forced-reset-first-login.md) | Managed admin forced-reset first-login flow | Accepted — fully implemented |
 | [0015](0015-accounts-unification.md) | Canonical `accounts` table and invite-based onboarding | Accepted |
+| [0016](0016-app-lock-device-bound-credential.md) | App lock uses a device-bound credential, not a passkey | Accepted — mostly implemented |
 
 **Active implementation:** App UI Settings project (internal issue tracker).
 

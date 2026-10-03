@@ -43,6 +43,7 @@ app/
     me/                    # Session user, password, linked person, MFA (TOTP), hydration config
     setup/ uploads/ cron/ app-settings/ favourites/ whats-new/
   profile/                 # Signed-in account: password, optional MFA enrollment
+  diagnostics/             # Diagnostics index (linked from the footer via components/DiagnosticsLink.tsx) + App lock probe tool; any signed-in Account
   [personId]/              # Dynamic person pages (actions, history, record, schedules-goals)
   (writable)/              # Route group gated by `canManage` (Manager or Admin) — not ReadWrite-only
     management/            # Hub: people, medications/groups/rules, import, observation types
@@ -93,8 +94,14 @@ lib/
   medication-schedule.ts
   datetime.ts
   person-age.ts            # fractionalAgeYears / completedCalendarYears (instance-tz birthday boundaries)
-  webauthn-app-lock.ts     # WebAuthn credential storage/codec + create/get option builders + adapter
-  bio-lock-state.ts        # App-lock lock/unlock transition + FC_BIO_UNLOCK_KEY + useBioLockGate
+  webauthn-app-lock.ts     # WebAuthn credential storage/codec (versioned, ADR-0016 device-bound "discouraged" residentKey) + create/get option builders + adapter + failure-report builder
+  bio-lock-state.ts        # App-lock state machine (left/returned/fresh-start/in-app-navigation/session-(un)confirmed/explicit-unlock/settings-changed) + FC_BIO_UNLOCK_KEY + useBioLockGate + grace-period/opt-out storage
+  hydration/hydration-presets.ts # Hydration quick-pick presets, favourite amount validation, favourite → record-page href
+  app-lock-diagnostics.ts  # Probe option sets A–D and authenticator-data parsers for Diagnostics → App lock
+  app-lock-opt-out.ts      # When the lock screen may offer "Turn off App lock on this device"
+  app-lock-navigation.ts   # Unlock-target resolution, pending-URL + picker-suppression (2 min cap) + left-at bookkeeping for the App lock grace period
+  app-lock/
+    app-lock-reauth.ts     # isEntraAppLockReauthFresh: freshness check for the Entra step-up re-auth gate (ADR-0016)
   push.ts                  # Web Push delivery via web-push (VAPID); called by cron.ts
   cron.ts                  # Push reminder jobs: one Alert readiness evaluate per tick, then PRN / scheduled / observation adapters; hydration nudges stay separate
   version.ts               # APP_VERSION from package.json
@@ -210,7 +217,7 @@ Schedules / calendar context may still fall through to client offset headers whe
 **Providers:** Two auth providers are supported simultaneously via NextAuth 5 beta:
 
 1. **Microsoft Entra ID (OIDC)** — sign in with an Azure AD account; group membership is read from the token's `groups` claim and matched against `ENTRA_GROUP_*` env vars.
-2. **Local credentials** — email + bcrypt password verified against the `accounts` table; accounts invited via `/admin/accounts`. The **first-run wizard** at `/setup` creates the initial local admin when no local admin exists and `setup_complete` is not set; afterwards new local accounts are invited by email (invitee sets their own password). Local accounts receive `local:` prefixed group strings. Login and step-up re-auth (`POST /api/me/password`, `/api/me/mfa/{setup,confirm,disable}`) share `lib/auth-rate-limit.ts` lockout; failed re-auth attempts are `auditLog`'d (`AUTH_FAILURE`). Wizard MFA confirm bumps `session_version` (revoking the pre-enroll JWT) and then re-issues a session with email + password + the just-verified TOTP; password-only `signIn` fails once `totp_secret` is set. If stage 1 is already complete and there is no session, the wizard shows sign-in rather than person/timezone (those APIs use `requireAdmin()`).
+2. **Local credentials** — email + bcrypt password verified against the `accounts` table; accounts invited via `/admin/accounts`. The **first-run wizard** at `/setup` creates the initial local admin when no local admin exists and `setup_complete` is not set; afterwards new local accounts are invited by email (invitee sets their own password). Local accounts receive `local:` prefixed group strings. App lock: `POST /api/me/app-lock/reauth-grant` (fresh password+TOTP, or a recent Entra `entraAuthAt`, required before the device opt-out is written) and `POST /api/me/app-lock/failure-log` (authenticated, per-Account rate-limited ceremony failure reports; no credential data) — ADR-0016. Login and step-up re-auth (`POST /api/me/password`, `/api/me/mfa/{setup,confirm,disable}`) share `lib/auth-rate-limit.ts` lockout; failed re-auth attempts are `auditLog`'d (`AUTH_FAILURE`). Wizard MFA confirm bumps `session_version` (revoking the pre-enroll JWT) and then re-issues a session with email + password + the just-verified TOTP; password-only `signIn` fails once `totp_secret` is set. If stage 1 is already complete and there is no session, the wizard shows sign-in rather than person/timezone (those APIs use `requireAdmin()`).
 
 Both providers can be active at the same time; an installation can use one, the other, or both (`ENABLED_AUTH_PROVIDERS`).
 

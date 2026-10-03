@@ -19,4 +19,6 @@ export interface AppUser {
 export interface AppSession {
   user?: AppUser
   expires: string
+  /** ms epoch of the last interactive Entra sign-in; see lib/auth.ts's session callback. */
+  entraAuthAt?: number
 }

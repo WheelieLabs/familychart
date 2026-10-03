@@ -154,6 +154,26 @@ describe("app-lock photo-picker suppression", () => {
     expect(shouldLockOnShow(storage)).toBe(true)
   })
 
+  it("covers a camera/picker round trip past 10 seconds but under the 2-minute cap", () => {
+    vi.useFakeTimers()
+    const storage = fakeStorage()
+    markAppLockSuppressed(storage)
+    expect(shouldLockOnHide(storage)).toBe(false)
+
+    vi.advanceTimersByTime(90 * 1000)
+    expect(shouldLockOnShow(storage)).toBe(false)
+  })
+
+  it("locks once the round trip exceeds the 2-minute cap", () => {
+    vi.useFakeTimers()
+    const storage = fakeStorage()
+    markAppLockSuppressed(storage)
+    expect(shouldLockOnHide(storage)).toBe(false)
+
+    vi.advanceTimersByTime(2 * 60 * 1000 + 1)
+    expect(shouldLockOnShow(storage)).toBe(true)
+  })
+
   it("unsuppressed hide followed by a show locks", () => {
     const storage = fakeStorage()
     expect(shouldLockOnHide(storage)).toBe(true)

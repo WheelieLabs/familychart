@@ -2,12 +2,14 @@
 
 import { APP_VERSION } from "@/lib/version"
 import DemoVersionBadge from "@/components/DemoVersionBadge"
+import DiagnosticsLink from "@/components/DiagnosticsLink"
 
 const PUBLIC_REPO = "https://github.com/WheelieLabs/familychart"
 const SOURCE_URL = `${PUBLIC_REPO}/tree/v${APP_VERSION}`
 const NOTICES_URL = `${PUBLIC_REPO}/blob/v${APP_VERSION}/THIRD-PARTY-NOTICES.md`
 
-export default function AppFooter() {
+/** `showDiagnostics` is false on the App lock screen, which must not link past the lock. */
+export default function AppFooter({ showDiagnostics = true }: { showDiagnostics?: boolean }) {
   return (
     <footer
       className="bg-fc-header px-4 pt-2 shrink-0 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sticky bottom-0 z-10"
@@ -34,6 +36,7 @@ export default function AppFooter() {
         >
           Third-party licenses
         </a>
+        {showDiagnostics && <DiagnosticsLink />}
       </span>
       <span className="text-xs text-gray-400">
         © {new Date().getFullYear()} Benjamin Horder (trading as WheelieLabs). Licensed under{" "}

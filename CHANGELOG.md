@@ -10,6 +10,20 @@ User-facing release notes for the in-app What's New screen live in [`WHATS_NEW.m
 
 ---
 
+## [1.0.12] - 2026-10-03
+
+### Changed
+- Profile → Account → App lock: the "Disable on this device" toggle now sits above the Save button
+- Hydration presets are now Mug 250 mL, Can 375 mL, Glass 400 mL, Bottle 600 mL (previously 150/250/330/500)
+- App lock rework (ADR-0016): device-bound credential (`residentKey: "discouraged"`) with a one-time re-setup, no 8s cutoff (65s safety net plus a visible Cancel), fail-closed lock state machine, opt-in per-device grace period, fresh re-auth required to turn App lock off (Profile and lock screen), photo/camera suppression cap of 2 minutes, ceremony failures logged server-side
+- Lock screen offers "Turn off App lock on this device" only after the fix steps have failed (set-up-again failed, or three consecutive failures), behind a risk confirmation; "Sign out" is always available
+
+### Added
+- Hydration favourites accept a pre-set amount (whole mL, 1–10000) stored in `favourites.default_value`; `favouriteRecordHref` passes it as `amount` to the record page, which pre-fills it. The API rejects `default_value` on other observation types
+- Diagnostics area, linked from the footer (signed-in and unlocked only), with an App lock tool: probe option sets A–D, device App lock state panel, copy log
+
+---
+
 ## [1.0.4] - 2026-09-13
 
 ### Changed

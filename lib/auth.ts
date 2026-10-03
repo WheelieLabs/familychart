@@ -220,6 +220,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
       const s = session as typeof session & {
         user?: typeof session.user & { id?: string; groups?: string[]; entraOid?: string | null }
         sessionVersion?: number
+        entraAuthAt?: number
       }
       if (s.user) {
         s.user.id     = token.sub ?? ""
@@ -231,6 +232,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
       }
       if (token.sessionVersion != null) {
         s.sessionVersion = token.sessionVersion as number
+      }
+      // Timestamp of the last *interactive* Entra sign-in (jwt callback, account+profile
+      // present) — not touched by background refreshes. The app-lock Entra step-up
+      // re-auth (lib/app-lock/app-lock-reauth.ts) treats this as freshness proof after
+      // the client forces a new interactive login (prompt=login, max_age=0).
+      if (token.entraOid && typeof token.entraAuthAt === "number") {
+        s.entraAuthAt = token.entraAuthAt
       }
       return session
     },

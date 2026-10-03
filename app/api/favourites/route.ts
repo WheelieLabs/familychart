@@ -7,6 +7,7 @@ import { rejectDemoProfanity } from "@/lib/demo/demo-profanity-guard"
 import { getDb } from "@/lib/db"
 import { auditLog } from "@/lib/audit-log"
 import type { FavouriteResolved } from "@/lib/domain-types"
+import { validateFavouriteDefaultValue } from "@/lib/hydration/hydration-presets"
 
 const RESOLVED_QUERY = `
   SELECT f.*,
@@ -141,10 +142,11 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const defaultValue =
-    typeof body.default_value === "string" && body.default_value.trim() !== ""
-      ? body.default_value.trim()
-      : null
+  const defaultValueResult = validateFavouriteDefaultValue(actionKind, observationType, body.default_value)
+  if (!defaultValueResult.ok) {
+    return NextResponse.json({ error: defaultValueResult.error }, { status: 400 })
+  }
+  const defaultValue = defaultValueResult.value
   const label =
     typeof body.label === "string" && body.label.trim() !== ""
       ? body.label.trim()
