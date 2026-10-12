@@ -237,58 +237,58 @@ _No bundled licence file found in package; see the SPDX identifier above._
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/env@16.3.8
+### @next/env@16.4.0
 
 - **Licence:** MIT
 - **Author:** Next.js Team <support@vercel.com>
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-darwin-arm64@16.3.8
+### @next/swc-darwin-arm64@16.4.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-darwin-x64@16.3.8
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-arm64-gnu@16.3.8
+### @next/swc-darwin-x64@16.4.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-arm64-musl@16.3.8
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-x64-gnu@16.3.8
+### @next/swc-linux-arm64-gnu@16.4.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-x64-musl@16.3.8
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-arm64-msvc@16.3.8
+### @next/swc-linux-arm64-musl@16.4.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-x64-msvc@16.3.8
+### @next/swc-linux-x64-gnu@16.4.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-linux-x64-musl@16.4.0
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-arm64-msvc@16.4.0
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-x64-msvc@16.4.0
+
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
@@ -5003,7 +5003,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 </details>
 
-### next@16.3.8
+### next@16.4.0
 
 - **Licence:** MIT
 
@@ -5566,7 +5566,7 @@ SOFTWARE.
 
 </details>
 
-### react-easy-crop@6.2.3
+### react-easy-crop@6.2.4
 
 - **Licence:** MIT
 - **Author:** Valentin Hervieu <valentin@hervi.eu>
@@ -5600,7 +5600,7 @@ SOFTWARE.
 
 </details>
 
-### read-excel-file@9.3.10
+### read-excel-file@9.3.12
 
 - **Licence:** MIT
 - **Author:** catamphetamine <purecatamphetamine@gmail.com>
