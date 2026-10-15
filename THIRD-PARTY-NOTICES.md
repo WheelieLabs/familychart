@@ -237,58 +237,58 @@ _No bundled licence file found in package; see the SPDX identifier above._
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/env@16.4.0
+### @next/env@16.4.1
 
 - **Licence:** MIT
 - **Author:** Next.js Team <support@vercel.com>
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-darwin-arm64@16.4.0
+### @next/swc-darwin-arm64@16.4.1
 
-- **Licence:** MIT (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-darwin-x64@16.4.0
-
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-arm64-gnu@16.4.0
+### @next/swc-darwin-x64@16.4.1
 
-- **Licence:** MIT (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-arm64-musl@16.4.0
-
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-x64-gnu@16.4.0
+### @next/swc-linux-arm64-gnu@16.4.1
 
-- **Licence:** MIT (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-x64-musl@16.4.0
-
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-arm64-msvc@16.4.0
+### @next/swc-linux-arm64-musl@16.4.1
 
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-x64-msvc@16.4.0
+### @next/swc-linux-x64-gnu@16.4.1
 
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-linux-x64-musl@16.4.1
+
+- **Licence:** UNKNOWN (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-arm64-msvc@16.4.1
+
+- **Licence:** UNKNOWN (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-x64-msvc@16.4.1
+
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
@@ -812,7 +812,7 @@ limitations under the License.
 
 </details>
 
-### @types/node@24.19.1
+### @types/node@24.19.2
 
 - **Licence:** MIT
 
@@ -4970,7 +4970,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### nanoid@3.3.19
+### nanoid@3.3.20
 
 - **Licence:** MIT
 - **Author:** Andrey Sitnik <andrey@sitnik.ru>
@@ -5003,7 +5003,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 </details>
 
-### next@16.4.0
+### next@16.4.1
 
 - **Licence:** MIT
 
@@ -5090,7 +5090,7 @@ THE SOFTWARE.
 
 </details>
 
-### nodemailer@10.0.13
+### nodemailer@10.1.1
 
 - **Licence:** MIT-0
 - **Author:** Andris Reinman
@@ -5500,7 +5500,7 @@ _No bundled licence file found in package; see the SPDX identifier above._
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### react@19.3.0
+### react@19.3.1
 
 - **Licence:** MIT
 
@@ -5533,7 +5533,7 @@ SOFTWARE.
 
 </details>
 
-### react-dom@19.3.0
+### react-dom@19.3.1
 
 - **Licence:** MIT
 

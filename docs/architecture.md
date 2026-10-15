@@ -19,7 +19,7 @@ Instance configuration uses a typed settings registry with env-wins precedence (
 | Layer | Technology |
 |-------|-----------|
 | Framework | Next.js 16 (App Router) |
-| Language | TypeScript 7 (native `tsc`), strict mode — `typescript` aliased to the `@typescript/typescript6` compat shim for `typescript-eslint` |
+| Language | TypeScript, strict mode. `npm run typecheck` runs the native 7.x compiler (`typescript-native`, invoked by path because the 6.x shim's `tsc` bin takes the `.bin/tsc` link); `typescript` is aliased to the `@typescript/typescript6` compat shim, so `typescript-eslint`, `next build`'s own typecheck and editors use 6.x |
 | UI | React 19, Tailwind CSS v4 |
 | Database | SQLite via better-sqlite3-multiple-ciphers 13 (raw SQL, no ORM) |
 | Auth | NextAuth 5 beta (v5.0.0-beta.32) — Microsoft Entra ID (OIDC) + local credentials (bcryptjs) |

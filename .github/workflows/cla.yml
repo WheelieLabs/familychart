@@ -4,7 +4,11 @@
 # To activate when accepting external contributions:
 # 1. Install https://github.com/apps/cla-assistant on WheelieLabs/familychart
 # 2. Add repository secret CLA_ASSISTANT_TOKEN (PAT with repo scope)
-# 3. Enable branch protection requiring the "license/cla" check
+# 3. Restore the pull_request_target trigger (see `on:` below)
+# 4. Bot authors (dependabot[bot], github-actions[bot]) are already in the
+#    allowlist below for the signature check only; that exemption does not
+#    enable auto-merge. Dependabot PRs are merged by hand.
+# 5. Enable branch protection requiring the "license/cla" check
 #
 # Lives on public-main (not familychart-dev's main) — recreated here deliberately,
 # not merged over from main. It's pull_request_target-gated, so it only makes
@@ -14,9 +18,12 @@
 
 name: CLA Assistant
 
+# Dormant: manual trigger only, so no runs (failed, skipped or green) appear on
+# the public repo. On activation, replace `workflow_dispatch` with:
+#   pull_request_target:
+#     types: [opened, closed, synchronize, reopened]
 on:
-  pull_request_target:
-    types: [opened, closed, synchronize, reopened]
+  workflow_dispatch:
 
 permissions:
   actions: write
@@ -26,10 +33,17 @@ permissions:
 
 jobs:
   cla:
-    if: ${{ secrets.CLA_ASSISTANT_TOKEN != '' }}
+    # The `secrets` context is not available in a job-level `if` (it makes the
+    # whole workflow file invalid), so the token is mapped to env and checked per
+    # step. Dependabot-triggered runs get Dependabot secrets, not these, and
+    # never need to sign, so skip them outright.
+    if: ${{ github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
+    env:
+      CLA_TOKEN: ${{ secrets.CLA_ASSISTANT_TOKEN }}
     steps:
       - name: CLA Assistant
+        if: ${{ env.CLA_TOKEN != '' }}
         uses: contributor-assistant/github-action@v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
