@@ -120,11 +120,6 @@ export function resolveAllAppSettingsForAdmin(db: Database.Database): AdminResol
     .filter((row): row is AdminResolvedSetting => row != null)
 }
 
-/** @deprecated Use resolveAllAppSettingsForAdmin in admin routes. */
-export function resolveAllAppSettings(db: Database.Database): ResolvedSetting[] {
-  return Object.keys(APP_SETTINGS_REGISTRY).map(key => resolveSetting(db, key))
-}
-
 export function validateRegistryEnvAtBoot(): void {
   validateNextAuthSecretAtBoot()
   for (const entry of Object.values(APP_SETTINGS_REGISTRY)) {

@@ -1,10 +1,10 @@
 # ADR-0006: Environment variable inventory (ecosystem reconciliation)
 
-**Status:** Accepted (2026-07-03)
+**Status:** Accepted (2026-07-03). Amended for 1.1.0: the deprecated aliases (`ENABLED_AUTH_PROVIDERS`, `NEXTAUTH_USE_SECURE_COOKIES`, `PUSH_OVERDUE_HOURS`, `DB_ENCRYPTION_KEY`) are removed and no longer honoured, and `CRON_SECRET` is required for external cron callers (`GET /api/cron` returns 401 without it).
 
 ## Context
 
-Settings architecture (ADR-0001) splits configuration into env-only, registry-DB, and out-of-scope. Operators and provisioners need a single reconciled inventory across ecosystem repos. Wave 6 grilling (2026-07-03) settled `BEHIND_REVERSE_PROXY`, VAPID keys in registry, and Entra boot-seed behaviour.
+Settings architecture (ADR-0001) splits configuration into env-only, registry-DB, and out-of-scope. Operators and provisioners need a single reconciled inventory across ecosystem repos. Wave 6 grilling (2026-07-03) settled `BEHIND_REVERSE_PROXY`, VAPID keys in registry, and Entra enablement as a registry setting (`FC_AUTH_ENTRA_ENABLED`).
 
 ## Classification key
 
@@ -22,27 +22,26 @@ Settings architecture (ADR-0001) splits configuration into env-only, registry-DB
 |----------|-------|-------|
 | `NEXTAUTH_SECRET` | env-only | Session encryption; boot validation |
 | `NEXTAUTH_URL` | env-only | Public URL / OAuth callbacks |
-| `BEHIND_REVERSE_PROXY` | env-only | Unified reverse-proxy mode: host trust, cookie Secure, XFF enablement |
+| `BEHIND_REVERSE_PROXY` | env-only | Unified reverse-proxy mode: host trust and XFF enablement ([ADR-0007](0007-reverse-proxy-mode.md)) |
 | `TRUST_PROXY_DEPTH` | env-only | Trusted XFF hop count when behind proxy; default `1`; managed provisioner sets `2` |
-| `NEXTAUTH_USE_SECURE_COOKIES` | deprecated | Derive from `!BEHIND_REVERSE_PROXY`; legacy `false` implies behind proxy |
-| `ENABLED_AUTH_PROVIDERS` | deprecated | Boot-seeds `auth.entra.enabled` once; credentials always on |
+| `FC_AUTH_ENTRA_ENABLED` | registry-DB | `auth.entra.enabled` (`true` or `false`, default `false`); group env-lock `auth.entra`. Local credentials stay available. |
 | `AUTH_MICROSOFT_ENTRA_ID_ID` | registry-DB | `auth.entra.client_id`; group env-lock `auth.entra` |
 | `AUTH_MICROSOFT_ENTRA_ID_SECRET` | registry-DB | `auth.entra.client_secret` (secret) |
 | `AUTH_MICROSOFT_ENTRA_ID_TENANT_ID` | registry-DB | `auth.entra.tenant_id` |
 | `ENTRA_GROUP_*` | env-only | RBAC group Object IDs; not tenant settings |
 | `ENTRA_SESSION_MAX_AGE_MINUTES` | env-only | Entra session absolute lifetime |
 | `DB_PATH` | env-only | SQLite path |
+| `FC_RESTORE_MAX_UPLOAD_MB` | env-only | Largest restore upload in megabytes; default 512. A reverse proxy must allow at least this body size (`client_max_body_size`). Managed hosting sets about 95 because its edge accepts at most 100 MB. |
 | `FC_PLATFORM_PROFILE` | env-only | `managed` \| `demo`; provisioner-set (ADR-0004, ADR-0005) |
 | `DEMO_MODE` | env-only | Platform demo; requires `FC_PLATFORM_PROFILE=demo` |
 | `VAPID_SUBJECT` | registry-DB | `push.vapid_subject` |
 | `VAPID_PUBLIC_KEY` | registry-DB | `push.vapid_public_key`; env wins (managed provisioner) |
 | `VAPID_PRIVATE_KEY` | registry-DB | `push.vapid_private_key` (secret) |
 | `CRON_MODE` | env-only | `internal` vs external scheduler |
-| `CRON_SECRET` | env-only | External cron auth |
+| `CRON_SECRET` | env-only | External cron auth; required for external cron (not used with `CRON_MODE=internal`) |
 | `FC_DEFAULT_TIMEZONE` | registry-DB | `locale.default_timezone` — **implemented** |
 | `FC_MEASUREMENT_SYSTEM` | registry-DB | `locale.measurement_system` (`metric` \| `imperial`) — **implemented** |
 | `FC_SCHEDULE_*` | registry-DB | `schedule.*` — **implemented** |
-| `PUSH_OVERDUE_HOURS` | registry-DB | Legacy alias for overdue offset — **implemented** |
 | `FC_MFA_REQUIRED` | registry-DB | `security.mfa_required` — **implemented** |
 | `FC_PASSWORD_MIN_LENGTH` | registry-DB | `security.password_min_length` — **implemented** |
 | `FC_SMTP_HOST` etc. | registry-DB | Self-host `email.smtp.*` only — **implemented** |

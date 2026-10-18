@@ -2,11 +2,17 @@
 
 "use client"
 
+import AuthenticatorEnrolment from "@/components/AuthenticatorEnrolment"
 import { useState } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { signIn } from "next-auth/react"
-import { mainContentTargetProps } from "@/lib/a11y"
+import AuthShell, { AuthCard, PasswordField } from "@/components/AuthShell"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { Input } from "@/components/ui/controls"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import FormField from "@/components/ui/FormField"
+import PageContainer from "@/components/ui/PageContainer"
 import { useTokenFromFragment } from "@/lib/use-token-fragment"
 import { useMfaEnrollment } from "@/lib/use-mfa-enrollment"
 
@@ -16,8 +22,8 @@ interface TokenPasswordFormProps {
   passwordMinLength: number
   heading: string
   subheading: string
-  /** Shown when the URL fragment has no token, or the server rejects it. */
-  invalidTokenMessage: string
+  /** What the link is called in the dead-end screen shown when the URL has no token: "invite link" or "reset link". */
+  linkNoun: "invite link" | "reset link"
   submitLabel: string
   submittingLabel: string
 }
@@ -40,7 +46,7 @@ export default function TokenPasswordForm({
   passwordMinLength,
   heading,
   subheading,
-  invalidTokenMessage,
+  linkNoun,
   submitLabel,
   submittingLabel,
 }: TokenPasswordFormProps) {
@@ -128,146 +134,96 @@ export default function TokenPasswordForm({
 
   if (!token) {
     return (
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue flex flex-col items-center justify-center gap-4 px-6 text-center">
-        <p className="text-white text-sm max-w-md">{invalidTokenMessage}</p>
-      </main>
+      <>
+        <PageContainer>
+          <EmptyState
+            icon={EMPTY_STATE_ICONS.invalidLink}
+            heading={`This ${linkNoun} isn't valid`}
+            action={<Button href="/login">Back to sign in</Button>}
+          >
+            It may have expired or already been used. Ask your administrator to send a new one.
+          </EmptyState>
+        </PageContainer>
+      </>
     )
   }
 
   if (signInFailed) {
     return (
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue flex flex-col items-center justify-center gap-4 px-6 text-center">
-        <p className="text-white text-sm max-w-md">
-          Your password was set, but automatic sign-in failed. Please sign in with your new password.
-        </p>
-        <Link href="/login" className="text-white text-sm underline">
-          Go to sign in
-        </Link>
-      </main>
+      <>
+        <AuthShell heading="Password set">
+          <AuthCard>
+            <Banner kind="warning">
+              Your password was set, but automatic sign-in failed. Please sign in with your new password.
+            </Banner>
+            <Button href="/login" fullWidth>Go to sign in</Button>
+          </AuthCard>
+        </AuthShell>
+      </>
     )
   }
 
   if (needsMfa) {
     return (
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue flex flex-col items-center justify-center gap-6 px-6 py-10">
-        <div className="w-full max-w-md flex flex-col gap-3">
-          <h2 className="text-white font-bold text-xl text-center mb-1">Set up an authenticator</h2>
-          <p className="text-white text-sm text-center mb-2">
-            This instance requires a second sign-in step. Set it up now before continuing.
-          </p>
-
-          {mfa.error && (
-            <div className="w-full bg-red-500/20 border border-red-400/40 rounded-xl px-4 py-3 text-white text-sm text-center">
-              {mfa.error}
-            </div>
-          )}
-
+      <>
+        <AuthShell
+          heading="Set up an authenticator"
+          subheading="This instance requires a second sign-in step. Set it up now before continuing."
+        >
           {!mfa.otpauth ? (
-            <form onSubmit={mfa.start} className="flex flex-col gap-3">
-              <input
-                type="password"
+            <AuthCard onSubmit={mfa.start}>
+              {mfa.error && <Banner kind="error">{mfa.error}</Banner>}
+              <PasswordField
+                label="Current password"
                 value={mfa.password}
-                onChange={e => mfa.setPassword(e.target.value)}
-                placeholder="Confirm your password"
-                required
+                onChange={mfa.setPassword}
                 autoComplete="current-password"
-                className="bg-white/10 border border-white/20 text-white placeholder:text-white
-                           rounded-xl px-4 py-3 w-full outline-none focus:border-white/50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-fc-blue"
               />
-              <button
-                type="submit"
-                disabled={mfa.busy}
-                className="w-full bg-white text-fc-blue font-bold text-lg py-4 px-6 rounded-xl shadow-md
-                           hover:bg-gray-100 active:bg-gray-200 transition-colors disabled:opacity-50"
-              >
-                {mfa.busy ? "Please wait…" : "Set up authenticator"}
-              </button>
-            </form>
+              <Button type="submit" fullWidth pending={mfa.busy} pendingLabel="Please wait…">Set up authenticator</Button>
+            </AuthCard>
           ) : (
-            <form onSubmit={mfa.confirm} className="flex flex-col gap-4">
-              {mfa.qr && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={mfa.qr}
-                  alt="QR code"
-                  className="w-48 h-48 mx-auto bg-white rounded-lg p-2 border border-white/20"
+            <AuthCard onSubmit={mfa.confirm}>
+              {mfa.error && <Banner kind="error">{mfa.error}</Banner>}
+              <AuthenticatorEnrolment qr={mfa.qr} otpauth={mfa.otpauth} />
+              <FormField label="Authenticator code" hint="6 digits.">
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={mfa.code}
+                  onChange={e => mfa.setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  required
                 />
-              )}
-              <p className="text-white text-xs text-center break-all">
-                Or open this link on your phone:{" "}
-                <a href={mfa.otpauth ?? "#"} className="text-white underline font-medium">
-                  Add to authenticator
-                </a>
-              </p>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={mfa.code}
-                onChange={e => mfa.setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="6-digit code"
-                required
-                className="bg-white/95 border border-white/30 text-gray-900 rounded-xl px-4 py-3 w-full
-                           outline-none focus:border-white/50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-fc-blue text-center tracking-widest"
-              />
-              <button
-                type="submit"
-                disabled={mfa.busy}
-                className="w-full bg-white text-fc-blue font-bold text-lg py-4 px-6 rounded-xl shadow-md
-                           hover:bg-gray-100 active:bg-gray-200 transition-colors disabled:opacity-50"
-              >
-                {mfa.busy ? "Confirming…" : "Confirm"}
-              </button>
-            </form>
+              </FormField>
+              <Button type="submit" fullWidth pending={mfa.busy} pendingLabel="Confirming…">Confirm</Button>
+            </AuthCard>
           )}
-        </div>
-      </main>
+        </AuthShell>
+      </>
     )
   }
 
   return (
-    <main {...mainContentTargetProps} className="flex-1 bg-fc-blue flex flex-col items-center justify-center gap-6 px-6 py-10">
-      <div className="w-full max-w-md flex flex-col gap-3">
-        <h2 className="text-white font-bold text-xl text-center mb-1">{heading}</h2>
-        <p className="text-white text-sm text-center mb-2">{subheading}</p>
-
-        {error && (
-          <div className="w-full bg-red-500/20 border border-red-400/40 rounded-xl px-4 py-3 text-white text-sm text-center">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <input
-            type="password"
+    <>
+      <AuthShell heading={heading} subheading={subheading}>
+        <AuthCard onSubmit={handleSubmit}>
+          {error && <Banner kind="error">{error}</Banner>}
+          <PasswordField
+            label="Password"
             value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder={`Password (min. ${passwordMinLength} characters)`}
-            required
+            onChange={setPassword}
+            hint={`At least ${passwordMinLength} characters.`}
             autoComplete="new-password"
             minLength={passwordMinLength}
-            className="bg-white/10 border border-white/20 text-white placeholder:text-white
-                       rounded-xl px-4 py-3 w-full outline-none focus:border-white/50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-fc-blue"
           />
-          <input
-            type="password"
+          <PasswordField
+            label="Confirm password"
             value={confirmPassword}
-            onChange={e => setConfirmPassword(e.target.value)}
-            placeholder="Confirm password"
-            required
+            onChange={setConfirmPassword}
             autoComplete="new-password"
-            className="bg-white/10 border border-white/20 text-white placeholder:text-white
-                       rounded-xl px-4 py-3 w-full outline-none focus:border-white/50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-fc-blue"
           />
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full bg-white text-fc-blue font-bold text-lg py-4 px-6 rounded-xl shadow-md
-                       hover:bg-gray-100 active:bg-gray-200 transition-colors disabled:opacity-50"
-          >
-            {busy ? submittingLabel : submitLabel}
-          </button>
-        </form>
-      </div>
-    </main>
+          <Button type="submit" fullWidth pending={busy} pendingLabel={submittingLabel}>{submitLabel}</Button>
+        </AuthCard>
+      </AuthShell>
+    </>
   )
 }

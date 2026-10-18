@@ -10,8 +10,12 @@ import {
   formatAlertItem,
 } from "@/lib/dashboard/dashboard-status"
 import { evaluateAlertReadiness } from "@/lib/alert-readiness"
+import { buildMedicationTimelines } from "@/lib/dashboard/dashboard-medication-timeline"
+import { listDashboardMissedSlots } from "@/lib/dashboard/dashboard-missed-slots"
 import {
   buildObservationIssues,
+  buildOpenSymptomIssues,
+  buildPendingDoseExpectationIssues,
   buildPrnFrequencyIssues,
   buildScheduledMedicationIssues,
   type DashboardIssueScheduleContext,
@@ -19,6 +23,7 @@ import {
 import { addCalendarDaysToIsoYmd } from "@/lib/datetime"
 import type { ObservationGoal, Person } from "@/lib/domain-types"
 import { createHydrationEvaluator } from "@/lib/hydration/hydration-evaluate"
+import { listOpenSymptomPrompts } from "@/lib/symptoms/open-symptom-prompts"
 import { hydrationPacingAlertCopy } from "@/lib/hydration/hydration-pacing-copy"
 
 export type DashboardPersonStatusContext = {
@@ -51,10 +56,15 @@ export function evaluateDashboardPersonStatus(
   }
 
   const facts = evaluateAlertReadiness(db, people, now.getTime(), calCtx)
+  const timelinesByPerson = buildMedicationTimelines(db, people, now, calCtx)
+  const missedByPerson = listDashboardMissedSlots(db, people.map(p => p.id), now.getTime(), calCtx)
   const medIdToName = new Map<number, string>()
   for (const slot of facts.scheduledSlots) medIdToName.set(slot.medicationId, slot.medicationName)
   for (const slot of facts.prnBlockedSlots) medIdToName.set(slot.medicationId, slot.medicationName)
   for (const flag of facts.prnFlags) medIdToName.set(flag.medicationId, flag.medicationName)
+  for (const pending of facts.pendingDoseExpectations) medIdToName.set(pending.medicationId, pending.medicationName)
+
+  const openSymptomPrompts = listOpenSymptomPrompts(db, people.map(p => p.id), { ymd: localTodayYmd, offsetMinutes: tzOffsetMinutes })
 
   const hydrationGoalRows =
     people.length > 0
@@ -80,6 +90,8 @@ export function evaluateDashboardPersonStatus(
       ...buildScheduledMedicationIssues(person, facts),
       ...buildPrnFrequencyIssues(person, facts, issueSched),
       ...buildObservationIssues(person, facts),
+      ...buildPendingDoseExpectationIssues(person, facts),
+      ...buildOpenSymptomIssues(person, openSymptomPrompts),
     ])
 
     issues.sort(compareDashboardIssues)
@@ -112,7 +124,8 @@ export function evaluateDashboardPersonStatus(
           sub: hydrationAlert.sub,
         },
       })
-      if (status === "green") status = "amber"
+      // Amber outranks a Notice-only Person too, not just an all-clear one.
+      if (status === "green" || status === "notice") status = "amber"
     }
 
     const summary =
@@ -131,6 +144,8 @@ export function evaluateDashboardPersonStatus(
       summary,
       alerts,
       hydration,
+      medicationTimeline: timelinesByPerson.get(pid) ?? [],
+      missedSlots: missedByPerson.get(pid) ?? [],
     })
   }
 

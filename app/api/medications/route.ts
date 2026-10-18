@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { NextRequest, NextResponse } from "next/server"
-import { requireRead, requireWrite } from "@/lib/auth/auth-helpers"
+import { requireAuth, requireRead } from "@/lib/auth/auth-helpers"
 import { rejectDemoProfanity } from "@/lib/demo/demo-profanity-guard"
 import { getDb } from "@/lib/db"
 import { auditLog } from "@/lib/audit-log"
 import type { Medication } from "@/lib/domain-types"
 import { fractionalAgeYears } from "@/lib/person/person-age"
 import { resolveAgeTimezone } from "@/lib/instance-timezone"
-import { canManage, canReadForPerson } from "@/lib/permissions"
+import { canManage, canReadForPerson, canWrite, canWriteForPerson } from "@/lib/permissions"
 import { loadMedicationDoseState, doseSliceFromMaps } from "@/lib/medication/medication-dose-state"
 import { parseScheduleTimesJson } from "@/lib/schedule/schedule-recurrence"
-import { resolveCalendarContext } from "@/lib/calendar-context"
 
 interface MedGroup { id: number; name: string }
 
@@ -116,11 +115,6 @@ export async function GET(request: NextRequest) {
         schedule_frequency: sched?.schedule_frequency ?? null,
         schedule_start_date: sched?.schedule_start_date ?? null,
         schedule_end_date: sched?.schedule_end_date ?? null,
-        // Server-resolved (incl. DB-backed instance-IANA fallback) so the client never
-        // has to replicate resolveEffectiveIanaTz itself for its suppression-checkbox preview.
-        schedule_calendar_context: sched
-          ? resolveCalendarContext(db, sched.schedule_tz, Date.now(), request)
-          : null,
       }
     }))
   }
@@ -173,9 +167,6 @@ export async function GET(request: NextRequest) {
         schedule_frequency: sched?.schedule_frequency ?? null,
         schedule_start_date: sched?.schedule_start_date ?? null,
         schedule_end_date: sched?.schedule_end_date ?? null,
-        schedule_calendar_context: sched
-          ? resolveCalendarContext(db, sched.schedule_tz, Date.now(), request)
-          : null,
       }
     }))
   }
@@ -196,21 +187,30 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireWrite()
+  const authResult = await requireAuth()
   if (authResult instanceof NextResponse) return authResult
   const { session, groups } = authResult
   const body = await request.json()
-  const { name, default_dosage, dosage_unit, notes, min_age_years, max_age_years } = body
+  const { name, default_dosage, dosage_unit, notes, min_age_years, max_age_years, person_id } = body
+  const db = getDb()
+  // A bare catalogue row is a ReadWrite capability. An Account that can write only its own Person (a
+  // Personal-link Account of any Household Role) may also create one while recording for that Person.
+  const personId = Number.isInteger(person_id) ? (person_id as number) : null
+  const forPerson = personId == null
+    ? null
+    : (db.prepare("SELECT account_uid FROM people WHERE id = ? AND is_active = 1").get(personId) as { account_uid: string | null } | undefined)
+  if (!canWrite(groups) && !(forPerson && canWriteForPerson(groups, session.user, forPerson.account_uid))) {
+    return NextResponse.json({ error: "Ask a Manager or Administrator to add this medication." }, { status: 403 })
+  }
   if (!name?.trim()) return NextResponse.json({ error: "Name is required" }, { status: 400 })
   const profanity = await rejectDemoProfanity(name, notes)
   if (profanity) return profanity
-  const db = getDb()
   const existing = db.prepare("SELECT * FROM medications WHERE name = ? COLLATE NOCASE").get(name.trim()) as Medication | undefined
   if (existing) return NextResponse.json(existing)
   const result = db.prepare(
     "INSERT INTO medications (name, default_dosage, dosage_unit, notes, min_age_years, max_age_years) VALUES (?, ?, ?, ?, ?, ?)"
   ).run(name.trim(), default_dosage ?? null, dosage_unit ?? "Tabs",
         notes ?? null, min_age_years ?? null, max_age_years ?? null)
-  auditLog(db, session.user?.email, "CREATE", "medications", Number(result.lastInsertRowid), { name })
+  auditLog(db, session.user?.email, "CREATE", "medications", Number(result.lastInsertRowid), { name, ...(forPerson ? { person_id: personId } : {}) })
   return NextResponse.json(db.prepare("SELECT * FROM medications WHERE id = ?").get(result.lastInsertRowid), { status: 201 })
 }

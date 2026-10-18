@@ -4,7 +4,7 @@
 
 ## Context
 
-Operators behind NPM, Cloudflare, or similar had to set `NEXTAUTH_USE_SECURE_COOKIES` separately from rate-limiter XFF handling (`TRUST_PROXY_DEPTH`). The original `TRUST_PROXY` boolean was never implemented.
+Operators behind NPM, Cloudflare, or similar previously maintained separate toggles for Auth.js cookie behaviour and rate-limiter XFF handling (`TRUST_PROXY_DEPTH`). The original `TRUST_PROXY` boolean was never implemented.
 
 ## Decision
 
@@ -39,10 +39,9 @@ Separate env var — a security uplift from a prior audit, not folded into the b
 - Managed hosting sets `2` (two trusted proxy hops between the browser and the app)
 - Ignored when `BEHIND_REVERSE_PROXY` is not `true`
 
-### Migration
+### Migration (complete)
 
-- `NEXTAUTH_USE_SECURE_COOKIES=false` implies `BEHIND_REVERSE_PROXY=true` when the new var is unset (one release).
-- Remove `NEXTAUTH_USE_SECURE_COOKIES` from operator documentation.
+One-release legacy shims that inferred proxy mode from deprecated cookie env vars were removed in 1.1.0. Operators set `BEHIND_REVERSE_PROXY` explicitly; session cookie `Secure` is independent ([Cookie `Secure` flag](#cookie-secure-flag-superseded) above).
 
 ## Implementation
 

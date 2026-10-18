@@ -60,23 +60,3 @@ export function parseClientNow(request: NextRequest): Date {
   }
   return new Date()
 }
-
-/**
- * Server-authoritative local calendar day for the effective IANA zone (row → instance),
- * or the process-local civil date when no IANA is configured.
- *
- * Never reads client day/clock headers — used to gate writes that must only apply to
- * "today" (e.g. `suppressNextSlot`) so forged `x-fc-client-now` / `x-fc-local-today`
- * cannot plant future-day suppressions.
- */
-export function serverAuthoritativeLocalYmd(
-  db: Database.Database,
-  rowTz: string | null | undefined,
-  nowMs: number,
-): string {
-  const ianaTz = resolveEffectiveIanaTz(rowTz, db)
-  if (ianaTz) {
-    return tzLocalYmdAndOffset(nowMs, ianaTz).ymd
-  }
-  return localDateToIsoYmd(new Date(nowMs))
-}

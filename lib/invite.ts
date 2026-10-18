@@ -2,6 +2,10 @@
 
 import crypto from "node:crypto"
 import type Database from "better-sqlite3-multiple-ciphers"
+import { VALID_ROLES } from "@/lib/account/account-roles"
+import { isNoneRole } from "@/lib/account/none-role"
+import { isLastLocalAdmin } from "@/lib/account/last-local-admin"
+import { isInviteLive, type InviteLifecycleFields } from "@/lib/account/invite-status"
 import { formatLocalAccountUid, parseLocalAccountUid } from "@/lib/account/account-uid"
 import { isEmailTakenByAnyAccount } from "@/lib/local-account-gate"
 import { isPeopleAccountUidConstraintError } from "@/lib/people-user-uid"
@@ -67,35 +71,6 @@ function buildInviteEmail(
   }
 }
 
-interface InviteLifecycleFields {
-  status: string
-  invite_expires_at: string | null
-  invite_revoked_at: string | null
-}
-
-/**
- * Single encoding of Invite liveness (see CONTEXT.md "Invite"): the one place `linkable`
- * (list and create), the dead-Invite link guard, and display status all read from, so they
- * cannot diverge the way three separate encodings could before this module existed.
- */
-function isInviteLive(row: InviteLifecycleFields, nowMs: number): boolean {
-  if (row.status !== "invited") return false
-  if (row.invite_revoked_at != null) return false
-  if (row.invite_expires_at == null) return false
-  return new Date(row.invite_expires_at).getTime() > nowMs
-}
-
-export type AccountInviteDisplayStatus = "active" | "invited" | "expired" | "revoked"
-
-export function accountInviteDisplayStatus(
-  row: InviteLifecycleFields,
-  nowMs: number = Date.now(),
-): AccountInviteDisplayStatus {
-  if (row.status !== "invited") return "active"
-  if (row.invite_revoked_at != null) return "revoked"
-  return isInviteLive(row, nowMs) ? "invited" : "expired"
-}
-
 export const DEAD_INVITE_LINK_ERROR = "This invite has expired or been revoked and can't be linked"
 
 /**
@@ -131,7 +106,7 @@ export type AdminInviteRow = Pick<
   | "invite_expires_at"
   | "invite_revoked_at"
   | "created_at"
-> & { mfa_enrolled: number; linkable: number }
+> & { mfa_enrolled: number; linkable: number; last_local_admin: number; has_personal_link: number }
 
 /**
  * Every Account, with `linkable` (0/1, for the manual Personal-link dropdown) computed via
@@ -146,10 +121,16 @@ export function listInvitesForAdmin(db: Database.Database, nowMs: number = Date.
          CASE WHEN totp_secret IS NOT NULL AND totp_secret != '' THEN 1 ELSE 0 END AS mfa_enrolled
        FROM accounts ORDER BY email`,
     )
-    .all() as Omit<AdminInviteRow, "linkable">[]
+    .all() as Omit<AdminInviteRow, "linkable" | "last_local_admin" | "has_personal_link">[]
+  const linked = new Set(
+    (db.prepare("SELECT account_uid FROM people WHERE account_uid IS NOT NULL").all() as { account_uid: string }[])
+      .map(row => row.account_uid),
+  )
   return rows.map(row => ({
     ...row,
     linkable: row.status !== "invited" || isInviteLive(row, nowMs) ? 1 : 0,
+    last_local_admin: isLastLocalAdmin(db, row.id) ? 1 : 0,
+    has_personal_link: linked.has(row.auth_method === "local" ? `local:${row.id}` : (row.external_id ?? "")) ? 1 : 0,
   }))
 }
 
@@ -159,6 +140,10 @@ export interface CreateInviteInput {
   personAction: "link" | "create" | "none"
   personId?: number
   personName?: string
+  can_report?: number
+  is_active?: number
+  /** Restore may link a Person that was imported inactive; admin invites still require active. */
+  allowInactivePersonLink?: boolean
 }
 
 export type CreatedInviteAccount = Pick<
@@ -173,7 +158,24 @@ export type CreateInviteResult =
       token: string
       mail: { to: string; subject: string; text: string; html: string }
     }
-  | { ok: false; reason: "email_taken" | "person_not_found" | "person_already_linked" }
+  | { ok: false; reason: InviteInputProblem | "email_taken" | "person_not_found" | "person_already_linked" }
+
+export type InviteInputProblem = "invalid_role" | "invalid_can_report" | "none_role_needs_person"
+
+/**
+ * The role, report-flag and Personal-link rules every invite must satisfy, whoever mints it
+ * (the invite route, Restore). `null` when the input is acceptable.
+ */
+export function inviteInputProblem(
+  input: Pick<CreateInviteInput, "role" | "personAction" | "can_report">,
+): InviteInputProblem | null {
+  if (typeof input.role !== "string" || !VALID_ROLES.has(input.role)) return "invalid_role"
+  if (input.can_report !== undefined && input.can_report !== 0 && input.can_report !== 1) {
+    return "invalid_can_report"
+  }
+  if (isNoneRole(input.role) && input.personAction === "none") return "none_role_needs_person"
+  return null
+}
 
 /** Thrown inside the create-invite transaction when the person-link re-check fails; rolls
  * back the transaction (including the just-inserted account row). */
@@ -190,7 +192,19 @@ export function createInvite(
   input: CreateInviteInput,
   { origin, inviter, nowMs = Date.now() }: { origin: string; inviter: AppUser; nowMs?: number },
 ): CreateInviteResult {
-  const { email, role, personAction, personId, personName } = input
+  const {
+    email,
+    role,
+    personAction,
+    personId,
+    personName,
+    can_report: requestedCanReport,
+    is_active: requestedIsActive,
+    allowInactivePersonLink = false,
+  } = input
+
+  const problem = inviteInputProblem(input)
+  if (problem) return { ok: false, reason: problem }
 
   if (isEmailTakenByAnyAccount(db, email)) {
     return { ok: false, reason: "email_taken" }
@@ -199,7 +213,11 @@ export function createInvite(
   let linkPerson: Person | undefined
   if (personAction === "link") {
     linkPerson = db
-      .prepare("SELECT * FROM people WHERE id = ? AND is_active = 1")
+      .prepare(
+        allowInactivePersonLink
+          ? "SELECT * FROM people WHERE id = ?"
+          : "SELECT * FROM people WHERE id = ? AND is_active = 1",
+      )
       .get(personId) as Person | undefined
     if (!linkPerson) return { ok: false, reason: "person_not_found" }
     if (linkPerson.account_uid != null) return { ok: false, reason: "person_already_linked" }
@@ -207,6 +225,8 @@ export function createInvite(
 
   const { token, tokenHash } = generateInviteToken()
   const inviteExpiresAt = new Date(nowMs + INVITE_EXPIRY_MS).toISOString()
+  const canReport = requestedCanReport ?? 0
+  const isActive = requestedIsActive ?? 1
 
   let accountId: number
   try {
@@ -214,10 +234,10 @@ export function createInvite(
       .transaction((): number => {
         const result = db
           .prepare(
-            `INSERT INTO accounts (email, role, status, auth_method, invite_token_hash, invite_expires_at)
-             VALUES (?, ?, 'invited', 'local', ?, ?)`,
+            `INSERT INTO accounts (email, role, status, auth_method, invite_token_hash, invite_expires_at, can_report, is_active)
+             VALUES (?, ?, 'invited', 'local', ?, ?, ?, ?)`,
           )
-          .run(email, role, tokenHash, inviteExpiresAt)
+          .run(email, role, tokenHash, inviteExpiresAt, canReport, isActive)
         const newId = Number(result.lastInsertRowid)
         // Freshly minted `local:<newId>` can never already be in use — no pre-check needed;
         // the partial unique index on people.account_uid is the real guard (caught below).
@@ -418,8 +438,8 @@ export type ClaimInviteForEntraResult = { claimed: true; accountId: number } | {
  * `people.account_uid = 'local:<id>'`, set under the assumption the invitee would accept via
  * the local-password path. Claiming via Entra instead changes what that accounts row *is* —
  * its session identity becomes the raw oid (`lib/auth.ts` sets `token.sub = p.oid` for Entra
- * sessions), not `'local:<id>'` — so the link is repointed here or the Person's
- * personal-link access breaks silently and permanently.
+ * sessions), not `'local:<id>'` — so the Person link, Favourites and per-user settings
+ * are repointed here or they stay on an id the session no longer uses.
  *
  * Does not write the audit log — the caller (the Entra Account orchestrator) owns that, since
  * it also owns the auto-create path this sits beside.
@@ -444,10 +464,21 @@ export function claimInviteForEntra(db: Database.Database, profile: EntraProfile
         )
         .run(profile.oid, invited.id)
       if (updated.changes === 0) return false
-      db.prepare("UPDATE people SET account_uid = ? WHERE account_uid = ?").run(
-        profile.oid,
-        formatLocalAccountUid(invited.id),
-      )
+      const fromUid = formatLocalAccountUid(invited.id)
+      db.prepare("UPDATE people SET account_uid = ? WHERE account_uid = ?").run(profile.oid, fromUid)
+      // Some unit-test databases create only the tables that case needs.
+      const hasTable = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?")
+      for (const [table, column] of [
+        ["push_endpoints", "user_uid"],
+        ["favourites", "user_uid"],
+        ["user_settings", "user_uid"],
+        ["user_app_state", "user_uid"],
+        ["person_notification_prefs", "user_uid"],
+        ["notification_log", "recipient_user_id"],
+      ] as const) {
+        if (!hasTable.get(table)) continue
+        db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(profile.oid, fromUid)
+      }
       return true
     })
     .immediate()

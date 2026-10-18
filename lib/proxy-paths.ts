@@ -20,6 +20,16 @@ export function isSessionExemptPage(pathname: string): boolean {
     pathname === "/setup" ||
     pathname === "/reset-password" ||
     pathname === "/accept-invite" ||
+    pathname === "/account-removed" ||
     pathname === "/api/accounts/invites/accept"
   )
+}
+
+/**
+ * Pages an authenticated administrator may open before `setup_complete`.
+ * The restore screen is one of them so the wizard's Person step can open it
+ * without adding a wizard step. Everything else still returns to `/setup`.
+ */
+export function isPageAllowedBeforeSetupComplete(pathname: string): boolean {
+  return pathname === "/setup" || pathname === "/admin/export"
 }

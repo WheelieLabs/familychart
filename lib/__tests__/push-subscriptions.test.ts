@@ -150,6 +150,14 @@ describe("pushSubscriberStillAuthorised", () => {
     expect(pushSubscriberStillAuthorised(db, "oid-unknown", 3)).toBe(true)
   })
 
+  it("keeps delivering to an ok Entra row whose groups_json is still null", () => {
+    db.prepare(
+      `INSERT INTO auth_revalidation_status (provider, external_id, status, last_checked_at, groups_json, updated_at)
+       VALUES ('entra', 'oid-unpolled', 'ok', NULL, NULL, ?)`,
+    ).run(Date.now() - 48 * 60 * 60 * 1000)
+    expect(pushSubscriberStillAuthorised(db, "oid-unpolled", 3)).toBe(true)
+  })
+
   it("allows personal-link Entra OID with empty groups_json array", () => {
     db.prepare("UPDATE people SET account_uid = 'oid-linked' WHERE id = 3").run()
     db.prepare(

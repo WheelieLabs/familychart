@@ -33,7 +33,7 @@ describe("issueTier", () => {
   })
 
   it("unknown kinds get a safe fallback tier", () => {
-    expect(issueTier("dose_at_max" as DashboardIssueKind)).toBeGreaterThan(0)
+    expect(issueTier("future_issue_kind" as DashboardIssueKind)).toBe(9)
   })
 })
 
@@ -268,5 +268,88 @@ describe("formatAlertItem — short text and type", () => {
   it("passes sort_order through as the index parameter", () => {
     const i = issue({ kind: "prn_cooldown", severity: "amber", medicationId: 1 })
     expect(formatAlertItem(i, 7, 42, MED_MAP).sort_order).toBe(7)
+  })
+})
+
+describe("dose expectation pending issue", () => {
+  const pending = issue({
+    kind: "dose_expectation_pending",
+    severity: "amber",
+    message: "Paracetamol — was the 12:00 dose given away from home?",
+    medicationId: 1,
+    scheduledSlotTime: "12:00",
+    expectation: { expectationId: 7, ymd: "2025-01-15" },
+  })
+
+  it("ranks as an amber alert behind the red safety issues", () => {
+    expect(issueTier("dose_expectation_pending")).toBe(4)
+    const red = issue({ kind: "prn_at_cap", severity: "red", medicationId: 2 })
+    expect([pending, red].sort(compareDashboardIssues)[0]).toBe(red)
+  })
+
+  it("survives dedupe alongside another issue for the same medication", () => {
+    const overdueHome = issue({ kind: "prescription_overdue", severity: "red", medicationId: 1, scheduledSlotTime: "08:00" })
+    const kept = dedupeIssuesBySubject([overdueHome, pending])
+    expect(kept).toHaveLength(2)
+  })
+
+  it("keeps one entry per expectation", () => {
+    const other = { ...pending, expectation: { expectationId: 8, ymd: "2025-01-15" }, scheduledSlotTime: "13:00" }
+    expect(dedupeIssuesBySubject([pending, other])).toHaveLength(2)
+    expect(dedupeIssuesBySubject([pending, { ...pending }])).toHaveLength(1)
+  })
+
+  it("formats neutrally, with inline resolution data and no navigation link", () => {
+    const alert = formatAlertItem(pending, 0, 3, MED_MAP)
+    expect(alert).toEqual(
+      expect.objectContaining({
+        severity: "amber",
+        type: "medication",
+        action_url: null,
+        short: "Paracetamol · 12:00 away from home?",
+        detail: { name: "Paracetamol", sub: "Was the 12:00 dose given away from home?" },
+        resolve: { expectationId: 7, ymd: "2025-01-15" },
+      }),
+    )
+  })
+
+  it("leaves ordinary alerts without resolution data", () => {
+    const alert = formatAlertItem(issue({ kind: "prescription_overdue", medicationId: 1, scheduledSlotTime: "08:00" }), 0, 3, MED_MAP)
+    expect(alert.resolve).toBeUndefined()
+  })
+})
+
+describe("symptom_open_pending (Notice)", () => {
+  const notice = (id: number, label = "Headache") =>
+    issue({
+      kind: "symptom_open_pending", severity: "notice", message: `${label} — open since 2 Oct: still ongoing?`,
+      symptom: { symptomId: id, startYmd: "2026-10-02", label },
+    })
+
+  it("aggregates to notice only when nothing is red or amber", () => {
+    expect(aggregateStatusFromIssues([notice(1)])).toBe("notice")
+    expect(aggregateStatusFromIssues([notice(1), issue({ kind: "prn_cooldown", severity: "amber" })])).toBe("amber")
+    expect(aggregateStatusFromIssues([notice(1), issue({ kind: "prescription_overdue", severity: "red" })])).toBe("red")
+  })
+
+  it("sorts after red and amber issues of any tier", () => {
+    const sorted = [notice(1), issue({ kind: "observation_overdue", severity: "amber" }), issue({ kind: "prescription_overdue" })]
+      .sort(compareDashboardIssues)
+    expect(sorted.map(i => i.severity)).toEqual(["red", "amber", "notice"])
+  })
+
+  it("keeps one item per symptom, so two open symptoms both show", () => {
+    expect(dedupeIssuesBySubject([notice(1, "Headache"), notice(2, "Cough"), notice(1, "Headache")])).toHaveLength(2)
+  })
+
+  it("formats an inline-answerable alert with no navigation", () => {
+    expect(formatAlertItem(notice(7), 0, 1, MED_MAP)).toMatchObject({
+      severity: "notice",
+      type: "symptom",
+      action_url: null,
+      short: "Headache · open since 2 Oct",
+      detail: { name: "Headache", sub: "Open since 2 Oct: still ongoing?" },
+      resolveSymptom: { symptomId: 7, startYmd: "2026-10-02" },
+    })
   })
 })

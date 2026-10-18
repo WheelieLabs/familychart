@@ -5,6 +5,8 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
+import Button from "@/components/ui/Button"
+import Panel from "@/components/ui/Panel"
 
 const STORAGE_KEY = "fc_getting_started_dismissed"
 
@@ -43,54 +45,39 @@ export default function GettingStartedCard({
         : "/"
 
   return (
-    <div className="mx-4 mt-4 mb-2 rounded-xl border border-white/30 bg-white/15 backdrop-blur-sm text-white px-4 py-4 shadow-md">
-      <div className="flex justify-between gap-2 items-start mb-3">
-        <h2 className="font-bold text-lg">Getting started</h2>
-        <button
-          type="button"
-          onClick={dismiss}
-          className="text-white hover:text-white text-sm shrink-0 px-2 py-0.5 rounded-lg hover:bg-white/10"
-          aria-label="Dismiss"
-        >
-          Dismiss
-        </button>
-      </div>
-      <p className="text-sm text-white mb-3">Suggested next steps:</p>
-      <ul className="flex flex-col gap-2 text-sm">
-        {showManagementHints && (
-          <>
-            <li>
-              <Link href="/management/medications?tab=medications" className="font-medium underline underline-offset-2 hover:text-white">
-                Add medications
-              </Link>
-              <span className="text-white"> — build your catalogue and dosing rules</span>
-            </li>
-            <li>
-              <Link href="/management/people" className="font-medium underline underline-offset-2 hover:text-white">
-                Add another person
-              </Link>
-              <span className="text-white"> — for more family members</span>
-            </li>
-          </>
-        )}
-        {!showManagementHints && (
-          <li className="text-white">
-            <span className="text-white">A manager or administrator can add medications, dosing rules, and family members from Management.</span>
-          </li>
-        )}
-        <li>
-          <Link href={obsHref} className="font-medium underline underline-offset-2 hover:text-white">
-            Record an observation
-          </Link>
-          <span className="text-white">
+    <div className="mx-4 mt-4 mb-2">
+      <Panel>
+        <div className="fc-log-head">
+          <h2 className="fc-section-title">Getting started</h2>
+          <Button variant="quiet" onClick={dismiss}>Dismiss</Button>
+        </div>
+        <p className="fc-section-copy">Suggested next steps:</p>
+        <ul className="fc-steps">
+          {showManagementHints && (
+            <>
+              <li>
+                <Link href="/management/medications?tab=medications">Add medications</Link>
+                {" "}— build your catalogue and dosing rules
+              </li>
+              <li>
+                <Link href="/management/people">Add another person</Link>
+                {" "}— for more family members
+              </li>
+            </>
+          )}
+          {!showManagementHints && (
+            <li>A manager or administrator can add medications, dosing rules, and family members from Management.</li>
+          )}
+          <li>
+            <Link href={obsHref}>Record an observation</Link>
             {firstPersonId != null
               ? " — log weight, temperature, and more"
               : showManagementHints
                 ? " — add a person first if you skipped that step"
                 : " — ask a manager to add you or a household member"}
-          </span>
-        </li>
-      </ul>
+          </li>
+        </ul>
+      </Panel>
     </div>
   )
 }

@@ -31,7 +31,7 @@ DELETE actions use `{}` or entity id only.
 
 | Event | Audited? | Where |
 |-------|----------|-------|
-| Account create / invite / role change / deactivate | Yes | `app/api/accounts/invites` (invite CREATE), `app/api/local-users/` (legacy password create), `app/api/accounts/[id]` (role / deactivate); invite accept / revoke / resend and Entra invite-claim also `auditLog` `accounts` |
+| Account create / invite / role change / deactivate | Yes | `app/api/accounts/invites` (invite CREATE), `app/api/accounts/[id]` (role / deactivate); invite accept / revoke / resend and Entra invite-claim also `auditLog` `accounts` |
 | Admin clears MFA on another user | Yes | `app/api/accounts/[id]` (`clear_mfa`) |
 | Self-service password change | Yes | `app/api/me/password` (`password_changed: true`) |
 | Self-service MFA enroll / disable | Yes | `app/api/me/mfa/confirm`, `me/mfa/disable` |
@@ -47,6 +47,7 @@ Future work may add explicit `LOGIN` / `LOGIN_FAILED` rows; that is out of scope
 
 - **People / profile:** name, DOB, linkage metadata — demographic/profile fields, not dose/measurement values.
 - **Import:** counts only (`medication_records`, `observations_created`).
+- **Person export:** counts, scope and format version only (`EXPORT` on `people`). No health-record values.
 - **Observation goals:** threshold configuration (`target_value`), not recorded measurements.
 - **Favourites, medications catalogue, frequency rules, expectations:** configuration and labels only.
 

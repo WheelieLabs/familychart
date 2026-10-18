@@ -3,7 +3,7 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Welcome to FamilyChart",
+  title: "Setup",
   description: "Set up FamilyChart for your household's medications and health observations.",
 }
 

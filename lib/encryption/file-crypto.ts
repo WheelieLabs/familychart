@@ -59,11 +59,13 @@ export function decryptUploadBuffer(blob: Buffer, key: Buffer): Buffer {
 }
 
 /**
- * If blob is FCE1-encrypted, decrypt; otherwise return as legacy plaintext.
- * Callers must only pass `key` when a file key is available.
+ * Decrypt an FCE1 upload. A blob without the FCE1 header is refused.
+ * Callers that store plaintext (encryption mode `none`) must not use this.
  */
 export function readUploadBuffer(blob: Buffer, key: Buffer | null): Buffer {
-  if (!isEncryptedUploadBuffer(blob)) return blob
+  if (!isEncryptedUploadBuffer(blob)) {
+    throw new Error("Not an encrypted upload (missing FCE1 header)")
+  }
   if (!key) {
     throw new Error("Encrypted upload present but file encryption key not available")
   }

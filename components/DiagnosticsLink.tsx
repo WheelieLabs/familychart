@@ -12,7 +12,7 @@ export default function DiagnosticsLink() {
   return (
     <>
       <span aria-hidden="true">·</span>
-      <Link href="/diagnostics" className="underline hover:text-gray-600">
+      <Link href="/diagnostics">
         Diagnostics
       </Link>
     </>

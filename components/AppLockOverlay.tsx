@@ -5,7 +5,13 @@
 import AppFooter from "@/components/AppFooter"
 import AppHeader from "@/components/AppHeader"
 import { useFocusTrap } from "@/components/Modal"
-import { mainContentTargetProps } from "@/lib/a11y"
+import { PasswordField } from "@/components/AuthShell"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { Input } from "@/components/ui/controls"
+import FormField from "@/components/ui/FormField"
+import PageContainer from "@/components/ui/PageContainer"
+import Panel from "@/components/ui/Panel"
 import { parseLocalAccountUid } from "@/lib/account/account-uid"
 import { shouldOfferAppLockOptOut } from "@/lib/app-lock-opt-out"
 import { signIn, signOut } from "next-auth/react"
@@ -16,7 +22,6 @@ import {
   buildGetOptions,
   buildWebAuthnFailureReport,
   clearBiometricCredentialId,
-  clearLegacyBiometricCredentialId,
   describeWebAuthnError,
   getWebAuthnAdapter,
   readBiometricCredentialId,
@@ -42,8 +47,15 @@ type Props = {
 // sooner than either of these.
 const WEBAUTHN_SAFETY_NET_MS = 65_000
 
-/** Query flag marking a return from the Microsoft re-auth started on the lock screen. */
+/** Query flag marking a return from the Microsoft re-auth started on the lock screen. Its value
+ * says what the re-proof was for. */
 const LOCK_SCREEN_OPT_OUT_PARAM = "appLockOptOut"
+const RETURN_FOR_TURN_OFF = "1"
+const RETURN_FOR_RESET = "reset"
+const RETURN_FOR_SETUP = "setup"
+
+/** What the lock screen's re-proof panel does once the server accepts it (ADR-0016). */
+type ReauthPurpose = "turn-off" | "reset" | "setup"
 
 function reportWebAuthnFailure(phase: WebAuthnCeremonyPhase, error: unknown, startedAtMs: number): void {
   const report = buildWebAuthnFailureReport(
@@ -73,11 +85,17 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
   const [didReset, setDidReset] = useState(false)
   const [setupAfterResetFailed, setSetupAfterResetFailed] = useState(false)
   const [optOutStep, setOptOutStep] = useState<"idle" | "confirm" | "reauth">("idle")
+  const [reauthPurpose, setReauthPurpose] = useState<ReauthPurpose>("turn-off")
   const [reauthPassword, setReauthPassword] = useState("")
   const [reauthOtp, setReauthOtp] = useState("")
   const [needsOtp, setNeedsOtp] = useState(false)
   const [reauthErr, setReauthErr] = useState("")
   const [reauthBusy, setReauthBusy] = useState(false)
+  // Set-up on this device needs a server grant too (ADR-0016): a recent sign-in, or re-proof.
+  const [setupGranted, setSetupGranted] = useState(false)
+  const [setupChecked, setSetupChecked] = useState(false)
+  const setupCheckStartedRef = useRef(false)
+  const returnedFromMicrosoftRef = useRef(false)
   const isLocalAccount = parseLocalAccountUid(userId) != null
   const cancelControllerRef = useRef<AbortController | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -232,24 +250,29 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
   // app's control — e.g. Android drops every platform passkey when the
   // device's lock-screen credential changes or biometrics are re-enrolled.
   // get() then rejects instantly, never even reaching the sensor, and no
-  // amount of retrying can succeed. Give a way out of that dead end.
+  // amount of retrying can succeed. Give a way out of that dead end, but only after the
+  // server has accepted a fresh re-proof (ADR-0016): clearing the id opens set-up, and set-up
+  // unlocks, so an unproven reset would let anyone past the device check replace the credential.
   const resetCredential = useCallback((): void => {
     clearBiometricCredentialId(localStorage, userId)
     setStoredId(null)
     setError(null)
     setDidReset(true)
+    setSetupGranted(true)
   }, [userId])
 
   const offerOptOut = shouldOfferAppLockOptOut({ consecutiveFailures, setupAfterResetFailed })
 
-  const requestReauthGrant = useCallback(async (): Promise<boolean> => {
+  const requestReauthGrant = useCallback(async (bodyOverride?: Record<string, unknown>): Promise<boolean> => {
     setReauthBusy(true)
     setReauthErr("")
     try {
       const res = await fetch("/api/me/app-lock/reauth-grant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(isLocalAccount ? { password: reauthPassword, otp: reauthOtp } : {}),
+        body: JSON.stringify(
+          bodyOverride ?? (isLocalAccount ? { password: reauthPassword, otp: reauthOtp } : {}),
+        ),
       })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -264,33 +287,78 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
     }
   }, [isLocalAccount, reauthPassword, reauthOtp])
 
-  const confirmTurnOff = useCallback(async (e: React.FormEvent): Promise<void> => {
+  const finishReauth = useCallback((purpose: ReauthPurpose): void => {
+    if (purpose === "reset") resetCredential()
+    else if (purpose === "setup") setSetupGranted(true)
+    else onDisableAppLock()
+  }, [resetCredential, onDisableAppLock])
+
+  const startReauth = useCallback((purpose: ReauthPurpose): void => {
+    setReauthPurpose(purpose)
+    setReauthErr("")
+    setReauthPassword("")
+    setReauthOtp("")
+    setOptOutStep("reauth")
+  }, [])
+
+  const cancelReauth = useCallback((): void => {
+    setReauthPassword("")
+    setReauthOtp("")
+    setReauthErr("")
+    setOptOutStep("idle")
+  }, [])
+
+  const confirmReauth = useCallback(async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    if (await requestReauthGrant()) onDisableAppLock()
-  }, [requestReauthGrant, onDisableAppLock])
+    if (await requestReauthGrant()) {
+      setOptOutStep("idle")
+      setReauthPassword("")
+      setReauthOtp("")
+      finishReauth(reauthPurpose)
+    }
+  }, [requestReauthGrant, finishReauth, reauthPurpose])
 
   const confirmWithMicrosoft = useCallback((): void => {
     const url = new URL(window.location.href)
-    url.searchParams.set(LOCK_SCREEN_OPT_OUT_PARAM, "1")
+    url.searchParams.set(
+      LOCK_SCREEN_OPT_OUT_PARAM,
+      reauthPurpose === "reset"
+        ? RETURN_FOR_RESET
+        : reauthPurpose === "setup"
+          ? RETURN_FOR_SETUP
+          : RETURN_FOR_TURN_OFF,
+    )
     void signIn(
       "microsoft-entra-id",
       { callbackUrl: url.pathname + url.search },
       { prompt: "login", max_age: "0" },
     )
-  }, [])
+  }, [reauthPurpose])
 
   // Returning from confirmWithMicrosoft's forced-fresh-login redirect: the session now carries
-  // a fresh sign-in time, so finish turning App lock off.
+  // a fresh sign-in time, so finish what the re-proof was for (turning App lock off, or
+  // resetting the credential).
   useEffect(() => {
     const url = new URL(window.location.href)
-    if (url.searchParams.get(LOCK_SCREEN_OPT_OUT_PARAM) !== "1") return
+    const returnedFor = url.searchParams.get(LOCK_SCREEN_OPT_OUT_PARAM)
+    if (
+      returnedFor !== RETURN_FOR_TURN_OFF
+      && returnedFor !== RETURN_FOR_RESET
+      && returnedFor !== RETURN_FOR_SETUP
+    ) return
+    returnedFromMicrosoftRef.current = true
+    const purpose: ReauthPurpose =
+      returnedFor === RETURN_FOR_RESET ? "reset" : returnedFor === RETURN_FOR_SETUP ? "setup" : "turn-off"
     url.searchParams.delete(LOCK_SCREEN_OPT_OUT_PARAM)
     window.history.replaceState(null, "", url.pathname + url.search + url.hash)
     void (async () => {
-      if (await requestReauthGrant()) onDisableAppLock()
-      else setOptOutStep("reauth")
+      if (await requestReauthGrant()) finishReauth(purpose)
+      else {
+        setReauthPurpose(purpose)
+        setOptOutStep("reauth")
+      }
     })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- consume opt-out URL param once on mount
   }, [])
 
   const hasCredential =
@@ -299,6 +367,25 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
     && base64urlToUint8Array(storedId) !== null
 
   const setupMode = storedIdResolved && !hasCredential
+
+  // First set-up (or a cleared-storage / credential-version-bump device) needs the same
+  // server-verified grant as a reset, unless the user password-signed-in recently, which the
+  // server decides. Ask once; if refused, show the re-proof panel instead of the set-up button.
+  useEffect(() => {
+    if (!setupMode || setupGranted || setupCheckStartedRef.current) return
+    setupCheckStartedRef.current = true
+    if (returnedFromMicrosoftRef.current) {
+      setSetupChecked(true)
+      return
+    }
+    void (async () => {
+      const granted = await requestReauthGrant(isLocalAccount ? { recentSignIn: true } : {})
+      setReauthErr("")
+      if (granted) setSetupGranted(true)
+      else startReauth("setup")
+      setSetupChecked(true)
+    })()
+  }, [setupMode, setupGranted, isLocalAccount, requestReauthGrant, startReauth])
 
   // Auto-trigger biometric once the credential check resolves, but only when
   // the page has focus — navigator.credentials.get() throws if it doesn't.
@@ -329,175 +416,122 @@ export default function AppLockOverlay({ userId, onUnlocked, onDisableAppLock }:
       aria-labelledby={titleId}
       aria-live="polite"
     >
-      <h2 id={titleId} className="sr-only">FamilyChart is locked</h2>
+      <h2 id={titleId} className="fc-visually-hidden">FamilyChart is locked</h2>
       <div
         className="flex h-full flex-col overflow-hidden [&>*]:min-h-0"
         style={shellPadding}
       >
         <AppHeader title="FamilyChart" minimal />
-        <main {...mainContentTargetProps} className="fc-surface-app fc-scroll flex min-h-0 flex-1 flex-col">
+        <PageContainer width="narrow">
           {!storedIdResolved ? (
-            <div className="flex flex-1 flex-col justify-center px-4 py-6">
-              <p className="text-center text-sm text-white/90">One moment…</p>
-            </div>
+            <p className="fc-admin-note">One moment…</p>
           ) : (
-            <div className="flex flex-1 flex-col justify-center gap-4 px-4 py-6">
-              <p className="text-center text-sm text-white/90">
-                {unlocking ? "Unlocking…" : "FamilyChart is locked."}
-              </p>
-              {error != null && error !== "" && (
-                <p className="text-center text-sm text-red-300">{error}</p>
-              )}
+            <>
+              <p className="fc-admin-note">{unlocking ? "Unlocking…" : "FamilyChart is locked."}</p>
+              {error != null && error !== "" && <Banner kind="error">{error}</Banner>}
               {unlocking && (
-                <button
-                  type="button"
-                  className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
-                  onClick={cancelCeremony}
-                >
-                  Cancel
-                </button>
+                <Button variant="quiet" onClick={cancelCeremony}>Cancel</Button>
               )}
-              {!unlocking && setupMode && (
-                <button
-                  type="button"
-                  className="mx-auto w-full max-w-xs rounded-xl bg-fc-blue-mid px-4 py-4 text-center text-sm font-bold text-white hover:bg-fc-blue-dark"
-                  onClick={runSetup}
-                >
-                  Set up App lock
-                </button>
+              {!unlocking && setupMode && setupGranted && (
+                <Button fullWidth onClick={runSetup}>Set up App lock</Button>
+              )}
+              {!unlocking && setupMode && !setupGranted && setupChecked && optOutStep === "idle" && (
+                <Button fullWidth onClick={() => startReauth("setup")}>Confirm it&rsquo;s you to set up App lock</Button>
               )}
               {!unlocking && hasCredential && (
-                <button
-                  type="button"
-                  className="mx-auto w-full max-w-xs rounded-xl bg-fc-blue-mid px-4 py-4 text-center text-sm font-bold text-white hover:bg-fc-blue-dark"
-                  onClick={runUnlock}
-                >
+                <Button fullWidth onClick={runUnlock}>
                   {error != null && error !== "" ? "Try again" : "Unlock with your device"}
-                </button>
+                </Button>
               )}
               {!unlocking && hasCredential && error != null && error !== "" && (
-                <button
-                  type="button"
-                  className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
-                  onClick={resetCredential}
-                >
-                  Still not working? Reset and set up again
-                </button>
+                <Button variant="quiet" onClick={() => startReauth("reset")}>Still not working? Reset and set up again</Button>
               )}
               {!unlocking && offerOptOut && optOutStep === "idle" && (
-                <button
-                  type="button"
-                  className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/80 underline hover:text-white"
-                  onClick={() => setOptOutStep("confirm")}
-                >
-                  Turn off App lock on this device
-                </button>
+                <Button variant="quiet" onClick={() => setOptOutStep("confirm")}>Turn off App lock on this device</Button>
               )}
               {!unlocking && optOutStep === "confirm" && (
-                <div className="mx-auto flex w-full max-w-xs flex-col gap-2 rounded-xl bg-white/10 p-3">
-                  <p className="text-sm font-semibold text-white">Turn off App lock on this device?</p>
-                  <p className="text-xs text-white/70">
+                <Panel>
+                  <h3 className="fc-section-title">Turn off App lock on this device?</h3>
+                  <p className="fc-section-copy">
                     Anyone who picks up this device while you&rsquo;re signed in will be able to open
                     FamilyChart and see your household&rsquo;s health records. You&rsquo;ll need to confirm
                     it&rsquo;s you first, and you can turn App lock back on from Profile → Account.
                   </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      className="flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-white/80 underline"
-                      onClick={() => setOptOutStep("idle")}
-                    >
-                      Keep App lock
-                    </button>
-                    <button
-                      type="button"
-                      className="flex-1 rounded-lg bg-white px-3 py-2 text-sm font-bold text-gray-800"
-                      onClick={() => setOptOutStep("reauth")}
-                    >
-                      Continue
-                    </button>
+                  <div className="fc-form-actions">
+                    <Button variant="secondary" onClick={() => setOptOutStep("idle")}>Keep App lock</Button>
+                    <Button onClick={() => startReauth("turn-off")}>Continue</Button>
                   </div>
-                </div>
+                </Panel>
               )}
               {!unlocking && optOutStep === "reauth" && (
-                <div className="mx-auto flex w-full max-w-xs flex-col gap-2 rounded-xl bg-white/10 p-3">
-                  <p className="text-sm text-white/90">Confirm it&rsquo;s you to turn off App lock.</p>
+                <Panel>
+                  <h3 className="fc-section-title">
+                    {reauthPurpose === "reset"
+                      ? "Confirm it’s you to set up App lock again."
+                      : reauthPurpose === "setup"
+                        ? "Confirm it’s you to set up App lock."
+                        : "Confirm it’s you to turn off App lock."}
+                  </h3>
+                  {reauthPurpose === "reset" && (
+                    <p className="fc-section-copy">
+                      Setting up again replaces the App lock on this device, so we need your
+                      {isLocalAccount ? " password" : " Microsoft sign-in"} first. This stops someone else who
+                      can unlock this device from replacing your App lock while you&rsquo;re signed in.
+                    </p>
+                  )}
+                  {reauthPurpose === "setup" && (
+                    <p className="fc-section-copy">
+                      It&rsquo;s been a little while since you signed in, so we need your
+                      {isLocalAccount ? " password" : " Microsoft sign-in"} before setting up App lock on this
+                      device. This stops someone else who can open this device from setting up App lock in your
+                      name.
+                    </p>
+                  )}
                   {isLocalAccount ? (
-                    <form onSubmit={confirmTurnOff} className="flex flex-col gap-2">
-                      <input
-                        type="password"
+                    <form onSubmit={confirmReauth} className="fc-form">
+                      <PasswordField
+                        label="Current password"
                         value={reauthPassword}
-                        onChange={(e) => setReauthPassword(e.target.value)}
-                        required
+                        onChange={setReauthPassword}
                         autoComplete="current-password"
-                        placeholder="Current password"
-                        aria-label="Current password"
-                        className="rounded-lg px-3 py-2 text-sm text-gray-900"
                       />
                       {needsOtp && (
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={reauthOtp}
-                          onChange={(e) => setReauthOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                          required
-                          placeholder="Authenticator code"
-                          aria-label="Authenticator code"
-                          className="rounded-lg px-3 py-2 text-center text-sm tracking-widest text-gray-900"
-                        />
+                        <FormField label="Authenticator code" hint="6 digits.">
+                          <Input
+                            type="text"
+                            inputMode="numeric"
+                            value={reauthOtp}
+                            onChange={(e) => setReauthOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                            required
+                          />
+                        </FormField>
                       )}
-                      {reauthErr && <p className="text-sm text-red-300">{reauthErr}</p>}
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-white/80 underline"
-                          onClick={() => setOptOutStep("idle")}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={reauthBusy}
-                          className="flex-1 rounded-lg bg-white px-3 py-2 text-sm font-bold text-gray-800 disabled:opacity-50"
-                        >
-                          {reauthBusy ? "…" : "Confirm"}
-                        </button>
+                      {reauthErr && <Banner kind="error">{reauthErr}</Banner>}
+                      <div className="fc-form-actions">
+                        <Button variant="secondary" onClick={cancelReauth}>Cancel</Button>
+                        <Button type="submit" pending={reauthBusy} pendingLabel="Confirming…">Confirm</Button>
                       </div>
                     </form>
                   ) : (
-                    <div className="flex flex-col gap-2">
-                      {reauthErr && <p className="text-sm text-red-300">{reauthErr}</p>}
-                      <button
-                        type="button"
-                        className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-gray-800"
-                        onClick={confirmWithMicrosoft}
-                      >
-                        Sign in with Microsoft to confirm
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg px-3 py-2 text-sm font-semibold text-white/80 underline"
-                        onClick={() => setOptOutStep("idle")}
-                      >
-                        Cancel
-                      </button>
+                    <div className="fc-form">
+                      {reauthErr && <Banner kind="error">{reauthErr}</Banner>}
+                      <Button onClick={confirmWithMicrosoft}>Sign in with Microsoft to confirm</Button>
+                      <Button variant="secondary" onClick={cancelReauth}>Cancel</Button>
                     </div>
                   )}
-                </div>
+                </Panel>
               )}
-              <button
-                type="button"
-                className="mx-auto w-full max-w-xs rounded-xl px-4 py-2 text-center text-sm font-semibold text-white/60 underline hover:text-white"
+              <Button
+                variant="quiet"
                 onClick={() => {
-                  clearLegacyBiometricCredentialId(localStorage)
                   void signOut({ callbackUrl: "/login" })
                 }}
               >
                 Sign out
-              </button>
-            </div>
+              </Button>
+            </>
           )}
-        </main>
+        </PageContainer>
         <AppFooter showDiagnostics={false} />
       </div>
     </div>

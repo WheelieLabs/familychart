@@ -18,6 +18,7 @@ Cross-repo context: **familychart-skills** — see `docs-internal/skills.md`. Ec
 - Use British spelling in JSON API `error` strings where established (`Unauthorised`).
 - Run `npm run test:run`, `npm run lint`, and `npm run build` (or `typecheck`) to verify non-trivial changes unless the task is docs-only.
 - Update README and `.env.local.example` when env vars or operator-facing behaviour changes; update `docs/architecture.md` for schema or structural changes; add or supersede ADRs in `docs/adr/` for durable decisions.
+- Use the shared UI components and the date formatter; don't hand-roll button, field, card or date-format code. `npm run lint` enforces this; see `docs/architecture.md` › UI components and [ADR-0023](docs/adr/0023-centralised-ui-components-and-enforcement.md). A rule that must be waived in one place takes a targeted `eslint-disable-next-line no-restricted-syntax` with a reason (the one file-level waiver is Import Records, until the 1.2.0 desktop layouts restyle it).
 - **Do not claim AI co-authorship.** Never add `Co-Authored-By`, `Made-with`, `Generated with`, or similar trailers/footers to commits or PRs. Commit as the human author only.
 - **Do not write bare issue-number or cross-repo tracker references into code comments or docs** (`#NNN`, `other-repo#NNN`). Almost everything in this repo ships to the public mirror at v1.0.0+ ([ADR-0013](docs/adr/0013-public-export-scope-manifest.md)), and these references have needed repeated cleanup passes to scrub (`scripts/check-public-export-leaks.mjs` catches strays before release, but get it right the first time rather than relying on that net). Point at an ADR, a `CONTEXT.md` section, or plain prose describing the decision/behaviour instead of a tracker number.
 
@@ -37,3 +38,13 @@ Releases, version bumps, Docker builds, and pushes are handled by the maintainer
 - **Domain docs:** [`docs/agents/domain.md`](docs/agents/domain.md)
 - **Wave plan:** `Action Wave N from ~/.familychart/reports/waveplan.md` — see `docs-internal/skills.md`
 - **Public-export cutover:** `docs-internal/public-export-release.md` — merge `public-main`, gate scripts, token provisioning. Pushing a `public/vN` tag is a maintainer step, never an agent step.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

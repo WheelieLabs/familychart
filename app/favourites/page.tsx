@@ -3,13 +3,26 @@
 "use client"
 
 import { HYDRATION_OBSERVATION_TYPE } from "@/lib/hydration/hydration-presets"
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { Fragment, useState, useEffect, useMemo, useCallback } from "react"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
 import ConfirmModal from "@/components/ConfirmModal"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { ChipGroup } from "@/components/ui/Chip"
+import { Input } from "@/components/ui/controls"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import EntityRowActions from "@/components/ui/EntityRowActions"
+import FormField, { FieldRow } from "@/components/ui/FormField"
+import IconButton from "@/components/ui/IconButton"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
+import Panel from "@/components/ui/Panel"
+import SuggestionList from "@/components/ui/SuggestionList"
+import Badge from "@/components/ui/Badge"
 import type { Person, ObservationTypeConfig, FavouriteResolved } from "@/lib/domain-types"
 import { fractionalAgeYears } from "@/lib/person/person-age"
-import { mainContentTargetProps } from "@/lib/a11y"
+import { disabledWhen } from "@/lib/ui/disabled-props"
 
 interface MedCatalogResult {
   id: number
@@ -25,10 +38,6 @@ interface ConfirmDlg {
   onConfirm: () => Promise<void>
 }
 
-function personInitials(name: string): string {
-  return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)
-}
-
 function derivedLabel(fav: FavouriteResolved): string {
   if (fav.label) return fav.label
   const p = fav.person_name ?? "Unknown"
@@ -38,17 +47,6 @@ function derivedLabel(fav: FavouriteResolved): string {
       : (fav.observation_type ?? "Unknown observation")
   return `${p} · ${a}`
 }
-
-const inputClass =
-  "w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
-
-const primaryBtnClass =
-  "bg-fc-blue text-white font-bold px-4 py-2 rounded-lg " +
-  "hover:bg-fc-blue-mid active:bg-fc-blue-dark disabled:opacity-50 transition-colors text-sm"
-
-const outlineBtnClass =
-  "border border-gray-300 bg-white text-gray-700 font-bold px-4 py-2 rounded-lg " +
-  "hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50 transition-colors text-sm"
 
 export default function FavouritesPage() {
   const [people, setPeople] = useState<Person[]>([])
@@ -355,447 +353,230 @@ export default function FavouritesPage() {
     (selectedKind === "medication" && selectedMedCatalog != null) ||
     (selectedKind === "observation" && selectedObsType != null)
 
+  const kindLabel = (kind: string) => (kind === "medication" ? "Medication" : "Observation")
+
   return (
     <div className="flex flex-col flex-1">
       <AppHeader title="Favourites" />
 
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue overflow-y-auto fc-scroll">
+      <PageContainer>
+        {loadingFavs && <p className="fc-admin-note">Loading…</p>}
 
-        {/* ── Favourites list card ── */}
-        <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-3">
-          <h2 className="font-bold text-gray-800 text-lg">Your Favourites</h2>
+        {!loadingFavs && favourites.length === 0 && (
+          <EmptyState
+            icon={EMPTY_STATE_ICONS.noFavourites}
+            heading="No favourites yet"
+            action={!showCreate ? <Button onClick={() => setShowCreate(true)}>Add your first favourite</Button> : undefined}
+          >
+            Favourites are shortcuts to the people and actions you use most often, like a frequent PRN medication.
+          </EmptyState>
+        )}
 
-          {loadingFavs && (
-            <p className="text-sm text-gray-500">Loading…</p>
-          )}
-
-          {!loadingFavs && favourites.length === 0 && (
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-gray-600 leading-relaxed">
-                Favourites are shortcuts to the people and actions you use most often — like a frequent
-                PRN medication or a regular check-in. Tap a favourite from the home screen to open the
-                record form pre-filled and ready to adjust.
-              </p>
-              {!showCreate && (
-                <button
-                  type="button"
-                  onClick={() => setShowCreate(true)}
-                  className={primaryBtnClass + " self-start"}
-                >
-                  Add your first favourite
-                </button>
-              )}
-            </div>
-          )}
-
-          {!loadingFavs && favourites.length > 0 && (
-            <div className="flex flex-col gap-2">
+        {!loadingFavs && favourites.length > 0 && (
+          <>
+            <p className="fc-section-copy fc-surface-copy">
+              Tap a favourite from the Quick record sheet to open the record form pre-filled and ready to adjust.
+            </p>
+            <CardList>
               {favourites.map((fav, i) => (
-                <div key={fav.id} className={fav.resolved ? undefined : "opacity-60"}>
-                  <div className="flex items-center gap-3 rounded-xl bg-gray-100 px-3 py-2.5">
-                    {/* Person avatar */}
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden"
-                      style={{ backgroundColor: fav.person_color ?? "#256AA5" }}
-                    >
-                      <span className="text-white font-bold text-xs">
-                        {personInitials(fav.person_name ?? "?")}
-                      </span>
-                    </div>
-
-                    {/* Label */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-800 truncate">
-                        {derivedLabel(fav)}
-                      </p>
-                      <p className="text-xs text-gray-500 capitalize">{fav.action_kind}</p>
-                      {!fav.resolved && (
-                        <p className="text-xs text-amber-700 mt-0.5">
-                          Unavailable — target removed or deactivated
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Reorder */}
-                    <div className="flex flex-col gap-0.5 shrink-0">
-                      <button
-                        type="button"
-                        aria-label="Move up"
-                        disabled={i === 0 || reordering}
-                        onClick={() => void moveUp(i)}
-                        className="text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-sm leading-none px-1 py-0.5"
-                      >
-                        ▲
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Move down"
-                        disabled={i === favourites.length - 1 || reordering}
-                        onClick={() => void moveDown(i)}
-                        className="text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-sm leading-none px-1 py-0.5"
-                      >
-                        ▼
-                      </button>
-                    </div>
-
-                    {/* Edit (resolved only) */}
-                    {fav.resolved && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (editingId === fav.id) { setEditingId(null) } else { openEdit(fav) }
-                        }}
-                        className="shrink-0 text-sm font-semibold text-fc-blue hover:text-fc-blue-mid px-2 py-1 rounded transition-colors"
-                      >
-                        {editingId === fav.id ? "Cancel" : "Edit"}
-                      </button>
-                    )}
-
-                    {/* Remove */}
-                    <button
-                      type="button"
-                      onClick={() => promptDelete(fav)}
-                      className="shrink-0 text-sm font-semibold text-red-600 hover:text-red-700 px-2 py-1 rounded transition-colors"
-                    >
-                      Remove
-                    </button>
-                  </div>
-
-                  {/* Inline edit form */}
-                  {editingId === fav.id && (
-                    <div className="mt-1 mx-1 rounded-xl border border-gray-200 bg-white px-3 py-3 flex flex-col gap-3">
-                      <div>
-                        <label className="text-xs font-bold text-gray-700 block mb-1">
-                          Custom label (optional)
-                        </label>
-                        <input
-                          value={editLabel}
-                          onChange={e => setEditLabel(e.target.value)}
-                          placeholder={derivedLabel(fav)}
-                          className={inputClass}
+                <Fragment key={fav.id}>
+                  <ListCard
+                    avatar={{ src: null, name: fav.person_name ?? "?" }}
+                    title={derivedLabel(fav)}
+                    inactive={!fav.resolved}
+                    meta={[kindLabel(fav.action_kind)]}
+                    extras={!fav.resolved ? <Badge tone="warning">Unavailable — target removed or deactivated</Badge> : undefined}
+                    trailing={
+                      <div className="fc-fav-actions">
+                        <IconButton label="Move up" disabled={i === 0 || reordering} onClick={() => void moveUp(i)}>▲</IconButton>
+                        <IconButton label="Move down" disabled={i === favourites.length - 1 || reordering} onClick={() => void moveDown(i)}>▼</IconButton>
+                        <EntityRowActions
+                          name={derivedLabel(fav)}
+                          editLabel={editingId === fav.id ? "Cancel" : "Edit"}
+                          onEdit={fav.resolved ? () => { if (editingId === fav.id) { setEditingId(null) } else { openEdit(fav) } } : undefined}
+                          deleteLabel="Remove"
+                          onDelete={() => promptDelete(fav)}
                         />
                       </div>
-                      {fav.action_kind === "medication" && (
-                        <div>
-                          <label className="text-xs font-bold text-gray-700 block mb-1">
-                            Default dose (optional)
-                          </label>
-                          <input
-                            value={editDefaultValue}
-                            onChange={e => setEditDefaultValue(e.target.value)}
-                            placeholder="e.g. 2"
-                            className={inputClass}
-                          />
+                    }
+                  />
+
+                  {editingId === fav.id && (
+                    <li>
+                      <Panel>
+                        <FormField label="Custom label" optional>
+                          <Input value={editLabel} onChange={e => setEditLabel(e.target.value)} placeholder={derivedLabel(fav)} />
+                        </FormField>
+                        {fav.action_kind === "medication" && (
+                          <FormField label="Default dose" optional>
+                            <Input value={editDefaultValue} onChange={e => setEditDefaultValue(e.target.value)} placeholder="e.g. 2" />
+                          </FormField>
+                        )}
+                        {fav.observation_type === HYDRATION_OBSERVATION_TYPE && (
+                          <FormField label="Amount, mL" optional>
+                            <Input value={editDefaultValue} onChange={e => setEditDefaultValue(e.target.value)} inputMode="numeric" placeholder="e.g. 375" />
+                          </FormField>
+                        )}
+                        {editError && <Banner kind="error">{editError}</Banner>}
+                        <div className="fc-form-actions">
+                          <Button variant="secondary" onClick={() => setEditingId(null)} {...disabledWhen(editSaving && "Saving…")}>Cancel</Button>
+                          <Button onClick={() => void saveEdit()} pending={editSaving}>Save</Button>
                         </div>
-                      )}
-                      {fav.observation_type === HYDRATION_OBSERVATION_TYPE && (
-                        <div>
-                          <label className="text-xs font-bold text-gray-700 block mb-1">
-                            Amount, mL (optional)
-                          </label>
-                          <input
-                            value={editDefaultValue}
-                            onChange={e => setEditDefaultValue(e.target.value)}
-                            inputMode="numeric"
-                            placeholder="e.g. 375"
-                            className={inputClass}
-                          />
-                        </div>
-                      )}
-                      {editError && <p className="text-red-600 text-xs">{editError}</p>}
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setEditingId(null)}
-                          disabled={editSaving}
-                          className={outlineBtnClass}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void saveEdit()}
-                          disabled={editSaving}
-                          className={primaryBtnClass}
-                        >
-                          {editSaving ? "Saving…" : "Save"}
-                        </button>
-                      </div>
-                    </div>
+                      </Panel>
+                    </li>
                   )}
-                </div>
+                </Fragment>
               ))}
-            </div>
-          )}
+            </CardList>
+          </>
+        )}
 
-          {!loadingFavs && favourites.length > 0 && !showCreate && (
-            <button
-              type="button"
-              onClick={() => setShowCreate(true)}
-              className={primaryBtnClass + " self-start mt-1"}
-            >
-              + Add favourite
-            </button>
-          )}
-        </div>
+        {!loadingFavs && favourites.length > 0 && !showCreate && (
+          <div>
+            <Button onClick={() => setShowCreate(true)}>+ Add favourite</Button>
+          </div>
+        )}
 
-        {/* ── Create form card ── */}
         {showCreate && (
-          <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-gray-800 text-lg">Add favourite</h2>
-              <button
-                type="button"
-                onClick={resetCreate}
-                className="text-gray-500 hover:text-gray-700 text-sm font-semibold px-2 py-1 rounded"
-              >
-                Cancel
-              </button>
+          <Panel>
+            <div className="fc-log-head">
+              <h2 className="fc-section-title">Add favourite</h2>
+              <Button variant="quiet" onClick={resetCreate}>Cancel</Button>
             </div>
 
-            {/* Step 1: Person */}
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">
-                Who is this for?
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {people.map(person => {
-                  const isSelected = selectedPerson?.id === person.id
-                  return (
-                    <button
-                      key={person.id}
-                      type="button"
-                      onClick={() => selectPerson(person)}
-                      className={
-                        "flex items-center gap-2 px-3 py-2 rounded-xl border-2 font-semibold text-sm transition-colors " +
-                        (isSelected
-                          ? "border-fc-blue bg-fc-blue text-white"
-                          : "border-gray-200 bg-white text-gray-800 hover:border-fc-blue")
-                      }
-                    >
-                      <div
-                        className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: person.color }}
-                      >
-                        <span className={`font-bold text-xs ${isSelected ? "text-white" : "text-white"}`}>
-                          {personInitials(person.name)}
-                        </span>
-                      </div>
-                      {person.name}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
+            <ChipGroup
+              legend="Who is this for?"
+              value={selectedPerson ? String(selectedPerson.id) : ""}
+              options={people.map(person => ({ value: String(person.id), label: person.name }))}
+              onChange={id => {
+                const person = people.find(p => String(p.id) === id)
+                if (person && selectedPerson?.id !== person.id) selectPerson(person)
+              }}
+            />
 
-            {/* Step 2: Kind toggle */}
             {selectedPerson && (
-              <div>
-                <label className="text-sm font-bold text-gray-700 block mb-2">Action</label>
-                <div className="flex gap-2">
-                  {(["medication", "observation"] as const).map(kind => (
-                    <button
-                      key={kind}
-                      type="button"
-                      onClick={() => selectKind(kind)}
-                      className={
-                        "flex-1 py-2.5 rounded-xl border-2 font-semibold text-sm capitalize transition-colors " +
-                        (selectedKind === kind
-                          ? "border-fc-blue bg-fc-blue text-white"
-                          : "border-gray-200 bg-white text-gray-800 hover:border-fc-blue")
-                      }
-                    >
-                      {kind}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <ChipGroup
+                legend="Action"
+                value={selectedKind ?? ""}
+                options={[
+                  { value: "medication", label: "Medication" },
+                  { value: "observation", label: "Observation" },
+                ]}
+                onChange={kind => { if (kind !== selectedKind) selectKind(kind as "medication" | "observation") }}
+              />
             )}
 
-            {/* Step 3a: Medication picker — same search source as record-medication */}
             {selectedKind === "medication" && (
-              <div>
-                <label className="text-sm font-bold text-gray-700 block mb-2">
-                  Medication
-                  {selectedPerson?.date_of_birth && (
-                    <span className="text-xs font-normal text-gray-500 ml-2">age-filtered</span>
-                  )}
-                </label>
-                <div className="relative">
-                  <input
+              <FormField
+                label="Medication"
+                hint={selectedPerson?.date_of_birth ? "Filtered for this person's age." : undefined}
+              >
+                <div
+                  className="fc-suggest-wrap"
+                  onBlur={e => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setShowMedSuggestions(false)
+                  }}
+                >
+                  <Input
                     type="text"
                     value={medQuery}
+                    autoComplete="off"
                     placeholder="Start typing to search…"
                     onChange={e => { setMedQuery(e.target.value); setSelectedMedCatalog(null) }}
                     onFocus={() => !selectedMedCatalog && medQuery.length > 0 && setShowMedSuggestions(true)}
-                    onBlur={() => setTimeout(() => setShowMedSuggestions(false), 150)}
-                    className={inputClass}
                   />
                   {showMedSuggestions && medQuery.trim().length > 0 && !selectedMedCatalog && (
-                    <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded shadow-lg max-h-48 overflow-y-auto">
-                      {loadingMedSearch && (
-                        <li className="px-3 py-2 text-sm text-gray-500">Searching…</li>
-                      )}
-                      {!loadingMedSearch && medSuggestions.length === 0 && (
-                        <li className="px-3 py-2 text-sm text-gray-500">No medications found</li>
-                      )}
-                      {!loadingMedSearch && medSuggestions.map(med => (
-                        <li key={med.id}>
-                          <button
-                            type="button"
-                            onMouseDown={e => e.preventDefault()}
-                            onClick={() => {
-                              setSelectedMedCatalog(med)
-                              setMedQuery(med.name)
-                              setMedSuggestions([])
-                              setShowMedSuggestions(false)
-                              setCreateDefaultValue(
-                                med.default_dosage != null ? String(med.default_dosage) : ""
-                              )
-                            }}
-                            className="w-full text-left px-3 py-2 hover:bg-fc-panel text-gray-800 text-sm"
-                          >
-                            <span className="font-medium">{med.name}</span>
-                            {med.default_dosage != null && (
-                              <span className="text-gray-500 text-xs ml-2">
-                                ({med.default_dosage} {med.dosage_unit})
-                              </span>
-                            )}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                    loadingMedSearch ? (
+                      <p className="fc-field__hint">Searching…</p>
+                    ) : medSuggestions.length === 0 ? (
+                      <p className="fc-field__hint">No medications found</p>
+                    ) : (
+                      <SuggestionList
+                        items={medSuggestions.map(med => ({
+                          key: med.id,
+                          onSelect: () => {
+                            setSelectedMedCatalog(med)
+                            setMedQuery(med.name)
+                            setMedSuggestions([])
+                            setShowMedSuggestions(false)
+                            setCreateDefaultValue(med.default_dosage != null ? String(med.default_dosage) : "")
+                          },
+                          label: (
+                            <>
+                              <span className="fc-suggest__name">{med.name}</span>
+                              {med.default_dosage != null && (
+                                <span className="fc-suggest__detail">({med.default_dosage} {med.dosage_unit})</span>
+                              )}
+                            </>
+                          ),
+                        }))}
+                      />
+                    )
                   )}
                 </div>
                 {selectedMedCatalog && (
-                  <div className="mt-1.5 flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-fc-blue bg-fc-blue/10 text-sm">
-                    <span className="font-semibold text-gray-900 flex-1">{selectedMedCatalog.name}</span>
-                    {selectedMedCatalog.default_dosage != null && (
-                      <span className="text-gray-500 text-xs">
-                        {selectedMedCatalog.default_dosage} {selectedMedCatalog.dosage_unit}
-                      </span>
-                    )}
-                    <button
-                      type="button"
+                  <div className="fc-pill">
+                    {selectedMedCatalog.name}
+                    {selectedMedCatalog.default_dosage != null && ` · ${selectedMedCatalog.default_dosage} ${selectedMedCatalog.dosage_unit}`}
+                    <IconButton
+                      label="Clear medication"
                       onClick={() => { setSelectedMedCatalog(null); setMedQuery(""); setCreateDefaultValue("") }}
-                      className="text-xs text-gray-500 hover:text-gray-700 ml-1"
                     >
                       ✕
-                    </button>
+                    </IconButton>
                   </div>
                 )}
-              </div>
+              </FormField>
             )}
 
-            {/* Step 3b: Observation type picker */}
             {selectedKind === "observation" && (
-              <div>
-                <label className="text-sm font-bold text-gray-700 block mb-2">Observation type</label>
-                {availableObsConfigs.length === 0 && (
-                  <p className="text-sm text-gray-500">No observation types available.</p>
-                )}
-                <div className="flex flex-col gap-1.5">
-                  {availableObsConfigs.map(cfg => {
-                    const isSelected = selectedObsType === cfg.observation_type
-                    return (
-                      <button
-                        key={cfg.observation_type}
-                        type="button"
-                        onClick={() => setSelectedObsType(isSelected ? null : cfg.observation_type)}
-                        className={
-                          "flex items-center px-3 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors " +
-                          (isSelected
-                            ? "border-fc-blue bg-fc-blue/10 text-gray-900"
-                            : "border-gray-200 bg-white text-gray-700 hover:border-fc-blue")
-                        }
-                      >
-                        {cfg.observation_type}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
+              availableObsConfigs.length === 0 ? (
+                <p className="fc-field__hint">No observation types available.</p>
+              ) : (
+                <ChipGroup
+                  legend="Observation type"
+                  value={selectedObsType ?? ""}
+                  options={availableObsConfigs.map(cfg => ({ value: cfg.observation_type, label: cfg.observation_type }))}
+                  onChange={type => setSelectedObsType(type)}
+                />
+              )
             )}
 
-            {/* Step 4: Details */}
             {itemReady && (
-              <div className="flex flex-col gap-3 border-t border-gray-200 pt-3">
-                <div>
-                  <label className="text-xs font-bold text-gray-700 block mb-1">
-                    Custom label (optional)
-                  </label>
-                  <input
-                    value={createLabel}
-                    onChange={e => setCreateLabel(e.target.value)}
-                    placeholder={createPreviewLabel}
-                    className={inputClass}
-                  />
-                  <p className="text-xs text-gray-400 mt-1">Leave blank to use the default label.</p>
-                </div>
+              <div className="fc-form fc-form--top-rule">
+                <FormField label="Custom label" optional hint="Leave blank to use the default label.">
+                  <Input value={createLabel} onChange={e => setCreateLabel(e.target.value)} placeholder={createPreviewLabel} />
+                </FormField>
 
                 {selectedKind === "medication" && (
-                  <div>
-                    <label className="text-xs font-bold text-gray-700 block mb-1">
-                      Default dose (optional)
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={createDefaultValue}
-                        onChange={e => setCreateDefaultValue(e.target.value)}
-                        placeholder="e.g. 2"
-                        className="w-28 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
-                      />
-                      {selectedMedCatalog && (
-                        <span className="text-sm text-gray-500">{selectedMedCatalog.dosage_unit}</span>
-                      )}
-                    </div>
-                  </div>
+                  <FormField label="Default dose" optional hint={selectedMedCatalog ? `In ${selectedMedCatalog.dosage_unit}.` : undefined}>
+                    <FieldRow>
+                      <Input value={createDefaultValue} onChange={e => setCreateDefaultValue(e.target.value)} placeholder="e.g. 2" />
+                    </FieldRow>
+                  </FormField>
                 )}
 
                 {selectedKind === "observation" && selectedObsType === HYDRATION_OBSERVATION_TYPE && (
-                  <div>
-                    <label className="text-xs font-bold text-gray-700 block mb-1">
-                      Amount, mL (optional)
-                    </label>
-                    <input
-                      value={createDefaultValue}
-                      onChange={e => setCreateDefaultValue(e.target.value)}
-                      inputMode="numeric"
-                      placeholder="e.g. 375"
-                      className="w-28 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
-                    />
-                  </div>
+                  <FormField label="Amount, mL" optional>
+                    <Input value={createDefaultValue} onChange={e => setCreateDefaultValue(e.target.value)} inputMode="numeric" placeholder="e.g. 375" />
+                  </FormField>
                 )}
 
                 {createPreviewLabel && (
-                  <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-700">
-                    <span className="text-gray-400 text-xs block mb-0.5">Preview</span>
-                    ⭐ {createPreviewLabel}
-                  </div>
+                  <Banner kind="info" lead="Preview">⭐ {createPreviewLabel}</Banner>
                 )}
 
-                {createError && (
-                  <p className="text-red-600 text-sm font-medium">{createError}</p>
-                )}
+                {createError && <Banner kind="error">{createError}</Banner>}
 
-                <div className="flex gap-2">
-                  <button type="button" onClick={resetCreate} className={outlineBtnClass}>
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleCreate()}
-                    disabled={createSaving}
-                    className={primaryBtnClass}
-                  >
-                    {createSaving ? "Saving…" : "Save favourite"}
-                  </button>
+                <div className="fc-form-actions">
+                  <Button variant="secondary" onClick={resetCreate}>Cancel</Button>
+                  <Button onClick={() => void handleCreate()} pending={createSaving}>Save favourite</Button>
                 </div>
               </div>
             )}
-          </div>
+          </Panel>
         )}
-      </main>
+      </PageContainer>
 
       <AppFooter />
 

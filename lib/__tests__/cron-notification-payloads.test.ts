@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest"
 import {
+  buildDoseExpectationPayload,
+  buildHydrationCaughtUpPayload,
   buildHydrationPayload,
+  buildHydrationUpdatePayload,
   buildObservationPayload,
   buildOverduePayload,
   buildPrnPayload,
@@ -70,5 +73,45 @@ describe("buildHydrationPayload", () => {
     const payload = buildHydrationPayload(4, "Alex", 3)
     expect(payload.actions).toEqual([hydrationMuteNotificationAction()])
     expect(payload.actions?.[0]?.action).toBe(HYDRATION_MUTE_ACTION)
+  })
+})
+
+describe("buildDoseExpectationPayload", () => {
+  it("asks a neutral question and links to the person page where the answer buttons are", () => {
+    const payload = buildDoseExpectationPayload(5, 9, "Alex", "Ritalin")
+    expect(payload.body).toBe("Was Alex's Ritalin given away from home?")
+    expect(payload.data?.url).toBe("/5")
+    expect(payload.data?.type).toBe("dose_expectation")
+    expect(payload.actions).toBeUndefined()
+  })
+
+  it("uses its own tag so it never replaces a dose reminder for the same medication", () => {
+    expect(buildDoseExpectationPayload(5, 9, "Alex", "Ritalin").tag).not.toBe(
+      buildScheduledPayload(5, 9, "Alex", "Ritalin").tag,
+    )
+  })
+})
+
+describe("hydration replacement payloads", () => {
+  it("update keeps the nudge tag and actions and is silent", () => {
+    const p = buildHydrationUpdatePayload(4, "Sam", 2)
+    expect(p.tag).toBe(buildHydrationPayload(4, "Sam", 2).tag)
+    expect(p.body).toBe("Sam: ≈2 glasses to catch up")
+    expect(p.silent).toBe(true)
+    expect(p.closeAfterMs).toBeUndefined()
+    expect(p.actions).toEqual([hydrationMuteNotificationAction()])
+  })
+
+  it("caught up keeps the nudge tag, is silent and asks the service worker to close it", () => {
+    const p = buildHydrationCaughtUpPayload(4, "Sam")
+    expect(p.tag).toBe(buildHydrationPayload(4, "Sam", 2).tag)
+    expect(p.body).toBe("Sam: Caught up")
+    expect(p.silent).toBe(true)
+    expect(p.closeAfterMs).toBe(4000)
+    expect(p.actions).toBeUndefined()
+  })
+
+  it("the normal nudge is not silent", () => {
+    expect(buildHydrationPayload(4, "Sam", 2).silent).toBeUndefined()
   })
 })

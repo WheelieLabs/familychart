@@ -2,16 +2,28 @@
 
 "use client"
 
+import AuthenticatorEnrolment from "@/components/AuthenticatorEnrolment"
 import Link from "next/link"
 import { Suspense, useCallback, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { signIn } from "next-auth/react"
 import AppHeader, { PersonHeader } from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
-import FormField from "@/components/FormField"
+import EraseMyRecords from "@/components/EraseMyRecords"
+import RemoveMyAccount from "@/components/RemoveMyAccount"
+import ExportMyData from "@/components/ExportMyData"
 import PersonPhotoCapture from "@/components/PersonPhotoCapture"
-import Toggle from "@/components/Toggle"
-import { FcTabBar, type FcTabItem } from "@/components/FcTabBar"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { ChipGroup } from "@/components/ui/Chip"
+import { Input, Select, Toggle } from "@/components/ui/controls"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import { FcTabBar, type FcTabItem } from "@/components/ui/FcTabBar"
+import FormField from "@/components/ui/FormField"
+import PageContainer from "@/components/ui/PageContainer"
+import Panel from "@/components/ui/Panel"
+import { PasswordField } from "@/components/AuthShell"
+import { formatDate } from "@/lib/date-format"
 import {
   type AppLockGracePeriod,
   getAppLockGracePeriod,
@@ -24,7 +36,6 @@ import { formatHydration } from "@/lib/format"
 import type { HydrationPacingConfig } from "@/lib/hydration/hydration-config"
 import type { HydrationTzSource } from "@/lib/hydration/hydration-timezone"
 import { IANA_TIMEZONES } from "@/lib/settings/registry"
-import { mainContentTargetProps } from "@/lib/a11y"
 import { useMfaEnrollment } from "@/lib/use-mfa-enrollment"
 
 type ProfileTab = "profile" | "notifications" | "account" | "settings"
@@ -73,7 +84,7 @@ function formatRelativeNotificationTime(sentAt: string): string {
   if (deltaSec < 172800) return "yesterday"
   const days = Math.round(deltaSec / 86400)
   if (days < 30) return `${days} days ago`
-  return new Date(ms).toLocaleDateString()
+  return formatDate(ms)
 }
 
 function isProfileTab(value: string | null): value is ProfileTab {
@@ -106,19 +117,6 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const rawData = atob(base64)
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0))) as Uint8Array<ArrayBuffer>
 }
-
-const inputClass =
-  "w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-800"
-
-const primaryBtnClass =
-  "bg-fc-blue text-white font-bold px-6 py-3 rounded-xl " +
-  "hover:bg-fc-blue-mid active:bg-fc-blue-dark disabled:opacity-50 transition-colors"
-
-const primaryBtnEndClass = "self-end " + primaryBtnClass
-
-const secondaryOutlineBtnClass =
-  "flex-1 border border-gray-300 bg-white text-gray-800 font-bold py-3 rounded-xl " +
-  "hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50 transition-colors"
 
 export default function ProfilePage() {
   return (
@@ -298,7 +296,7 @@ function ProfilePageContent() {
   }, [])
 
   // Lands back here after confirmWithMicrosoft's forced-fresh-login redirect completes —
-  // the session now carries a fresh entraAuthAt, so finish the disable automatically.
+  // the session now carries a fresh Entra auth_time, so finish the disable automatically.
   useEffect(() => {
     if (searchParams.get("confirmAppLockOff") !== "1" || !me?.id) return
     router.replace("/profile?tab=account")
@@ -312,7 +310,7 @@ function ProfilePageContent() {
       setAppLockDisabledOnDevice(true)
       setShowAppLockReauth(false)
     })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- finish App lock disable after Microsoft re-auth return
   }, [searchParams, me?.id])
 
   const saveGracePeriod = useCallback((period: AppLockGracePeriod) => {
@@ -693,9 +691,9 @@ function ProfilePageContent() {
     return (
       <div className="flex flex-col flex-1">
         <AppHeader title="Profile" />
-        <main {...mainContentTargetProps} className="flex-1 bg-fc-blue flex items-center justify-center">
-          <div className="text-white text-lg">Loading…</div>
-        </main>
+        <PageContainer>
+          <p className="fc-admin-note">Loading…</p>
+        </PageContainer>
         <AppFooter />
       </div>
     )
@@ -705,9 +703,11 @@ function ProfilePageContent() {
     return (
       <div className="flex flex-col flex-1">
         <AppHeader title="Profile" />
-        <main {...mainContentTargetProps} className="flex-1 bg-fc-blue flex items-center justify-center p-4">
-          <p className="text-white text-center">{loadErr}</p>
-        </main>
+        <PageContainer>
+          <EmptyState icon={EMPTY_STATE_ICONS.error} heading="Could not load your profile">
+            {loadErr || "Try again in a moment."}
+          </EmptyState>
+        </PageContainer>
         <AppFooter />
       </div>
     )
@@ -721,47 +721,36 @@ function ProfilePageContent() {
   return (
     <div className="flex flex-col flex-1">
       <AppHeader title="Profile" />
-      {linked && (
-        <PersonHeader
-          name={headerName}
-          photoUrl={headerPhoto}
-          color={headerColor}
-        />
-      )}
-      {me.needsMfaEnrollment && me.isLocal && (
-        <div
-          className="mx-3 mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3
-                     text-gray-800 text-sm leading-relaxed shrink-0"
-        >
-          Complete authenticator setup below before you can use the rest of FamilyChart.
-        </div>
-      )}
-      <FcTabBar tabs={PROFILE_TABS} active={tab} onSelect={t => router.push(`?tab=${t}`)} />
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue overflow-y-auto fc-scroll min-h-0">
+      <PageContainer tabs={<FcTabBar tabs={PROFILE_TABS} active={tab} onSelect={t => router.push(`?tab=${t}`)} />}>
+        {linked && (
+          <PersonHeader
+            name={headerName}
+            photoUrl={headerPhoto}
+            color={headerColor}
+          />
+        )}
+        {me.needsMfaEnrollment && me.isLocal && (
+          <Banner kind="warning">Complete authenticator setup below before you can use the rest of FamilyChart.</Banner>
+        )}
+
         {tab === "profile" && (
-          <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-            <h2 className="font-bold text-gray-800 text-lg">Your family profile</h2>
+          <Panel>
+            <h2 className="fc-section-title">Your family profile</h2>
             {!me.isLocal && (
-              <p className="text-gray-600 text-sm leading-relaxed">
+              <p className="fc-section-copy">
                 Empty fields below can be filled to match how you want to appear in FamilyChart; your
                 Microsoft name is a useful starting point.
               </p>
             )}
             {linked ? (
-              <form onSubmit={savePerson} className="flex flex-col gap-4">
-                <div className="flex flex-wrap items-center gap-4">
-                  <div
-                    className="w-24 h-24 rounded-full border-[3px] border-fc-ring overflow-hidden shrink-0
-                                flex items-center justify-center"
-                    style={{ backgroundColor: headerColor }}
-                  >
+              <form onSubmit={savePerson} className="fc-form">
+                <div className="fc-photo-row">
+                  <div className="fc-photo-row__avatar fc-photo-row__avatar--large" style={{ backgroundColor: headerColor }}>
                     {previewUrl || photoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={previewUrl ?? photoUrl ?? ""} alt="" className="w-full h-full object-cover" />
+                      <img src={previewUrl ?? photoUrl ?? ""} alt="" />
                     ) : (
-                      <span className="text-white font-bold text-2xl">
-                        {(displayName || linked.name).slice(0, 2).toUpperCase() || "?"}
-                      </span>
+                      <span aria-hidden="true">{(displayName || linked.name).slice(0, 2).toUpperCase() || "?"}</span>
                     )}
                   </div>
                   <div className="flex flex-col gap-2">
@@ -775,136 +764,94 @@ function ProfilePageContent() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="font-bold text-gray-800 block mb-1">Display name</label>
-                  <input
+                <FormField label="Display name" hint="Shown on the home list and person header.">
+                  <Input
                     value={displayName}
                     onChange={e => setDisplayName(e.target.value)}
                     required
                     placeholder={me.name ?? "Name on home screen"}
-                    className={inputClass}
                   />
-                  <p className="text-gray-600 text-xs mt-1">Shown on the home list and person header.</p>
-                </div>
-                <div>
-                  <label className="font-bold text-gray-800 block mb-1">Full name</label>
-                  <input
+                </FormField>
+                <FormField label="Full name" optional hint="Used on reports when you need a full name.">
+                  <Input
                     value={fullName}
                     onChange={e => setFullName(e.target.value)}
                     placeholder={me.name ?? "Legal or formal name"}
-                    className={inputClass}
                   />
-                  <p className="text-gray-600 text-xs mt-1">Used on reports when you need a full name.</p>
+                </FormField>
+                {personErr && <Banner kind="error">{personErr}</Banner>}
+                <div className="fc-actions-end">
+                  <Button type="submit" pending={savingPerson}>Save</Button>
                 </div>
-                {personErr && <p className="text-red-600 text-sm">{personErr}</p>}
-                <button type="submit" disabled={savingPerson} className={primaryBtnEndClass}>
-                  {savingPerson ? "Saving…" : "Save"}
-                </button>
               </form>
             ) : (
-              <p className="text-gray-700 text-sm leading-relaxed">
-                Your account is not linked to a family member yet. An administrator can link you under{" "}
-                <strong>Management → People</strong> (choose your person and set “Linked account”).
+              <p className="fc-section-copy">
+                Your account is not linked to an active family member. Ask an administrator to link you
+                (or reactivate your person).
               </p>
             )}
-          </div>
+          </Panel>
         )}
 
         {tab === "notifications" && (
-          <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-            <h2 className="font-bold text-gray-800 text-lg">Push notifications</h2>
+          <Panel>
+            <h2 className="fc-section-title">Push notifications</h2>
 
-            <div
-              className="flex rounded-lg overflow-hidden border border-fc-ring bg-fc-blue-mid/40 p-0.5"
-              role="tablist"
-              aria-label="Notification sections"
-            >
-              {([
+            <ChipGroup
+              legend="Notification sections"
+              value={notifSubTab}
+              onChange={setNotifSubTab}
+              options={[
                 { value: "preferences" as const, label: "Preferences" },
                 { value: "history" as const, label: "History" },
-              ]).map(item => {
-                const active = notifSubTab === item.value
-                return (
-                  <button
-                    key={item.value}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => setNotifSubTab(item.value)}
-                    className={
-                      "flex-1 px-3 py-2 text-sm font-semibold rounded-md transition-colors " +
-                      (active
-                        ? "bg-fc-blue text-white shadow-sm"
-                        : "bg-transparent text-fc-blue/70 hover:text-fc-blue")
-                    }
-                  >
-                    {item.label}
-                  </button>
-                )
-              })}
-            </div>
+              ]}
+            />
 
             {notifSubTab === "preferences" && (
               <>
                 {!notifSupported && (
-                  <p className="text-gray-600 text-sm">
-                    Push notifications are not supported in this browser.
-                  </p>
+                  <p className="fc-section-copy">Push notifications are not supported in this browser.</p>
                 )}
 
                 {notifSupported && notifPermission === "denied" && (
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-gray-800">
+                  <Banner kind="warning">
                     Notifications are blocked in your browser settings. Enable them there to use this feature.
-                  </div>
+                  </Banner>
                 )}
 
                 {notifSupported && notifPermission !== "denied" && !pushSub && (
                   <>
-                    <p className="text-gray-600 text-sm leading-relaxed">
+                    <p className="fc-section-copy">
                       Enable push notifications on this device to receive medication and observation reminders.
                     </p>
-                    {notifErr && <p className="text-red-600 text-sm">{notifErr}</p>}
-                    <button
-                      type="button"
-                      onClick={enableNotifications}
-                      disabled={notifBusy}
-                      className={primaryBtnClass + " self-start"}
-                    >
-                      {notifBusy ? "Enabling…" : "Enable notifications"}
-                    </button>
+                    {notifErr && <Banner kind="error">{notifErr}</Banner>}
+                    <div>
+                      <Button onClick={enableNotifications} pending={notifBusy} pendingLabel="Enabling…">Enable notifications</Button>
+                    </div>
                   </>
                 )}
 
                 {notifSupported && pushSub && (
                   <>
-                    <p className="text-gray-600 text-sm">
+                    <p className="fc-section-copy">
                       Notifications are enabled on this device. Choose which people you want reminders for.
                     </p>
-                    <div className="flex flex-col gap-2">
-                      {notifPeople.map(person => {
-                        const isOn = subscribedPersonIds.includes(person.id)
-                        return (
-                          <div key={person.id} className="flex items-center justify-between gap-3 py-1">
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="w-6 h-6 rounded-full shrink-0"
-                                style={{ backgroundColor: person.color }}
-                              />
-                              <span className="text-gray-800 text-sm font-medium">{person.name}</span>
-                            </div>
-                            <Toggle
-                              value={isOn}
-                              onChange={v => togglePerson(person.id, v)}
-                              ariaLabel={`Notifications for ${person.name}`}
-                            />
-                          </div>
-                        )
-                      })}
+                    <div className="fc-form" style={{ gap: 4 }}>
+                      {notifPeople.map(person => (
+                        <Toggle
+                          key={person.id}
+                          label={`Notifications for ${person.name}`}
+                          checked={subscribedPersonIds.includes(person.id)}
+                          onChange={v => void togglePerson(person.id, v)}
+                        />
+                      ))}
                     </div>
-                    {notifErr && <p className="text-red-600 text-sm">{notifErr}</p>}
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
+                    {notifErr && <Banner kind="error">{notifErr}</Banner>}
+                    <div className="fc-form-actions">
+                      <Button
+                        variant="secondary"
+                        pending={testBusy}
+                        pendingLabel="Sending…"
                         onClick={async () => {
                           setTestBusy(true)
                           setTestMsg("")
@@ -922,26 +869,15 @@ function ProfilePageContent() {
                             setTestBusy(false)
                           }
                         }}
-                        disabled={testBusy}
-                        className="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg
-                                   hover:bg-gray-50 disabled:opacity-50 transition-colors"
                       >
-                        {testBusy ? "Sending…" : "Send test notification"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={unregisterDevice}
-                        disabled={notifBusy}
-                        className="border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg
-                                   hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                      >
-                        {notifBusy ? "Please wait…" : "Unregister this device"}
-                      </button>
+                        Send test notification
+                      </Button>
+                      <Button variant="secondary" onClick={unregisterDevice} pending={notifBusy} pendingLabel="Please wait…">
+                        Unregister this device
+                      </Button>
                     </div>
                     {testMsg && (
-                      <p className={testMsg.startsWith("Test") ? "text-green-700 text-sm" : "text-red-600 text-sm"}>
-                        {testMsg}
-                      </p>
+                      <Banner kind={testMsg.startsWith("Test") ? "success" : "error"} announced>{testMsg}</Banner>
                     )}
                   </>
                 )}
@@ -949,267 +885,169 @@ function ProfilePageContent() {
             )}
 
             {notifSubTab === "history" && (
-              <div className="flex flex-col gap-3">
-                <p className="text-gray-600 text-sm">
-                  Notifications sent to your account, newest first.
-                </p>
-                {notifHistoryLoading && (
-                  <p className="text-gray-500 text-sm">Loading…</p>
-                )}
-                {notifHistoryErr && (
-                  <p className="text-red-600 text-sm">{notifHistoryErr}</p>
-                )}
+              <div className="fc-form">
+                <p className="fc-section-copy">Notifications sent to your account, newest first.</p>
+                {notifHistoryLoading && <p className="fc-field__hint">Loading…</p>}
+                {notifHistoryErr && <Banner kind="error">{notifHistoryErr}</Banner>}
                 {!notifHistoryLoading && notifHistory.length === 0 && !notifHistoryErr && (
-                  <p className="text-gray-500 text-sm">No notifications yet.</p>
+                  <p className="fc-field__hint">No notifications yet.</p>
                 )}
                 {notifHistory.length > 0 && (
-                  <div className="max-h-80 overflow-y-auto flex flex-col gap-2 pr-1">
+                  <ul className="fc-notif-list">
                     {notifHistory.map(row => (
-                      <div
-                        key={row.id}
-                        className="flex items-start gap-3 rounded-lg bg-white border border-gray-200 px-3 py-2"
-                      >
-                        <div
-                          className="w-6 h-6 rounded-full shrink-0 mt-0.5"
-                          style={{ backgroundColor: row.person_color }}
-                          aria-hidden
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <span className="text-gray-800 text-sm font-medium truncate">
-                              {row.person_name}
-                            </span>
-                            <span className="text-gray-400 text-xs shrink-0">
-                              {formatRelativeNotificationTime(row.sent_at)}
-                            </span>
+                      <li key={row.id} className="fc-notif">
+                        <span className="fc-notif__dot" style={{ backgroundColor: row.person_color }} aria-hidden="true" />
+                        <div className="fc-notif__body">
+                          <div className="fc-notif__head">
+                            <span className="fc-notif__who">{row.person_name}</span>
+                            <span className="fc-field__hint">{formatRelativeNotificationTime(row.sent_at)}</span>
                           </div>
-                          <p className="text-gray-700 text-sm leading-snug">{row.title}</p>
+                          <p className="fc-notif__title">{row.title}</p>
                           {row.body && row.body !== row.title && (
-                            <p className="text-gray-500 text-xs leading-snug mt-0.5">{row.body}</p>
+                            <p className="fc-field__hint">{row.body}</p>
                           )}
                         </div>
-                      </div>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 )}
                 {notifHistoryCursor && (
-                  <button
-                    type="button"
-                    onClick={() => void loadMoreNotifHistory()}
-                    disabled={notifHistoryLoadingMore}
-                    className="self-start border border-gray-300 bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg
-                               hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                  >
-                    {notifHistoryLoadingMore ? "Loading…" : "Load more"}
-                  </button>
+                  <div>
+                    <Button variant="secondary" onClick={() => void loadMoreNotifHistory()} pending={notifHistoryLoadingMore} pendingLabel="Loading…">
+                      Load more
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
-          </div>
+          </Panel>
         )}
 
         {tab === "account" && (
           <>
+            {linked && <ExportMyData personId={linked.id} />}
+            {linked && (
+              <EraseMyRecords personId={linked.id} isLocal={me.isLocal} mfaEnrolled={me.mfaEnrolled} />
+            )}
             {me.isLocal && (
               <>
-                <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-                  <h2 className="font-bold text-gray-800 text-lg">Authenticator app</h2>
-                  <p className="text-gray-600 text-sm leading-relaxed">
-                    Add a second step when you sign in with email and password.
-                  </p>
+                <Panel>
+                  <h2 className="fc-section-title">Authenticator app</h2>
+                  <p className="fc-section-copy">Add a second step when you sign in with email and password.</p>
                   {me.mfaPolicyRequired && !me.mfaEnrolled && (
-                    <p className="text-amber-700 text-sm font-medium">
-                      MFA is required on this instance.
-                    </p>
+                    <Banner kind="warning">MFA is required on this instance.</Banner>
                   )}
                   {me.mfaEnrolled ? (
                     <>
-                      <p className="text-green-700 text-sm font-medium">Authenticator is enabled.</p>
+                      <Banner kind="success" lead="Enabled">Authenticator is enabled.</Banner>
                       {me.mfaPolicyRequired ? (
-                        <p className="text-gray-600 text-sm border-t border-gray-200 pt-4">
+                        <p className="fc-section-copy">
                           MFA is required on this instance, so authenticator cannot be disabled here.
                           An administrator can clear MFA for account recovery if needed.
                         </p>
                       ) : (
-                      <form onSubmit={disableMfa} className="flex flex-col gap-3 border-t border-gray-200 pt-4">
-                        <p className="text-gray-600 text-xs">
-                          To turn it off, confirm your password and a current code.
-                        </p>
-                        <FormField label="Password">
-                          <input
-                            type="password"
-                            value={disPw}
-                            onChange={e => setDisPw(e.target.value)}
-                            required
-                            autoComplete="current-password"
-                            className={inputClass}
-                          />
-                        </FormField>
-                        <FormField label="Authenticator code">
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={disOtp}
-                            onChange={e => setDisOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                            required
-                            placeholder="6-digit code"
-                            className={inputClass}
-                          />
-                        </FormField>
-                        {disErr && <p className="text-red-600 text-sm">{disErr}</p>}
-                        <button
-                          type="submit"
-                          disabled={disBusy}
-                          className="bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700
-                                     disabled:opacity-50 transition-colors"
-                        >
-                          Disable authenticator
-                        </button>
-                      </form>
+                        <form onSubmit={disableMfa} className="fc-form fc-form--top-rule">
+                          <p className="fc-section-copy">To turn it off, confirm your password and a current code.</p>
+                          <PasswordField label="Password" value={disPw} onChange={setDisPw} autoComplete="current-password" />
+                          <FormField label="Authenticator code" hint="6 digits.">
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              value={disOtp}
+                              onChange={e => setDisOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                              required
+                            />
+                          </FormField>
+                          {disErr && <Banner kind="error">{disErr}</Banner>}
+                          <Button type="submit" variant="destructive" fullWidth pending={disBusy} pendingLabel="Disabling…">
+                            Disable authenticator
+                          </Button>
+                        </form>
                       )}
                     </>
                   ) : (
                     <>
                       {!mfa.otpauth ? (
-                        <form onSubmit={mfa.start} className="flex flex-col gap-3">
-                          <p className="text-gray-600 text-xs">
+                        <form onSubmit={mfa.start} className="fc-form">
+                          <p className="fc-section-copy">
                             Confirm your password before generating a new authenticator secret.
                           </p>
-                          <FormField label="Password">
-                            <input
-                              type="password"
-                              value={mfa.password}
-                              onChange={e => mfa.setPassword(e.target.value)}
-                              required
-                              autoComplete="current-password"
-                              className={inputClass}
-                            />
-                          </FormField>
-                          {mfa.error && <p className="text-red-600 text-sm">{mfa.error}</p>}
-                          <button
-                            type="submit"
-                            disabled={mfa.busy}
-                            className={primaryBtnClass + " self-start"}
-                          >
-                            {mfa.busy ? "Please wait…" : "Set up authenticator"}
-                          </button>
+                          <PasswordField label="Password" value={mfa.password} onChange={mfa.setPassword} autoComplete="current-password" />
+                          {mfa.error && <Banner kind="error">{mfa.error}</Banner>}
+                          <div>
+                            <Button type="submit" pending={mfa.busy} pendingLabel="Please wait…">Set up authenticator</Button>
+                          </div>
                         </form>
                       ) : (
-                        <form onSubmit={mfa.confirm} className="flex flex-col gap-4">
-                          {mfa.qr && (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={mfa.qr}
-                              alt="QR code"
-                              className="w-48 h-48 mx-auto bg-white rounded-lg p-2 border border-gray-200"
-                            />
-                          )}
-                          <p className="text-gray-600 text-xs break-all">
-                            Or open this link on your phone:{" "}
-                            <a href={mfa.otpauth ?? "#"} className="text-fc-blue underline font-medium">
-                              Add to authenticator
-                            </a>
-                          </p>
-                          <FormField label="Authenticator code">
-                            <input
+                        <form onSubmit={mfa.confirm} className="fc-form">
+                          <AuthenticatorEnrolment qr={mfa.qr} otpauth={mfa.otpauth} />
+                          <FormField label="Authenticator code" hint="The 6-digit code to confirm.">
+                            <Input
                               type="text"
                               inputMode="numeric"
                               value={mfa.code}
                               onChange={e => mfa.setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                              placeholder="6-digit code to confirm"
                               required
-                              className={inputClass + " text-center tracking-widest"}
                             />
                           </FormField>
-                          {mfa.error && <p className="text-red-600 text-sm">{mfa.error}</p>}
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <button
-                              type="button"
-                              onClick={mfa.cancel}
-                              className={secondaryOutlineBtnClass}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="submit"
-                              disabled={mfa.busy}
-                              className={"flex-1 " + primaryBtnClass}
-                            >
-                              {mfa.busy ? "…" : "Confirm"}
-                            </button>
+                          {mfa.error && <Banner kind="error">{mfa.error}</Banner>}
+                          <div className="fc-form-actions">
+                            <Button variant="secondary" onClick={mfa.cancel}>Cancel</Button>
+                            <Button type="submit" pending={mfa.busy} pendingLabel="Confirming…">Confirm</Button>
                           </div>
                         </form>
                       )}
                     </>
                   )}
-                </div>
+                </Panel>
 
-                <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-                  <h2 className="font-bold text-gray-800 text-lg">Change password</h2>
-                  <form onSubmit={changePw} className="flex flex-col gap-3">
-                    <FormField label="Current password">
-                      <input
-                        type="password"
-                        value={curPw}
-                        onChange={e => setCurPw(e.target.value)}
-                        required
-                        autoComplete="current-password"
-                        className={inputClass}
-                      />
-                    </FormField>
-                    <FormField
+                <Panel>
+                  <h2 className="fc-section-title">Change password</h2>
+                  <form onSubmit={changePw} className="fc-form">
+                    <PasswordField label="Current password" value={curPw} onChange={setCurPw} autoComplete="current-password" />
+                    <PasswordField
                       label="New password"
+                      value={newPw}
+                      onChange={setNewPw}
+                      autoComplete="new-password"
+                      minLength={me.passwordMinLength}
                       hint={
                         newPw.length > 0 && newPw.length < me.passwordMinLength
-                          ? `${me.passwordMinLength - newPw.length} more character${me.passwordMinLength - newPw.length === 1 ? "" : "s"} needed`
-                          : `Min. ${me.passwordMinLength} characters`
+                          ? `${me.passwordMinLength - newPw.length} more character${me.passwordMinLength - newPw.length === 1 ? "" : "s"} needed.`
+                          : `At least ${me.passwordMinLength} characters.`
                       }
-                    >
-                      <input
-                        type="password"
-                        value={newPw}
-                        onChange={e => setNewPw(e.target.value)}
-                        required
-                        autoComplete="new-password"
-                        minLength={me.passwordMinLength}
-                        className={inputClass}
-                      />
-                    </FormField>
-                    <FormField label="Confirm new password">
-                      <input
-                        type="password"
-                        value={newPw2}
-                        onChange={e => setNewPw2(e.target.value)}
-                        required
-                        autoComplete="new-password"
-                        minLength={me.passwordMinLength}
-                        className={inputClass}
-                      />
-                    </FormField>
-                    {pwErr && <p className="text-red-600 text-sm">{pwErr}</p>}
-                    {pwOk && <p className="text-green-700 text-sm">{pwOk}</p>}
-                    <button type="submit" disabled={pwBusy} className={primaryBtnEndClass}>
-                      {pwBusy ? "Saving…" : "Save"}
-                    </button>
+                    />
+                    <PasswordField
+                      label="Confirm new password"
+                      value={newPw2}
+                      onChange={setNewPw2}
+                      autoComplete="new-password"
+                      minLength={me.passwordMinLength}
+                    />
+                    {pwErr && <Banner kind="error">{pwErr}</Banner>}
+                    {pwOk && <Banner kind="success" announced>{pwOk}</Banner>}
+                    <div className="fc-actions-end">
+                      <Button type="submit" pending={pwBusy}>Save</Button>
+                    </div>
                   </form>
-                </div>
+                </Panel>
               </>
             )}
 
             {!me.isLocal && (
-              <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-2">
-                <h2 className="font-bold text-gray-800 text-lg">Sign-in security</h2>
-                <div className="rounded-lg border border-blue-200 bg-blue-50/90 px-3 py-3 text-sm text-gray-800 leading-relaxed">
+              <Panel>
+                <h2 className="fc-section-title">Sign-in security</h2>
+                <Banner kind="info">
                   Your organisation manages Microsoft sign-in and any extra security (such as their MFA).
                   Password and authenticator settings in FamilyChart apply only to local accounts.
-                </div>
-              </div>
+                </Banner>
+              </Panel>
             )}
 
             {deviceLockEligible && (
-              <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-3">
-                <h2 className="font-bold text-gray-800 text-lg">App lock</h2>
-                <p className="text-gray-600 text-sm leading-relaxed">
+              <Panel>
+                <h2 className="fc-section-title">App lock</h2>
+                <p className="fc-section-copy">
                   FamilyChart re-locks this device after you leave the app, and asks you to
                   unlock with your device — usually fingerprint, face, or screen lock. This
                   setting applies only to this device.
@@ -1221,229 +1059,158 @@ function ProfilePageContent() {
                     saveGracePeriod(gracePeriod)
                   }}
                   id="app-lock-grace-form"
-                  className="flex flex-col gap-2"
+                  className="fc-form"
                 >
-                  <FormField label="Grace period">
-                    <select
-                      value={gracePeriod}
-                      onChange={e => setGracePeriod(e.target.value as AppLockGracePeriod)}
-                      className={inputClass}
-                    >
+                  <FormField label="Grace period" hint="How long you can switch to another app and come back without unlocking again.">
+                    <Select value={gracePeriod} onChange={e => setGracePeriod(e.target.value as AppLockGracePeriod)}>
                       <option value="immediate">Immediately</option>
                       <option value="30s">30 seconds</option>
                       <option value="1m">1 minute</option>
                       <option value="5m">5 minutes</option>
-                    </select>
+                    </Select>
                   </FormField>
-                  <p className="text-gray-500 text-xs leading-relaxed">
-                    How long you can switch to another app and come back without unlocking again.
-                  </p>
+                  <div className="fc-actions-end">
+                    <Button type="submit">Save</Button>
+                  </div>
                 </form>
+                {graceSaveOk && <Banner kind="success" announced>{graceSaveOk}</Banner>}
 
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-bold text-gray-800">Disable on this device</span>
-                  <Toggle
-                    value={appLockDisabledOnDevice}
-                    onChange={onToggleAppLockDisabled}
-                    ariaLabel="Disable App lock on this device"
-                  />
-                </div>
+                <Toggle
+                  label="Disable App lock on this device"
+                  checked={appLockDisabledOnDevice}
+                  onChange={onToggleAppLockDisabled}
+                />
                 {showAppLockReauth && (
-                  <div className="rounded-lg border border-gray-200 bg-white px-3 py-3 flex flex-col gap-3">
-                    <p className="text-sm text-gray-700">
+                  <div className="fc-subform">
+                    <p className="fc-section-copy">
                       Confirm it&rsquo;s you before turning off App lock on this device.
                     </p>
                     {me.isLocal ? (
-                      <form onSubmit={confirmDisableAppLock} className="flex flex-col gap-3">
-                        <FormField label="Current password">
-                          <input
-                            type="password"
-                            value={reauthPassword}
-                            onChange={e => setReauthPassword(e.target.value)}
-                            required
-                            autoComplete="current-password"
-                            className={inputClass}
-                          />
-                        </FormField>
+                      <form onSubmit={confirmDisableAppLock} className="fc-form">
+                        <PasswordField label="Current password" value={reauthPassword} onChange={setReauthPassword} autoComplete="current-password" />
                         {me.mfaEnrolled && (
-                          <FormField label="Authenticator code">
-                            <input
+                          <FormField label="Authenticator code" hint="6 digits.">
+                            <Input
                               type="text"
                               inputMode="numeric"
                               value={reauthOtp}
                               onChange={e => setReauthOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                               required
-                              className={inputClass + " text-center tracking-widest"}
                             />
                           </FormField>
                         )}
-                        {reauthErr && <p className="text-red-600 text-sm">{reauthErr}</p>}
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowAppLockReauth(false)}
-                            className={secondaryOutlineBtnClass}
-                          >
-                            Cancel
-                          </button>
-                          <button type="submit" disabled={reauthBusy} className={"flex-1 " + primaryBtnClass}>
-                            {reauthBusy ? "…" : "Confirm"}
-                          </button>
+                        {reauthErr && <Banner kind="error">{reauthErr}</Banner>}
+                        <div className="fc-form-actions">
+                          <Button variant="secondary" onClick={() => setShowAppLockReauth(false)}>Cancel</Button>
+                          <Button type="submit" pending={reauthBusy} pendingLabel="Confirming…">Confirm</Button>
                         </div>
                       </form>
                     ) : (
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowAppLockReauth(false)}
-                          className={secondaryOutlineBtnClass}
-                        >
-                          Cancel
-                        </button>
-                        <button type="button" onClick={confirmWithMicrosoft} className={"flex-1 " + primaryBtnClass}>
-                          Sign in with Microsoft to confirm
-                        </button>
+                      <div className="fc-form-actions">
+                        <Button variant="secondary" onClick={() => setShowAppLockReauth(false)}>Cancel</Button>
+                        <Button onClick={confirmWithMicrosoft}>Sign in with Microsoft to confirm</Button>
                       </div>
                     )}
                   </div>
                 )}
-                {graceSaveOk && <p className="text-green-700 text-sm">{graceSaveOk}</p>}
-                <button type="submit" form="app-lock-grace-form" className={primaryBtnEndClass}>Save</button>
 
                 {appLockDisabledOnDevice && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-3 text-sm text-amber-900 leading-relaxed">
+                  <Banner kind="warning">
                     App lock is off on this device only. Anyone who can pick up this device while
                     you&rsquo;re signed in can open FamilyChart without unlocking. Only turn this
                     off if it keeps failing here — your other devices are unaffected.
-                  </div>
+                  </Banner>
                 )}
-              </div>
+              </Panel>
             )}
+            <RemoveMyAccount isLocal={me.isLocal} mfaEnrolled={me.mfaEnrolled} linked={Boolean(linked)} />
           </>
         )}
 
         {tab === "settings" && me.hydrationGoalMl != null && linked && (
           <>
-            <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-              <h2 className="font-bold text-gray-800 text-lg">Your timezone</h2>
-              <p className="text-gray-600 text-sm leading-relaxed">
+            <Panel>
+              <h2 className="fc-section-title">Your timezone</h2>
+              <p className="fc-section-copy">
                 Hydration reminders use this clock for your active window and daily totals. Leave blank
                 to use the household default.
               </p>
-              {timezoneLoadErr && <p className="text-red-600 text-sm">{timezoneLoadErr}</p>}
-              {!timezoneLoadErr && effectiveTimezone === null && (
-                <p className="text-gray-600 text-sm">Loading…</p>
-              )}
+              {timezoneLoadErr && <Banner kind="error">{timezoneLoadErr}</Banner>}
+              {!timezoneLoadErr && effectiveTimezone === null && <p className="fc-field__hint">Loading…</p>}
               {effectiveTimezone && (
-                <form onSubmit={saveTimezone} className="flex flex-col gap-4">
-                  <div>
-                    <label className="font-bold text-gray-800 block mb-1">IANA timezone</label>
-                    <input
+                <form onSubmit={saveTimezone} className="fc-form">
+                  <FormField
+                    label="IANA timezone"
+                    optional
+                    hint={
+                      effectiveTimezone.source === "user"
+                        ? `Reminders use your timezone (${effectiveTimezone.tz}).`
+                        : effectiveTimezone.source === "instance"
+                          ? `Using household default (${effectiveTimezone.tz}).`
+                          : "No valid timezone — hydration reminders are paused until one is set."
+                    }
+                  >
+                    <Input
                       type="text"
                       list="profile-iana-tz-list"
                       value={userTimezone}
                       onChange={e => setUserTimezone(e.target.value)}
                       placeholder="e.g. Australia/Sydney"
-                      className={inputClass}
                     />
                     <datalist id="profile-iana-tz-list">
                       {IANA_TIMEZONES.map(tz => (
                         <option key={tz} value={tz} />
                       ))}
                     </datalist>
-                    <p className="text-gray-600 text-xs mt-1">
-                      {effectiveTimezone.source === "user"
-                        ? `Reminders use your timezone (${effectiveTimezone.tz}).`
-                        : effectiveTimezone.source === "instance"
-                          ? `Using household default (${effectiveTimezone.tz}).`
-                          : "No valid timezone — hydration reminders are paused until one is set."}
-                    </p>
+                  </FormField>
+                  {timezoneSaveErr && <Banner kind="error">{timezoneSaveErr}</Banner>}
+                  {timezoneSaveOk && <Banner kind="success" announced>{timezoneSaveOk}</Banner>}
+                  <div className="fc-actions-end">
+                    <Button type="submit" pending={timezoneSaving}>Save</Button>
                   </div>
-                  {timezoneSaveErr && <p className="text-red-600 text-sm">{timezoneSaveErr}</p>}
-                  {timezoneSaveOk && <p className="text-green-700 text-sm">{timezoneSaveOk}</p>}
-                  <button type="submit" disabled={timezoneSaving} className={primaryBtnEndClass}>
-                    {timezoneSaving ? "Saving…" : "Save"}
-                  </button>
                 </form>
               )}
-            </div>
+            </Panel>
 
-            <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-            <h2 className="font-bold text-gray-800 text-lg">Hydration pacing</h2>
-            <p className="text-gray-600 text-sm leading-relaxed">
-              Set your active hours and usual glass size for hydration reminders.
-            </p>
-            {hydrationLoadErr && <p className="text-red-600 text-sm">{hydrationLoadErr}</p>}
-            {!hydrationLoadErr && hydrationConfig === null && (
-              <p className="text-gray-600 text-sm">Loading…</p>
-            )}
-            {hydrationConfig && (
-              <form onSubmit={saveHydrationSettings} className="flex flex-col gap-4">
-                <div className="rounded-lg border border-gray-200 bg-white/60 px-3 py-3 text-sm text-gray-800">
-                  <span className="font-medium">Daily target: </span>
-                  {formatHydration(me.hydrationGoalMl)}
-                  <span className="text-gray-600">
-                    {" "}
-                    —{" "}
-                    <Link
-                      href={`/${linked.id}/schedules-goals`}
-                      className="text-fc-blue underline font-medium"
-                    >
-                      Edit in Schedules &amp; Goals
-                    </Link>
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="font-bold text-gray-800 block mb-1">Active window start</label>
-                    <input
-                      type="time"
-                      value={activeStart}
-                      onChange={e => setActiveStart(e.target.value)}
-                      required
-                      className={inputClass}
-                    />
+            <Panel>
+              <h2 className="fc-section-title">Hydration pacing</h2>
+              <p className="fc-section-copy">Set your active hours and usual glass size for hydration reminders.</p>
+              {hydrationLoadErr && <Banner kind="error">{hydrationLoadErr}</Banner>}
+              {!hydrationLoadErr && hydrationConfig === null && <p className="fc-field__hint">Loading…</p>}
+              {hydrationConfig && (
+                <form onSubmit={saveHydrationSettings} className="fc-form">
+                  <p className="fc-section-copy">
+                    <strong>Daily target:</strong> {formatHydration(me.hydrationGoalMl)} —{" "}
+                    <Link href={`/${linked.id}/schedules-goals`} className="fc-link">Edit in Schedules &amp; Goals</Link>
+                  </p>
+                  <div className="fc-form-pair">
+                    <FormField label="Active window start">
+                      <Input type="time" value={activeStart} onChange={e => setActiveStart(e.target.value)} required />
+                    </FormField>
+                    <FormField label="Active window end">
+                      <Input type="time" value={activeEnd} onChange={e => setActiveEnd(e.target.value)} required />
+                    </FormField>
                   </div>
-                  <div>
-                    <label className="font-bold text-gray-800 block mb-1">Active window end</label>
-                    <input
-                      type="time"
-                      value={activeEnd}
-                      onChange={e => setActiveEnd(e.target.value)}
-                      required
-                      className={inputClass}
-                    />
+                  <FormField label="Usual glass size (mL)">
+                    <Input type="number" min={1} step={1} value={glassSize} onChange={e => setGlassSize(e.target.value)} required />
+                  </FormField>
+                  {hydrationSaveErr && <Banner kind="error">{hydrationSaveErr}</Banner>}
+                  {hydrationSaveOk && <Banner kind="success" announced>{hydrationSaveOk}</Banner>}
+                  <div className="fc-actions-end">
+                    <Button type="submit" pending={hydrationSaving}>Save</Button>
                   </div>
-                </div>
-                <div>
-                  <label className="font-bold text-gray-800 block mb-1">Usual glass size (mL)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={glassSize}
-                    onChange={e => setGlassSize(e.target.value)}
-                    required
-                    className={inputClass + " max-w-xs"}
-                  />
-                </div>
-                {hydrationSaveErr && <p className="text-red-600 text-sm">{hydrationSaveErr}</p>}
-                {hydrationSaveOk && <p className="text-green-700 text-sm">{hydrationSaveOk}</p>}
-                <button type="submit" disabled={hydrationSaving} className={primaryBtnEndClass}>
-                  {hydrationSaving ? "Saving…" : "Save"}
-                </button>
-              </form>
-            )}
-          </div>
+                </form>
+              )}
+            </Panel>
           </>
         )}
 
         {tab === "settings" && me.hydrationGoalMl == null && (
-          <div className="bg-fc-panel m-3 rounded-xl p-4">
-            <p className="text-gray-600 text-sm">No user settings currently available.</p>
-          </div>
+          <EmptyState icon={EMPTY_STATE_ICONS.noRecords} heading="No settings yet">
+            There are no user settings available right now.
+          </EmptyState>
         )}
-      </main>
+      </PageContainer>
       <AppFooter />
     </div>
   )

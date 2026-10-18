@@ -9,9 +9,6 @@ export async function register() {
     const { getDb } = await import("./lib/db")
     getDb()
 
-    const { migratePlaintextUploads } = await import("./lib/uploads/store")
-    await migratePlaintextUploads()
-
     if (process.env.CRON_MODE === "internal") {
       const { initInternalCron } = await import("./lib/cron")
       initInternalCron()

@@ -6,7 +6,6 @@ import { acquireDbKey, getDbKey, hasDbKey, probeKeyserverHealth } from "@/lib/en
 const KEY_ENV_VARS = [
   "FC_ENCRYPTION_MODE",
   "FC_DB_KEY",
-  "DB_ENCRYPTION_KEY",
   "DB_WRAPPED_KEY",
   "DB_KEY_SERVER_URL",
   "DB_KS_TOKEN",
@@ -57,16 +56,9 @@ describe("db-key", () => {
       expect(getDbKey()).toBe("super-secret")
     })
 
-    it("falls back to legacy DB_ENCRYPTION_KEY when FC_DB_KEY is unset", async () => {
+    it("rejects env mode when FC_DB_KEY is unset", async () => {
       process.env.FC_ENCRYPTION_MODE = "env"
-      process.env.DB_ENCRYPTION_KEY = "legacy-secret"
-      await acquireDbKey()
-      expect(getDbKey()).toBe("legacy-secret")
-    })
-
-    it("rejects env mode when neither key variable is set", async () => {
-      process.env.FC_ENCRYPTION_MODE = "env"
-      await expect(acquireDbKey()).rejects.toThrow(/FC_DB_KEY/)
+      await expect(acquireDbKey()).rejects.toThrow(/^env encryption mode requires FC_DB_KEY$/)
       expect(hasDbKey()).toBe(false)
     })
 

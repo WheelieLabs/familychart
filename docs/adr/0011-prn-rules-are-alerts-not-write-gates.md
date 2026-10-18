@@ -31,3 +31,13 @@ UI warnings on Record Medication stay informational; Save remains available (no 
 - Security audit finding and product won't-fix disposition
 - Dose-write field validation (alert-accuracy bounds)
 - Group frequency rules deliberately not enforced — see `getApplicableFrequencyRule` docs
+
+## Amendment: a once-a-day maximum is not a cap alert for a scheduled medication (October 2026)
+
+**Status:** Accepted; implemented in 1.1.0.
+
+A scheduled medication whose 24-hour maximum allows only one dose a day (a count of 1, or a quantity of one dose unit) reached "at 24h max" the moment its scheduled dose was given, which is the expected dose and not something to alert on, and the cap then held back tomorrow's earlier reminder. This does not make the cap a write gate; it narrows when the alert fires.
+
+- **Decision.** For a scheduled medication, a maximum that allows one dose a day raises no "at 24h max" alert and does not hold back its next scheduled reminder. A PRN medication, a scheduled medication that allows two or more doses a day, and an ended or inactive schedule keep the alert.
+- **One decision for every reader.** The dashboard alert, reminder blocking and the medication timeline read the same result, so the timeline's "24h cap" flag and striped band show exactly when the dashboard says "at 24h max", and a scheduled lane keeps no next-eligible marker (its slots are its next doses). Bands are drawn only within the visible timeline.
+- **Unchanged.** Nothing is rejected at write time, and Cron PRN readiness still uses the one `evaluatePrnState` result.

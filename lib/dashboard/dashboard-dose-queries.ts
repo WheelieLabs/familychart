@@ -91,3 +91,25 @@ export function getTotalTaken24hForMed(
 
   return totRow?.total_taken_24h ?? 0
 }
+
+/**
+ * Individual dose timestamps for one medication since `sinceMs`, oldest first — the point
+ * markers on the medication timeline. Own medication_id only (no sibling groups), like
+ * `getTotalTaken24hForMed`; `idx_medrec_person_date` covers the access pattern.
+ */
+export function getDoseTimestampsInWindow(
+  db: Database.Database,
+  personId: number,
+  medicationId: number,
+  sinceMs: number,
+): { id: number; recorded_at: string }[] {
+  return db
+    .prepare(
+      `SELECT mr.id, mr.recorded_at
+         FROM medication_records mr
+        WHERE mr.person_id = ? AND mr.medication_id = ?
+          AND datetime(mr.recorded_at) >= datetime(?, 'unixepoch')
+        ORDER BY mr.recorded_at, mr.id`,
+    )
+    .all(personId, medicationId, Math.floor(sinceMs / 1000)) as { id: number; recorded_at: string }[]
+}

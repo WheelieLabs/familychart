@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { getDisplayTimeZone } from "@/lib/display-time-zone"
+
 /**
- * Local wall time from HTML date + time inputs → ISO-8601 UTC instant (suffix Z).
- * Matches record-medication when run in the browser (local date + time, no zone suffix).
+ * Wall time from HTML date + time inputs → ISO-8601 UTC instant (suffix Z), read in `timeZone`
+ * (the instance timezone, never the device's). Times that do not exist (a spring-forward gap) resolve
+ * to the instant after the gap; repeated times (autumn) resolve to the first occurrence.
  */
-export function localDateAndTimeToUtcIso(date: string, time: string): string {
-  return new Date(`${date.trim()}T${time.trim()}`).toISOString()
+export function localDateAndTimeToUtcIso(date: string, time: string, timeZone: string = getDisplayTimeZone()): string {
+  const ms = ianaLocalYmdHmToUtcMs(date, time, timeZone)
+  if (!Number.isFinite(ms)) throw new RangeError(`Invalid date or time: ${date} ${time}`)
+  return new Date(ms).toISOString()
 }
 
 export const HHMM_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/
@@ -135,6 +140,8 @@ export function utcMsToLocalMinutesSinceMidnight(utcMs: number, timezoneOffsetMi
  */
 export function tzLocalYmdAndOffset(nowMs: number, tzName: string): { ymd: string; offsetMinutes: number } {
   const roundedMs = Math.floor(nowMs / 60000) * 60000
+  // Machine-readable date parts for calendar arithmetic, never shown to a person.
+  // eslint-disable-next-line no-restricted-syntax
   const fmt = new Intl.DateTimeFormat("en-CA", {
     timeZone: tzName,
     year: "numeric", month: "2-digit", day: "2-digit",
@@ -170,4 +177,33 @@ export function ianaLocalYmdHmToUtcMs(dateYmd: string, timeHm: string, tzName: s
     utcMs = localCalendarYmdHmToUtcMs(dateYmd, timeHm, offsetMinutes)
   }
   return utcMs
+}
+
+/** Date and time (`YYYY-MM-DD`, `HH:mm`) of an instant on the wall clock of `timeZone`, for date and time inputs. */
+export function instantToZonedYmdHm(
+  instant: number | string | Date,
+  timeZone: string = getDisplayTimeZone(),
+): { date: string; time: string } {
+  const ms = instant instanceof Date ? instant.getTime() : typeof instant === "number" ? instant : new Date(instant).getTime()
+  const { ymd, offsetMinutes } = tzLocalYmdAndOffset(ms, timeZone)
+  const minutes = utcMsToLocalMinutesSinceMidnight(ms, offsetMinutes)
+  return { date: ymd, time: formatHHMM(Math.floor(minutes / 60), minutes % 60) }
+}
+
+/** Today's calendar date on the wall clock of `timeZone`. */
+export function zonedTodayYmd(nowMs: number = Date.now(), timeZone: string = getDisplayTimeZone()): string {
+  return tzLocalYmdAndOffset(nowMs, timeZone).ymd
+}
+
+/** True when this device's clock offset differs from `timeZone` at `atMs` (so a "Times are in …" hint is useful). */
+export function deviceZoneDiffersFrom(timeZone: string, atMs: number = Date.now()): boolean {
+  return new Date(atMs).getTimezoneOffset() !== tzLocalYmdAndOffset(atMs, timeZone).offsetMinutes
+}
+
+/**
+ * SQLite's `CURRENT_TIMESTAMP` is `YYYY-MM-DD HH:MM:SS` in UTC with no zone marker. Returns it as an
+ * ISO-8601 UTC instant so it is not read in the device's zone. Anything else is returned unchanged.
+ */
+export function sqliteUtcToIso(stored: string): string {
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(stored) ? `${stored.replace(" ", "T")}Z` : stored
 }

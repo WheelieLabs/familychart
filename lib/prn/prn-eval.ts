@@ -43,6 +43,26 @@ export interface PrnEvalResult {
   effectiveOffsetH: number | null
 }
 
+/** One dose unit for a quantity-mode maximum: rule dosage, else catalogue default, else last dosage. */
+function resolveOneDoseUnit(slice: MedicationDoseSlice): number | null {
+  return slice.rule?.dosage ?? slice.catalogDefaultDosage ?? slice.lastDosage ?? null
+}
+
+/**
+ * True when the 24h maximum allows exactly one administration: a dose-count maximum of 1, or a
+ * quantity maximum that fits one dose unit but not two. An unresolvable dose unit is false, so the
+ * at-cap alert stays. Whether the medication is also scheduled is the caller's check.
+ */
+export function allowsOnlyOneDosePerDay(slice: MedicationDoseSlice): boolean {
+  const { rule } = slice
+  if (!rule || rule.max_quantity_per_24h == null) return false
+  const max = rule.max_quantity_per_24h
+  if (ruleMax24hIsDoseCount(rule)) return max === 1
+  const oneDoseUnit = resolveOneDoseUnit(slice)
+  if (oneDoseUnit == null || !(oneDoseUnit > 0)) return false
+  return max >= oneDoseUnit && max < 2 * oneDoseUnit
+}
+
 const EMPTY_TIMING = {
   resetAtMs: null as number | null,
   availableAtMs: null as number | null,
@@ -62,7 +82,7 @@ const EMPTY_TIMING = {
  *              Cron PRN readiness is `!cooldown` (still skip when `atCap`).
  */
 export function evaluatePrnState(slice: MedicationDoseSlice, now: Date): PrnEvalResult {
-  const { rule, total24h, lastDose, oldest24h, lastDosage, catalogDefaultDosage } = slice
+  const { rule, total24h, lastDose, oldest24h } = slice
   const nowMs = now.getTime()
 
   if (!rule) {
@@ -94,7 +114,7 @@ export function evaluatePrnState(slice: MedicationDoseSlice, now: Date): PrnEval
       atCap = total24h >= max
       coverageGap = !atCap && !gapIsMoot && total24h >= 1 && total24h === max - 1
     } else {
-      const oneDoseUnit = rule.dosage ?? catalogDefaultDosage ?? lastDosage ?? null
+      const oneDoseUnit = resolveOneDoseUnit(slice)
       if (oneDoseUnit == null) {
         atCap = total24h >= max
       } else {

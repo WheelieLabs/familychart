@@ -57,8 +57,6 @@ export interface BpPairDraft {
   diaId: number | null
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-
 export const OBS_HISTORY_PAGE_SIZE = 50
 
 export const OBS_HISTORY_CHART_TYPES = new Set([
@@ -67,13 +65,6 @@ export const OBS_HISTORY_CHART_TYPES = new Set([
   "Heart Rate", "SpO2", "Blood Glucose",
   "Respirations", "Head Circumference",
 ])
-
-export function fmtAU(iso: string): string {
-  const d = new Date(iso)
-  const h = d.getHours()
-  const hour = h % 12 || 12
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} ${hour}:${d.getMinutes().toString().padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`
-}
 
 export function daysAgo(n: number, fromYmd: string): string {
   return addCalendarDaysToIsoYmd(fromYmd, -n)
@@ -151,7 +142,8 @@ export function formatBpSingle(r: ObsRecord): string {
 
 export interface UseObservationHistoryArgs {
   personId: string
-  tab: string
+  /** Whether the Observation summary is the one currently visible (gates the summary-list fetch). */
+  active: boolean
   todayYmd: string
 }
 
@@ -159,6 +151,8 @@ export interface UseObservationHistoryResult {
   summaries: ObsSummary[]
   typeConfigs: ObservationTypeConfig[]
   summaryLoading: boolean
+  /** True once the summary list has been fetched at least once (distinguishes "not yet" from "none"). */
+  summaryLoaded: boolean
   selectedObs: ObsSummary | null
   selectObs: (obs: ObsSummary | null) => void
   records: ObsRecord[]
@@ -183,7 +177,7 @@ export interface UseObservationHistoryResult {
 
 export function useObservationHistory({
   personId,
-  tab,
+  active,
   todayYmd,
 }: UseObservationHistoryArgs): UseObservationHistoryResult {
   const prevTodayRef = useRef(todayYmd)
@@ -191,6 +185,7 @@ export function useObservationHistory({
   const [summaries, setSummaries] = useState<ObsSummary[]>([])
   const [typeConfigs, setTypeConfigs] = useState<ObservationTypeConfig[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryLoaded, setSummaryLoaded] = useState(false)
   const [selectedObs, setSelectedObs] = useState<ObsSummary | null>(null)
   const [records, setRecords] = useState<ObsRecord[]>([])
   const [recordsLoading, setRecordsLoading] = useState(false)
@@ -210,7 +205,7 @@ export function useObservationHistory({
   }, [todayYmd])
 
   useEffect(() => {
-    if (tab !== "observations" || selectedObs) return
+    if (!active || selectedObs) return
     setSummaryLoading(true)
     Promise.all([
       fetch(`/api/observations?summary=true&person_id=${personId}`),
@@ -236,8 +231,8 @@ export function useObservationHistory({
       .catch(() => {
         setSummaries([])
       })
-      .finally(() => setSummaryLoading(false))
-  }, [tab, personId, selectedObs])
+      .finally(() => { setSummaryLoading(false); setSummaryLoaded(true) })
+  }, [active, personId, selectedObs])
 
   const loadRecords = useCallback(async () => {
     if (!selectedObs) return
@@ -247,12 +242,14 @@ export function useObservationHistory({
       const type = selectedObs.observation_type
       if (!isPaginatedObsType(type)) {
         const res = await fetch(
-          `/api/observations?person_id=${personId}&type=${encodeURIComponent(type)}&from=${from}&to=${to}`
+          `/api/observations?person_id=${personId}&type=${encodeURIComponent(type)}&from=${from}&to=${to}`,
+          { headers: dashboardScheduleHeaders() },
         )
         setRecords(await res.json())
       } else {
         const res = await fetch(
-          `/api/observations?person_id=${personId}&type=${encodeURIComponent(type)}&from=${from}&to=${to}&limit=${OBS_HISTORY_PAGE_SIZE}`
+          `/api/observations?person_id=${personId}&type=${encodeURIComponent(type)}&from=${from}&to=${to}&limit=${OBS_HISTORY_PAGE_SIZE}`,
+          { headers: dashboardScheduleHeaders() },
         )
         const data = await res.json() as { rows: ObsRecord[]; nextCursor: RecordsCursor | null }
         const next = applyKeysetPage([], data, "replace")
@@ -270,7 +267,8 @@ export function useObservationHistory({
     try {
       const type = selectedObs.observation_type
       const res = await fetch(
-        `/api/observations?person_id=${personId}&type=${encodeURIComponent(type)}&from=${from}&to=${to}&limit=${OBS_HISTORY_PAGE_SIZE}&cursorTs=${encodeURIComponent(cursor.ts)}&cursorId=${cursor.id}`
+        `/api/observations?person_id=${personId}&type=${encodeURIComponent(type)}&from=${from}&to=${to}&limit=${OBS_HISTORY_PAGE_SIZE}&cursorTs=${encodeURIComponent(cursor.ts)}&cursorId=${cursor.id}`,
+        { headers: dashboardScheduleHeaders() },
       )
       const data = await res.json() as { rows: ObsRecord[]; nextCursor: RecordsCursor | null }
       setRecords(prev => applyKeysetPage(prev, data, "append").records)
@@ -290,7 +288,8 @@ export function useObservationHistory({
     setChartLoading(true)
     try {
       const res = await fetch(
-        `/api/observations?person_id=${personId}&type=${encodeURIComponent(type)}&from=${from}&to=${to}&fields=chart`
+        `/api/observations?person_id=${personId}&type=${encodeURIComponent(type)}&from=${from}&to=${to}&fields=chart`,
+        { headers: dashboardScheduleHeaders() },
       )
       setChartData(await res.json())
     } finally {
@@ -378,6 +377,7 @@ export function useObservationHistory({
     summaries,
     typeConfigs,
     summaryLoading,
+    summaryLoaded,
     selectedObs,
     selectObs,
     records,

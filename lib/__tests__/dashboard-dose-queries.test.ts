@@ -1,6 +1,6 @@
 import Database from "better-sqlite3-multiple-ciphers"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { getTotalTaken24hForMed, getOldestIn24hWindow } from "@/lib/dashboard/dashboard-dose-queries"
+import { getDoseTimestampsInWindow, getTotalTaken24hForMed, getOldestIn24hWindow } from "@/lib/dashboard/dashboard-dose-queries"
 import type { FrequencyRule } from "@/lib/domain-types"
 
 function createTestDb(): Database.Database {
@@ -97,5 +97,39 @@ describe("getOldestIn24hWindow", () => {
     expect(oldestMed1).not.toBeNull()
     expect(oldestMed2).not.toBeNull()
     expect(new Date(oldestMed1!).getTime()).toBeLessThan(new Date(oldestMed2!).getTime())
+  })
+})
+
+describe("getDoseTimestampsInWindow", () => {
+  let db: Database.Database
+
+  beforeEach(() => {
+    db = createTestDb()
+    db.prepare("INSERT INTO people (id, name) VALUES (1, 'Test'), (2, 'Other')").run()
+    db.prepare("INSERT INTO medications (id, name, dosage_unit) VALUES (1, 'Med A', 'Tabs'), (2, 'Med B', 'Tabs')").run()
+    const ins = db.prepare(
+      "INSERT INTO medication_records (id, person_id, medication_id, recorded_at) VALUES (?, ?, ?, ?)",
+    )
+    ins.run(1, 1, 1, "2025-01-15T08:00:00.000Z")
+    ins.run(2, 1, 1, "2025-01-14T08:00:00.000Z")
+    ins.run(3, 1, 1, "2025-01-14T20:00:00.000Z")
+    ins.run(4, 1, 2, "2025-01-15T09:00:00.000Z")
+    ins.run(5, 2, 1, "2025-01-15T09:30:00.000Z")
+  })
+
+  afterEach(() => {
+    db.close()
+  })
+
+  it("returns this person's doses of this medication since the cutoff, oldest first, with ids", () => {
+    const since = Date.parse("2025-01-14T12:00:00.000Z")
+    expect(getDoseTimestampsInWindow(db, 1, 1, since)).toEqual([
+      { id: 3, recorded_at: "2025-01-14T20:00:00.000Z" },
+      { id: 1, recorded_at: "2025-01-15T08:00:00.000Z" },
+    ])
+  })
+
+  it("returns nothing when no dose falls in the window", () => {
+    expect(getDoseTimestampsInWindow(db, 1, 1, Date.parse("2025-01-16T00:00:00.000Z"))).toEqual([])
   })
 })

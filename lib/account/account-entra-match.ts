@@ -2,6 +2,7 @@
 
 import type Database from "better-sqlite3-multiple-ciphers"
 import { auditLog } from "@/lib/audit-log"
+import { isEntraOidRemoved } from "@/lib/account/entra-removed"
 import { claimInviteForEntra, type EntraProfile } from "@/lib/invite"
 
 export type { EntraProfile }
@@ -25,6 +26,17 @@ interface ExistingAccountRow {
  * UPN happens to match their local email), that row is left untouched and its id is simply
  * returned — not claimed, not duplicated, and not thrown on every sign-in.
  */
+/**
+ * Sign-in entry. A tombstoned Entra object id is refused before any Account row is matched or created.
+ */
+export function signInEntraAccount(
+  db: Database.Database,
+  profile: EntraProfile,
+): { removed: true } | { accountId: number } {
+  if (isEntraOidRemoved(db, profile.oid)) return { removed: true }
+  return matchOrCreateEntraAccount(db, profile)
+}
+
 export function matchOrCreateEntraAccount(
   db: Database.Database,
   profile: EntraProfile,

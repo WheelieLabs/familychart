@@ -5,35 +5,41 @@
 import { useCallback, useEffect, useState } from "react"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
+import AttachmentLink from "@/components/AttachmentViewer"
 import ConfirmModal from "@/components/ConfirmModal"
-import { mainContentTargetProps } from "@/lib/a11y"
+import { FcTabBar, type FcTabItem } from "@/components/ui/FcTabBar"
+import Badge from "@/components/ui/Badge"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
+import { administrationTrail } from "@/lib/ui/breadcrumbs"
+import { formatDate } from "@/lib/date-format"
+import type { AttachmentsScan, HouseholdFilesScan } from "@/lib/household-files"
 
-type FileRow = {
-  filename: string
-  path: string
-  url: string
-  sizeBytes: number
-  encrypted: boolean
-  orphan: boolean
-  personId: number | null
-  personName: string | null
-}
+type Tab = "photos" | "attachments"
 
-type Scan = {
-  files: FileRow[]
-  totalBytes: number
-  orphanCount: number
-  orphanBytes: number
-}
+const TABS: readonly FcTabItem<Tab>[] = [
+  { value: "photos", label: "Photos" },
+  { value: "attachments", label: "Attachments" },
+]
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`
 }
 
 export default function AdminFilesPage() {
-  const [scan, setScan] = useState<Scan | null>(null)
+  const [tab, setTab] = useState<Tab>("photos")
+  const [photos, setPhotos] = useState<HouseholdFilesScan | null>(null)
+  const [attachments, setAttachments] = useState<AttachmentsScan | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [purging, setPurging] = useState(false)
@@ -43,22 +49,26 @@ export default function AdminFilesPage() {
     setLoading(true)
     setError("")
     try {
-      const res = await fetch("/api/admin/files")
-      if (!res.ok) {
+      const [photosRes, attachmentsRes] = await Promise.all([
+        fetch("/api/admin/files"),
+        fetch("/api/admin/files?kind=attachments"),
+      ])
+      if (!photosRes.ok || !attachmentsRes.ok) {
         setError("Failed to scan household files")
-        setScan(null)
         return
       }
-      setScan(await res.json())
+      setPhotos(await photosRes.json())
+      setAttachments(await attachmentsRes.json())
     } catch {
       setError("Failed to scan household files")
-      setScan(null)
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const active = tab === "photos" ? photos : attachments
 
   async function purgeOrphans() {
     setPurging(true)
@@ -67,7 +77,7 @@ export default function AdminFilesPage() {
       const res = await fetch("/api/admin/files", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purgeAllOrphans: true }),
+        body: JSON.stringify({ purgeAllOrphans: true, kind: tab }),
       })
       if (!res.ok) {
         setError("Purge failed")
@@ -82,87 +92,64 @@ export default function AdminFilesPage() {
     }
   }
 
+  const photoBytes = photos?.totalBytes ?? 0
+  const attachmentBytes = attachments?.totalBytes ?? 0
+
   return (
     <div className="flex flex-col flex-1">
       <AppHeader title="Files" />
-      <main {...mainContentTargetProps} className="fc-surface-admin fc-scroll p-4">
-        <div className="max-w-3xl mx-auto flex flex-col gap-4">
-          <p className="text-sm text-white/80">
-            Household uploads under <code className="text-white/90">uploads/people/</code>.
-            Orphans are files not referenced by any person photo.
-          </p>
+      <PageContainer area="admin" trail={administrationTrail({ label: "Files" })} tabs={<FcTabBar tabs={TABS} active={tab} onSelect={setTab} />}>
+        {photos && attachments && (
+          <section aria-labelledby="files-storage" className="fc-files-summary">
+            <h2 id="files-storage" className="fc-files-summary__label">Space used by uploads</h2>
+            <p className="fc-files-summary__total">{formatBytes(photoBytes + attachmentBytes)}</p>
+            <p className="fc-files-summary__split">
+              <span>Photos {formatBytes(photoBytes)} ({plural(photos.files.length, "file")})</span>
+              {" · "}
+              <span>Attachments {formatBytes(attachmentBytes)} ({plural(attachments.files.length, "file")})</span>
+            </p>
+          </section>
+        )}
 
-          {error && (
-            <div className="rounded-lg bg-red-900/40 text-red-100 text-sm px-3 py-2">{error}</div>
+        <p className="fc-files-note">
+          {tab === "photos" ? (
+            <>Person photos under <code>uploads/people/</code>. Orphans are files not referenced by any person photo.</>
+          ) : (
+            <>Test result reports under <code>uploads/test-results/</code>. Orphans are files no test result references; a missing file is referenced by a test result but not on disk.</>
           )}
+        </p>
 
-          <div className="flex flex-wrap gap-3 items-center">
-            <button
-              type="button"
-              onClick={() => load()}
-              disabled={loading}
-              className="rounded-lg bg-fc-blue-mid hover:bg-fc-blue-dark text-white text-sm font-medium px-3 py-2 disabled:opacity-50"
-            >
-              {loading ? "Scanning…" : "Refresh"}
-            </button>
-            {scan && scan.orphanCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setConfirmPurge(true)}
-                disabled={purging}
-                className="rounded-lg bg-red-800/80 hover:bg-red-700 text-white text-sm font-medium px-3 py-2 disabled:opacity-50"
-              >
-                Purge {scan.orphanCount} orphan{scan.orphanCount === 1 ? "" : "s"}
-              </button>
-            )}
-          </div>
+        {error && <Banner kind="error" announced>{error}</Banner>}
 
-          {scan && (
-            <div className="text-sm text-white/80 flex flex-wrap gap-x-4 gap-y-1">
-              <span>Total: {formatBytes(scan.totalBytes)} ({scan.files.length} file{scan.files.length === 1 ? "" : "s"})</span>
-              <span>
-                Orphans: {formatBytes(scan.orphanBytes)} ({scan.orphanCount})
-              </span>
-            </div>
+        <div className="fc-files-actions">
+          <Button variant="secondary" size="compact" onClick={() => load()} pending={loading} pendingLabel="Scanning…">
+            Refresh
+          </Button>
+          {active && active.orphanCount > 0 && (
+            <Button variant="secondary" size="compact" onClick={() => setConfirmPurge(true)} pending={purging} pendingLabel="Purging…">
+              Purge {plural(active.orphanCount, "orphan")}
+            </Button>
           )}
-
-          {loading && !scan ? (
-            <p className="text-white/70 text-sm">Scanning…</p>
-          ) : scan && scan.files.length === 0 ? (
-            <p className="text-white/70 text-sm">No upload files found.</p>
-          ) : scan ? (
-            <ul className="flex flex-col gap-2">
-              {scan.files.map(f => (
-                <li
-                  key={f.filename}
-                  className="rounded-xl bg-fc-blue/40 px-4 py-3 text-white text-sm flex flex-col gap-1"
-                >
-                  <div className="font-medium break-all">{f.filename}</div>
-                  <div className="text-white/70 text-xs flex flex-wrap gap-x-3 gap-y-1">
-                    <span>{formatBytes(f.sizeBytes)}</span>
-                    <span>{f.encrypted ? "Encrypted" : "Plaintext"}</span>
-                    {f.orphan ? (
-                      <span className="text-amber-200">Orphan</span>
-                    ) : (
-                      <span>
-                        {f.personName ?? `Person #${f.personId}`}
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : null}
         </div>
-      </main>
+
+        {loading && !active ? (
+          <p className="fc-files-note">Scanning…</p>
+        ) : tab === "photos" && photos ? (
+          <PhotosList scan={photos} />
+        ) : tab === "attachments" && attachments ? (
+          <AttachmentsList scan={attachments} />
+        ) : null}
+      </PageContainer>
       <AppFooter />
 
       <ConfirmModal
         open={confirmPurge}
-        title="Purge orphan files?"
+        title={tab === "photos" ? "Purge orphan photos?" : "Purge orphan attachments?"}
         message={
-          scan
-            ? `Delete ${scan.orphanCount} orphan file${scan.orphanCount === 1 ? "" : "s"} (${formatBytes(scan.orphanBytes)})? Referenced photos are never deleted.`
+          active
+            ? `Delete ${plural(active.orphanCount, "orphan file")} (${formatBytes(active.orphanBytes)})? ${
+                tab === "photos" ? "Referenced photos" : "Attachments a test result references"
+              } are never deleted.`
             : "Delete orphan files?"
         }
         confirmLabel={purging ? "Purging…" : "Purge orphans"}
@@ -171,5 +158,93 @@ export default function AdminFilesPage() {
         onConfirm={() => { void purgeOrphans() }}
       />
     </div>
+  )
+}
+
+function Totals({ scan }: { scan: HouseholdFilesScan | AttachmentsScan }) {
+  return (
+    <p className="fc-files-note">
+      <span>Total: {formatBytes(scan.totalBytes)} ({plural(scan.files.length, "file")})</span>
+      {" · "}
+      <span>Orphans: {formatBytes(scan.orphanBytes)} ({scan.orphanCount})</span>
+    </p>
+  )
+}
+
+function PhotosList({ scan }: { scan: HouseholdFilesScan }) {
+  return (
+    <>
+      <Totals scan={scan} />
+      {scan.files.length === 0 ? (
+        <EmptyState icon={EMPTY_STATE_ICONS.noFiles} heading="No files yet">
+          Person photos appear here once someone adds one.
+        </EmptyState>
+      ) : (
+        <CardList>
+          {scan.files.map(f => (
+            <ListCard
+              key={f.filename}
+              title={f.filename}
+              meta={[formatBytes(f.sizeBytes), f.encrypted ? "Encrypted" : "Plaintext", !f.orphan && (f.personName ?? `Person #${f.personId}`)]}
+              extras={f.orphan ? <Badge tone="warning">Orphan</Badge> : undefined}
+            />
+          ))}
+        </CardList>
+      )}
+    </>
+  )
+}
+
+function AttachmentsList({ scan }: { scan: AttachmentsScan }) {
+  return (
+    <>
+      <Totals scan={scan} />
+      {scan.missingCount > 0 && <Banner kind="warning">{`${scan.missingCount} missing on disk`}</Banner>}
+
+      {scan.byPerson.length > 0 && (
+        <section aria-labelledby="files-per-person" className="fc-files-summary">
+          <h2 id="files-per-person" className="fc-files-summary__label">Space per person</h2>
+          <ul className="fc-files-people">
+            {scan.byPerson.map(p => (
+              <li key={p.personId}>
+                <span>{p.personName} ({plural(p.fileCount, "file")})</span>
+                <span className="tabular-nums">{formatBytes(p.bytes)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {scan.files.length === 0 ? (
+        <EmptyState icon={EMPTY_STATE_ICONS.noFiles} heading="No attachments yet">
+          Test result reports appear here once someone attaches one.
+        </EmptyState>
+      ) : (
+        <CardList>
+          {scan.files.map(f => (
+            <ListCard
+              key={f.filename}
+              title={
+                f.events.length > 0
+                  ? f.events.map(e => `${e.name} — ${e.personName}, ${formatDate(e.date)}`).join("; ")
+                  : f.filename
+              }
+              meta={[
+                f.missing ? "—" : formatBytes(f.sizeBytes),
+                !f.missing && (f.encrypted ? "Encrypted" : "Plaintext"),
+                f.filename,
+              ]}
+              extras={
+                <>
+                  {f.orphan && <Badge tone="warning">Orphan</Badge>}
+                  {f.missing && <Badge tone="warning">Missing on disk</Badge>}
+                  {!f.missing && <AttachmentLink url={f.url}>View</AttachmentLink>}
+                </>
+              }
+            />
+          ))}
+        </CardList>
+      )}
+    </>
   )
 }

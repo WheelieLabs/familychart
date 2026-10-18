@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 /** On-disk namespace under `uploads/{bucket}/`. Extend when new attachment kinds land. */
-export type UploadBucket = "people"
+export type UploadBucket = "people" | "test-results"
 
-export const UPLOAD_BUCKETS: readonly UploadBucket[] = ["people"] as const
+export const UPLOAD_BUCKETS: readonly UploadBucket[] = ["people", "test-results"] as const
 
 export type UploadMeta = {
   filename: string

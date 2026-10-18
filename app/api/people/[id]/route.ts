@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { requireAuth, requireManage, authorisePersonAccess } from "@/lib/auth/auth-helpers"
+import { isAdmin } from "@/lib/permissions"
 import { rejectDemoProfanity } from "@/lib/demo/demo-profanity-guard"
 import { getDb } from "@/lib/db"
 import { auditLog } from "@/lib/audit-log"
@@ -11,8 +12,10 @@ import {
   isPeopleAccountUidConstraintError,
   normalizePersonAccountUid,
   ACCOUNT_UID_ALREADY_LINKED_ERROR,
+  PERSON_LINK_ADMIN_ONLY_ERROR,
 } from "@/lib/people-user-uid"
 import { isDeadInviteAccountUid, DEAD_INVITE_LINK_ERROR } from "@/lib/invite"
+import { isClearingNoneRolePersonalLink, NONE_ROLE_UNLINK_ERROR } from "@/lib/account/none-role"
 import { validatePersonPhotoUrlWrite } from "@/lib/person/person-photo-url"
 import { deleteSupersededPersonPhoto } from "@/lib/person/person-photo-file"
 
@@ -31,7 +34,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function PUT(request: NextRequest, { params }: Params) {
   const authResult = await requireManage()
   if (authResult instanceof NextResponse) return authResult
-  const { session } = authResult
+  const { session, groups } = authResult
   const { id } = await params
   const pid  = parseInt(id, 10)
   const body = await request.json()
@@ -65,6 +68,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
     account_uid !== undefined ? normalizePersonAccountUid(account_uid) : existing.account_uid
   const nextDob    = date_of_birth !== undefined ? date_of_birth || null : existing.date_of_birth
 
+  // The Personal-link makes its holder the Person's owner for export and erase, so only an Admin
+  // sets, moves or clears it. A Manager's form echoing the current value back is not a change.
+  if (nextUid !== existing.account_uid && !isAdmin(groups)) {
+    return NextResponse.json({ error: PERSON_LINK_ADMIN_ONLY_ERROR }, { status: 403 })
+  }
   if (findPersonAccountUidConflict(db, nextUid, pid)) {
     return NextResponse.json({ error: ACCOUNT_UID_ALREADY_LINKED_ERROR }, { status: 409 })
   }
@@ -73,6 +81,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
   // rule); this just stops a dead invite from being newly offered as a link target.
   if (nextUid !== existing.account_uid && isDeadInviteAccountUid(db, nextUid)) {
     return NextResponse.json({ error: DEAD_INVITE_LINK_ERROR }, { status: 409 })
+  }
+  if (isClearingNoneRolePersonalLink(db, existing.account_uid, nextUid)) {
+    return NextResponse.json({ error: NONE_ROLE_UNLINK_ERROR }, { status: 400 })
   }
 
   try {

@@ -2,19 +2,17 @@
 
 /**
  * Schedule recurrence computation: when is a prescription schedule active,
- * which slot does a dose record match, what dosage applies to a given slot.
+ * what dosage applies to a given slot.
  *
- * Callers: cron.ts, dashboard-issue-builders.ts, app/api/records/route.ts
+ * Callers: cron.ts, dashboard-issue-builders.ts, slot-outcomes.ts. Which slot a dose belongs to is stored
+ * in slot outcomes, not worked out here.
  * No HTTP or DB dependencies — pure schedule calendar logic.
  */
 
 import { parseHHMM, formatHHMM, localCalendarYmdHmToUtcMs, utcMsToLocalYmd } from "@/lib/datetime"
-import type { ScheduleSlotMatchConfig } from "@/lib/schedule/schedule-config"
-import { PUSH_DELIVERY_WINDOW_MINUTES } from "@/lib/schedule/schedule-config"
 
 export type MedScheduleFreq =
   | { kind: "daily" }
-  | { kind: "twice_daily" }
   | { kind: "every_n_days"; n: number }
   | { kind: "weekly"; weekdays: number[] }
 
@@ -72,7 +70,6 @@ export function parseScheduleFrequencyJson(raw: string | null): MedScheduleFreq 
     const v = JSON.parse(raw) as Record<string, unknown>
     const kind = v.kind
     if (kind === "daily") return { kind: "daily" }
-    if (kind === "twice_daily") return { kind: "twice_daily" }
     if (kind === "every_n_days") {
       const n = typeof v.n === "number" ? v.n : parseInt(String(v.n), 10)
       if (!Number.isFinite(n) || n < 2) throw new Error("every_n_days requires n >= 2")
@@ -125,7 +122,7 @@ export function parseYmdToLocalDate(ymd: string): Date {
 }
 
 /** Weekday (Sun=0) for a civil `YYYY-MM-DD`, independent of viewer timezone. */
-function weekdayJsSun0FromIsoYmd(ymd: string): number {
+export function weekdayJsSun0FromIsoYmd(ymd: string): number {
   return new Date(`${ymd}T12:00:00.000Z`).getUTCDay()
 }
 
@@ -154,7 +151,7 @@ function isScheduleActiveOnLocalDate(
     if (endOfLocalDay.getTime() > lastMoment.getTime()) return false
   }
 
-  if (freq.kind === "daily" || freq.kind === "twice_daily") return true
+  if (freq.kind === "daily") return true
 
   if (freq.kind === "weekly") {
     return freq.weekdays.includes(localDay.getDay())
@@ -172,6 +169,26 @@ function isScheduleActiveOnLocalDate(
  * Same rules as {@link isScheduleActiveOnLocalDate} for a civil calendar date string
  * (`YYYY-MM-DD`). Use with dates from the client so recurrence matches the browser calendar.
  */
+/**
+ * Whether an assignment's schedule is in effect on a day, regardless of which weekday or interval
+ * day it falls on: it has started and has not ended. A schedule with no start date only counts when
+ * daily (the same rule as `isScheduleActiveOnYmd`). Used to ask "is this medication scheduled?",
+ * where a weekly schedule on an off day is still scheduled.
+ */
+export function isScheduleInEffectOnYmd(
+  freq: MedScheduleFreq | null,
+  scheduleStart: string | null,
+  scheduleEnd: string | null,
+  ymd: string
+): boolean {
+  if (!freq) return false
+  const startRaw = scheduleStart?.trim() ?? ""
+  if (startRaw === "") return freq.kind === "daily"
+  if (ymd < startRaw) return false
+  const endRaw = scheduleEnd?.trim() ?? ""
+  return endRaw === "" || ymd <= endRaw
+}
+
 export function isScheduleActiveOnYmd(
   freq: MedScheduleFreq | null,
   scheduleStart: string | null,
@@ -182,14 +199,14 @@ export function isScheduleActiveOnYmd(
 
   const startRaw = scheduleStart?.trim() ?? ""
   if (startRaw === "") {
-    return freq.kind === "daily" || freq.kind === "twice_daily"
+    return freq.kind === "daily"
   }
 
   if (ymd < startRaw) return false
   const endRaw = scheduleEnd?.trim() ?? ""
   if (endRaw !== "" && ymd > endRaw) return false
 
-  if (freq.kind === "daily" || freq.kind === "twice_daily") return true
+  if (freq.kind === "daily") return true
 
   if (freq.kind === "weekly") {
     return freq.weekdays.includes(weekdayJsSun0FromIsoYmd(ymd))
@@ -198,67 +215,6 @@ export function isScheduleActiveOnYmd(
   const diff = fullDaysBetweenIsoYmd(startRaw, ymd)
   if (diff < 0) return false
   return diff % freq.n === 0
-}
-
-function defaultSlotMatchConfig(): ScheduleSlotMatchConfig {
-  return {
-    associationRadiusMs: 60 * 60 * 1000,
-    lateGraceMs: PUSH_DELIVERY_WINDOW_MINUTES * 60_000,
-  }
-}
-
-function slotInstantsOnYmd(
-  localYmd: string,
-  timesHm: string[],
-  timezoneOffsetMinutes: number,
-): Array<{ utcMs: number; label: string }> {
-  const slots: Array<{ utcMs: number; label: string }> = []
-  for (const t of timesHm) {
-    const hm = parseHHMM(t)
-    if (!hm) continue
-    const label = formatHHMM(hm.h, hm.m)
-    const utcMs = localCalendarYmdHmToUtcMs(localYmd, label, timezoneOffsetMinutes)
-    if (!Number.isFinite(utcMs)) continue
-    slots.push({ utcMs, label })
-  }
-  return slots.sort((a, b) => a.utcMs - b.utcMs)
-}
-
-export function matchRecordToScheduledSlot(
-  recordedAt: Date,
-  timesHm: string[],
-  freq: MedScheduleFreq | null,
-  scheduleStart: string | null,
-  scheduleEnd: string | null,
-  timezoneOffsetMinutes: number,
-  matchConfig: ScheduleSlotMatchConfig = defaultSlotMatchConfig(),
-): { slotTimeLabel: string; late: boolean } | null {
-  if (timesHm.length === 0 || !freq) return null
-
-  const localYmd = utcMsToLocalYmd(recordedAt.getTime(), timezoneOffsetMinutes)
-
-  if (!isScheduleActiveOnYmd(freq, scheduleStart, scheduleEnd, localYmd)) {
-    return null
-  }
-
-  const slots = slotInstantsOnYmd(localYmd, timesHm, timezoneOffsetMinutes)
-  if (slots.length === 0) return null
-
-  const t = recordedAt.getTime()
-  let best: (typeof slots)[number] | null = null
-  let bestDiff = Infinity
-  for (const s of slots) {
-    const diff = Math.abs(t - s.utcMs)
-    if (diff > matchConfig.associationRadiusMs) continue
-    if (diff < bestDiff) {
-      bestDiff = diff
-      best = s
-    }
-  }
-  if (best == null) return null
-
-  const late = t > best.utcMs + matchConfig.lateGraceMs
-  return { slotTimeLabel: best.label, late }
 }
 
 /** Dosage for a scheduled time slot; falls back to `fallbackDosage` or 1. */

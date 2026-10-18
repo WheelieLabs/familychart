@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import type Database from "better-sqlite3-multiple-ciphers"
-import { logger } from "@/lib/logger"
-import { isEntraProviderEnabledViaEnv } from "@/lib/auth/auth-providers"
 import {
-  readRegistryEnvValue,
   SETTING_AUTH_ENTRA_ENABLED,
   SETTING_AUTH_ENTRA_CLIENT_ID,
   SETTING_AUTH_ENTRA_TENANT_ID,
   SETTING_AUTH_ENTRA_CLIENT_SECRET,
-  getSettingDefinition,
 } from "@/lib/settings/registry"
 import { resolveSetting } from "@/lib/settings/resolver"
 
@@ -19,28 +15,7 @@ export interface EntraCredentials {
   tenantId: string
 }
 
-/** One-time boot seed: legacy ENABLED_AUTH_PROVIDERS → auth.entra.enabled. */
-export function seedAuthSettingsFromLegacyEnv(db: Database.Database): void {
-  const entry = getSettingDefinition(SETTING_AUTH_ENTRA_ENABLED)
-  if (!entry) return
-
-  if (readRegistryEnvValue(entry) !== undefined) return
-
-  const existing = db
-    .prepare("SELECT value FROM app_settings WHERE key = ?")
-    .get(SETTING_AUTH_ENTRA_ENABLED) as { value: string } | undefined
-  if (existing) return
-
-  if (!isEntraProviderEnabledViaEnv()) return
-
-  db.prepare(
-    `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)`,
-  ).run(SETTING_AUTH_ENTRA_ENABLED, "true", Date.now())
-  logger.info("auth_settings_seeded_from_legacy_env", { key: SETTING_AUTH_ENTRA_ENABLED })
-}
-
 export function isEntraAuthEnabled(db: Database.Database): boolean {
-  seedAuthSettingsFromLegacyEnv(db)
   return resolveSetting(db, SETTING_AUTH_ENTRA_ENABLED).value === "true"
 }
 

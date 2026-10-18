@@ -35,6 +35,15 @@ export type LocalAccountSignInResult =
   | { ok: true; session: LocalAccountSessionBag }
   | { ok: false; reason: "rate_limited" | "credentials" | "otp_missing" | "otp_invalid" }
 
+function isValidTotp(secret: string, token: string): boolean {
+  if (!/^\d{6}$/.test(token)) return false
+  try {
+    return verifySync({ secret, token, epochTolerance: 30 }).valid
+  } catch {
+    return false
+  }
+}
+
 /**
  * The Local Account sign-in check (see CONTEXT.md): password-and-TOTP against an active
  * local Account, yielding a session bag or a tagged deny. Owns rate-limiting, the dummy-hash
@@ -71,15 +80,17 @@ export async function localAccountSignIn(
 
   const secret = user.totp_secret?.trim()
   if (secret) {
+    // The form can post an empty field as the literal string "undefined"; anything that is not
+    // digits counts as no code at all.
     const otp = otpRaw?.replace(/\s/g, "") ?? ""
-    if (!otp) {
+    if (!otp || otp === "undefined") {
       recordAuthFailureFor(ip, email)
       logger.warn("auth_login_failed", { reason: "otp_missing", ip, email })
       return { ok: false, reason: "otp_missing" }
     }
     if (!isDemoModeActive() || otp !== "123456") {
-      const { valid } = verifySync({ secret, token: otp, epochTolerance: 30 })
-      if (!valid) {
+      // verifySync throws on a token that is not exactly 6 digits; that is a wrong code, not a crash.
+      if (!isValidTotp(secret, otp)) {
         recordAuthFailureFor(ip, email)
         logger.warn("auth_login_failed", { reason: "otp_invalid", ip, email })
         return { ok: false, reason: "otp_invalid" }

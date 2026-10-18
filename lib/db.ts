@@ -9,7 +9,6 @@ import { getDbKey, hasDbKey } from "./encryption/db-key"
 import { encryptionActive, getEncryptionMode } from "./encryption/mode"
 import { validateDemoModeAtBoot } from "./demo/demo-mode"
 import { validateRegistryEnvAtBoot } from "./settings/resolver"
-import { seedAuthSettingsFromLegacyEnv } from "./settings/auth-settings"
 import { ensureVapidKeysGenerated } from "./vapid-config"
 
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), "data", "familychart.db")
@@ -43,7 +42,6 @@ export function getDb(): Database.Database {
       validateRegistryEnvAtBoot()
       _envValidated = true
     }
-    seedAuthSettingsFromLegacyEnv(_db)
     ensureVapidKeysGenerated(_db)
   }
   return _db
@@ -132,19 +130,23 @@ export function applyBaselineSchema(db: Database.Database): void {
       schedule_end_date    TEXT,
       schedule_slots       TEXT,
       schedule_tz          TEXT,
+      -- Epoch ms the schedule was created; slots on its start day before this instant are not expectations.
+      schedule_created_at_ms INTEGER,
       UNIQUE(person_id, medication_id)
     );
 
     CREATE TABLE IF NOT EXISTS medication_records (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      person_id     INTEGER NOT NULL REFERENCES people(id),
-      medication_id INTEGER NOT NULL REFERENCES medications(id),
-      recorded_at   DATETIME NOT NULL,
-      dosage        REAL,
-      dosage_unit   TEXT,
-      comments      TEXT,
-      created_by    TEXT,
-      created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id       INTEGER NOT NULL REFERENCES people(id),
+      medication_id   INTEGER NOT NULL REFERENCES medications(id),
+      recorded_at     DATETIME NOT NULL,
+      dosage          REAL,
+      dosage_unit     TEXT,
+      comments        TEXT,
+      created_by      TEXT,
+      -- Who gave the dose: "me" (default when NULL) | "another_caregiver" | "away_from_home".
+      administered_by TEXT,
+      created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS observations (
@@ -170,6 +172,7 @@ export function applyBaselineSchema(db: Database.Database): void {
       details     TEXT,
       created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
 
     CREATE TABLE IF NOT EXISTS medication_frequency_rules (
       id                      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,6 +233,139 @@ export function applyBaselineSchema(db: Database.Database): void {
       is_active        INTEGER NOT NULL DEFAULT 1,
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- Curated metric-name catalogue for test results (mirrors observation_type_config /
+    -- ADR-0012): names, units, aliases, panel and value type only (seeded by the catalogue migration, see
+    -- lib/test-results/test-metric-catalogue.ts), no reference-range/flag columns —
+    -- those are transcribed per test event from the report in hand, never pre-populated.
+    CREATE TABLE IF NOT EXISTS test_metric_config (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      metric_name TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+      unit        TEXT,
+      sort_order  INTEGER NOT NULL DEFAULT 0,
+      is_active   INTEGER NOT NULL DEFAULT 1,
+      created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      aliases     TEXT    NOT NULL DEFAULT '[]', -- JSON array of search/report-matching aliases
+      panel       TEXT,                          -- label for telling similar metrics apart
+      value_type  TEXT    NOT NULL DEFAULT 'numeric' -- 'numeric' | 'qualitative'
+    );
+
+    CREATE TABLE IF NOT EXISTS test_events (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id      INTEGER NOT NULL REFERENCES people(id),
+      test_type      TEXT    NOT NULL,
+      name           TEXT    NOT NULL,
+      date           TEXT    NOT NULL,
+      ordered_by     TEXT,
+      notes          TEXT,
+      attachment_url TEXT,
+      created_by     TEXT,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Curated metric subset worth charting/flagging — the attachment stays the source of
+    -- truth, this is not a full transcription of the report.
+    CREATE TABLE IF NOT EXISTS test_result_values (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      test_event_id     INTEGER NOT NULL REFERENCES test_events(id) ON DELETE CASCADE,
+      metric_name       TEXT    NOT NULL,
+      value_type        TEXT    NOT NULL, -- 'numeric' | 'qualitative'
+      numeric_value     REAL,
+      qualitative_value TEXT,
+      unit              TEXT,
+      reference_range   TEXT,
+      flag              TEXT,             -- e.g. 'differs from expected' | NULL
+      limit_qualifier   TEXT CHECK (limit_qualifier IN ('<', '<=', '>', '>=')), -- "< 20" is 20 with '<'
+      CHECK (
+        (value_type = 'numeric'     AND numeric_value     IS NOT NULL AND qualitative_value IS NULL)
+        OR
+        (value_type = 'qualitative' AND qualitative_value IS NOT NULL AND numeric_value     IS NULL)
+      )
+    );
+    CREATE INDEX IF NOT EXISTS idx_test_events_person ON test_events(person_id);
+    CREATE INDEX IF NOT EXISTS idx_test_events_date   ON test_events(date);
+    CREATE INDEX IF NOT EXISTS idx_test_events_person_date_name ON test_events(person_id, date, name);
+    CREATE INDEX IF NOT EXISTS idx_test_result_values_event ON test_result_values(test_event_id);
+
+    CREATE TABLE IF NOT EXISTS symptom_events (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id    INTEGER NOT NULL REFERENCES people(id),
+      label        TEXT    NOT NULL,
+      start_date   TEXT    NOT NULL,
+      end_date     TEXT,
+      severity     INTEGER NOT NULL CHECK (severity BETWEEN 1 AND 5),
+      is_resolved  INTEGER NOT NULL DEFAULT 0,
+      resolved_at  DATETIME,
+      notes        TEXT,
+      ongoing_confirmed_on TEXT, -- local YYYY-MM-DD of the last "still ongoing" answer to the daily prompt
+      created_by   TEXT,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_symptom_events_person      ON symptom_events(person_id);
+    CREATE INDEX IF NOT EXISTS idx_symptom_events_date        ON symptom_events(start_date);
+    CREATE INDEX IF NOT EXISTS idx_symptom_events_person_date ON symptom_events(person_id, start_date DESC);
+
+    -- Descriptive link: "this dose relates to this symptom". Many-to-many, same Person (checked in the
+    -- write path), removed with either side.
+    CREATE TABLE IF NOT EXISTS symptom_dose_links (
+      symptom_event_id     INTEGER NOT NULL REFERENCES symptom_events(id)     ON DELETE CASCADE,
+      medication_record_id INTEGER NOT NULL REFERENCES medication_records(id) ON DELETE CASCADE,
+      person_id            INTEGER NOT NULL REFERENCES people(id),
+      created_by           TEXT,
+      created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (symptom_event_id, medication_record_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_symptom_dose_links_record ON symptom_dose_links(medication_record_id);
+    CREATE INDEX IF NOT EXISTS idx_symptom_dose_links_person ON symptom_dose_links(person_id);
+
+    CREATE TABLE IF NOT EXISTS dose_expectations (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_medication_id  INTEGER NOT NULL REFERENCES person_medications(id) ON DELETE CASCADE,
+      slot_hhmm             TEXT    NOT NULL,
+      start_date            TEXT    NOT NULL,
+      end_date              TEXT    NOT NULL,
+      weekdays              TEXT,
+      created_by            TEXT,
+      created_at            DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_dose_expectations_pm ON dose_expectations(person_medication_id);
+
+    CREATE TABLE IF NOT EXISTS dose_expectation_exceptions (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      dose_expectation_id  INTEGER NOT NULL REFERENCES dose_expectations(id) ON DELETE CASCADE,
+      local_ymd            TEXT    NOT NULL,
+      UNIQUE(dose_expectation_id, local_ymd)
+    );
+
+    CREATE TABLE IF NOT EXISTS dose_expectation_outcomes (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      dose_expectation_id   INTEGER NOT NULL REFERENCES dose_expectations(id) ON DELETE CASCADE,
+      local_ymd             TEXT    NOT NULL,
+      status                TEXT    NOT NULL CHECK (status IN ('confirmed_given', 'confirmed_missed', 'snoozed')),
+      snoozed_until         DATETIME,
+      slot_at               DATETIME,
+      medication_record_id  INTEGER REFERENCES medication_records(id) ON DELETE SET NULL,
+      resolved_by           TEXT,
+      resolved_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(dose_expectation_id, local_ymd)
+    );
+
+    CREATE TABLE IF NOT EXISTS slot_outcomes (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_medication_id  INTEGER NOT NULL REFERENCES person_medications(id) ON DELETE CASCADE,
+      local_ymd             TEXT    NOT NULL,
+      slot_hhmm             TEXT    NOT NULL,
+      result                TEXT    NOT NULL CHECK (result IN ('on_time', 'early', 'late', 'missed', 'given')),
+      -- Minutes from the slot to the attached dose (negative = early); NULL for missed and given.
+      offset_minutes        INTEGER,
+      -- Only for missed: timed_out | not_given | early_answer.
+      missed_cause          TEXT    CHECK (missed_cause IN ('timed_out', 'not_given', 'early_answer')),
+      -- Deleting the attached dose reopens the slot; missed rows have no dose.
+      medication_record_id  INTEGER REFERENCES medication_records(id) ON DELETE CASCADE,
+      created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(person_medication_id, local_ymd, slot_hhmm)
+    );
+    CREATE INDEX IF NOT EXISTS idx_slot_outcomes_record ON slot_outcomes(medication_record_id);
 
     CREATE TABLE IF NOT EXISTS push_endpoints (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -327,18 +463,6 @@ export function applyBaselineSchema(db: Database.Database): void {
       PRIMARY KEY (key)
     );
 
-    CREATE TABLE IF NOT EXISTS schedule_reminder_suppressions (
-      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-      person_medication_id  INTEGER NOT NULL REFERENCES person_medications(id),
-      local_ymd             TEXT    NOT NULL,
-      slot_hhmm             TEXT    NOT NULL,
-      medication_record_id  INTEGER REFERENCES medication_records(id),
-      created_by            TEXT,
-      created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(person_medication_id, local_ymd, slot_hhmm)
-    );
-    CREATE INDEX IF NOT EXISTS idx_sched_supp_ymd ON schedule_reminder_suppressions(local_ymd);
-
     CREATE TABLE IF NOT EXISTS notification_log (
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,
       recipient_user_id  TEXT NOT NULL,
@@ -350,6 +474,11 @@ export function applyBaselineSchema(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_notification_log_recipient
       ON notification_log(recipient_user_id, sent_at DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS entra_removed_accounts (
+      oid_hash    TEXT PRIMARY KEY,
+      removed_at  TEXT NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS auth_revalidation_status (
       provider        TEXT NOT NULL,

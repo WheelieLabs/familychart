@@ -10,14 +10,21 @@ import type { AppSession } from "@/lib/session"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
 import PersonPageActions from "@/components/PersonPageActions"
+import type { Metadata } from "next"
 
-interface Props { params: Promise<{ personId: string }> }
+export const metadata: Metadata = { title: "Person" }
 
-export default async function PersonActionsPage({ params }: Props) {
+interface Props {
+  params: Promise<{ personId: string }>
+  searchParams: Promise<{ timeline?: string }>
+}
+
+export default async function PersonActionsPage({ params, searchParams }: Props) {
   const session = await auth() as AppSession | null
   if (!session) redirect("/login")
 
   const { personId } = await params
+  const { timeline } = await searchParams
   const db = getDb()
   const person = db
     .prepare("SELECT * FROM people WHERE id = ? AND is_active = 1")
@@ -36,7 +43,7 @@ export default async function PersonActionsPage({ params }: Props) {
     sessionAccountUids(session.user).includes(person.account_uid.trim())
 
   return (
-    <div className="flex flex-col flex-1 bg-fc-blue">
+    <div className="flex flex-col flex-1">
       <AppHeader title="Select an Action" />
       <PersonPageActions
         personId={person.id}
@@ -45,6 +52,7 @@ export default async function PersonActionsPage({ params }: Props) {
         color={person.color}
         canWrite={userCanWrite}
         isLinkedViewer={isLinkedViewer}
+        highlightTimelineRowId={timeline ?? null}
       />
       <AppFooter />
     </div>

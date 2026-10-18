@@ -3,16 +3,30 @@ importScripts("/push-notification-actions.js")
 self.addEventListener("push", (event) => {
   if (!event.data) return
   const data = event.data.json()
+  const shown = self.registration.showNotification(data.title, {
+    body: data.body,
+    icon: data.icon || "/icons/icon-192.png",
+    badge: data.badge || "/icons/badge-72.png",
+    tag: data.tag || undefined,
+    data: data.data || {},
+    actions: data.actions || undefined,
+    requireInteraction: data.requireInteraction || false,
+    // A quiet in-place replacement: no new sound or vibration.
+    silent: data.silent === true,
+  })
+  // A push has to show something, so "Caught up" is shown briefly and closed again. The wait is
+  // capped so a bad value cannot keep the worker alive.
+  const closeAfterMs =
+    data.tag && typeof data.closeAfterMs === "number" && data.closeAfterMs > 0
+      ? Math.min(data.closeAfterMs, 10000)
+      : 0
   event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: data.icon || "/icons/icon-192.png",
-      badge: data.badge || "/icons/badge-72.png",
-      tag: data.tag || undefined,
-      data: data.data || {},
-      actions: data.actions || undefined,
-      requireInteraction: data.requireInteraction || false,
-    }),
+    closeAfterMs
+      ? shown
+          .then(() => new Promise((resolve) => setTimeout(resolve, closeAfterMs)))
+          .then(() => self.registration.getNotifications({ tag: data.tag }))
+          .then((open) => open.forEach((n) => n.close()))
+      : shown,
   )
 })
 

@@ -132,16 +132,26 @@ describe("validateMedicationScheduleInput", () => {
     ).toThrow(/start_date/)
   })
 
-  it("accepts any number of scheduled times regardless of frequency kind (e.g. a 3x-daily antibiotic course under legacy twice_daily)", () => {
+  it("rejects twice_daily", () => {
+    const slots = [{ time: "08:00", dosage: 1 }, { time: "20:00", dosage: 1 }]
+    expect(() =>
+      validateMedicationScheduleInput(
+        ["08:00", "20:00"], { kind: "twice_daily" }, "2025-01-01", null, slots
+      )
+    ).toThrow(/Invalid schedule frequency kind/)
+  })
+
+  it("accepts any number of scheduled times on a daily schedule", () => {
     const slots = [
       { time: "08:00", dosage: 1 },
       { time: "14:00", dosage: 1 },
       { time: "20:00", dosage: 1 },
     ]
     const result = validateMedicationScheduleInput(
-      ["08:00", "14:00", "20:00"], { kind: "twice_daily" }, "2025-01-01", null, slots
+      ["08:00", "14:00", "20:00"], { kind: "daily" }, "2025-01-01", null, slots
     )
-    expect(result.timesJson).toBe(JSON.stringify(["08:00", "14:00", "20:00"]))
+    expect(result.timesJson).toBe('["08:00","14:00","20:00"]')
+    expect(result.frequencyJson).toBe('{"kind":"daily"}')
   })
 
   it("throws when end date is before start date", () => {

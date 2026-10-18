@@ -9,7 +9,6 @@ import {
 import {
   SETTING_SCHEDULE_LEAD_MINUTES,
   SETTING_SCHEDULE_OVERDUE_OFFSET_MINUTES,
-  SETTING_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES,
   scheduleSettingDefaults,
 } from "@/lib/settings/registry"
 
@@ -34,14 +33,12 @@ describe("loadScheduleTimings", () => {
     delete process.env.FC_SCHEDULE_LEAD_MINUTES
     delete process.env.FC_SCHEDULE_OVERDUE_OFFSET_MINUTES
     delete process.env.FC_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES
-    delete process.env.PUSH_OVERDUE_HOURS
   })
 
   afterEach(() => {
     delete process.env.FC_SCHEDULE_LEAD_MINUTES
     delete process.env.FC_SCHEDULE_OVERDUE_OFFSET_MINUTES
     delete process.env.FC_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES
-    delete process.env.PUSH_OVERDUE_HOURS
     db?.close()
   })
 
@@ -58,13 +55,17 @@ describe("loadScheduleTimings", () => {
     expect(loadScheduleTimings(db).leadMinutes).toBe(45)
   })
 
-  it("honours legacy PUSH_OVERDUE_HOURS when registry env is unset", () => {
-    process.env.PUSH_OVERDUE_HOURS = "1.5"
-    expect(loadScheduleTimings(db).overdueOffsetMinutes).toBe(90)
+  it("ignores the retired association radius variable and any stored value for it", () => {
+    process.env.FC_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES = "120"
+    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
+      "schedule.slot_association_radius_minutes",
+      "90",
+      Date.now(),
+    )
+    expect(loadScheduleTimings(db)).toEqual(scheduleSettingDefaults())
   })
 
-  it("prefers FC_SCHEDULE_OVERDUE_OFFSET_MINUTES over legacy env", () => {
-    process.env.PUSH_OVERDUE_HOURS = "2"
+  it("reads FC_SCHEDULE_OVERDUE_OFFSET_MINUTES from env", () => {
     process.env.FC_SCHEDULE_OVERDUE_OFFSET_MINUTES = "45"
     expect(loadScheduleTimings(db).overdueOffsetMinutes).toBe(45)
   })
@@ -75,7 +76,6 @@ describe("toSlotEvaluatorConfig", () => {
     const cfg = toSlotEvaluatorConfig({
       leadMinutes: 60,
       overdueOffsetMinutes: 30,
-      slotAssociationRadiusMinutes: 60,
     })
     expect(cfg.slotWindowMs).toBe(PUSH_DELIVERY_WINDOW_MINUTES * 60_000)
     expect(cfg.overdueOffsetMs).toBe(30 * 60_000)

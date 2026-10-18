@@ -22,7 +22,7 @@ import {
   writeAppLockLeftAt,
   isAppLockSuppressed,
 } from "@/lib/app-lock-navigation"
-import { clearLegacyBiometricCredentialId } from "@/lib/webauthn-app-lock"
+import { coverNow, uncoverAfterDecision } from "@/lib/privacy-cover"
 
 /** sessionStorage key proving this tab was unlocked for the current session. */
 export const FC_BIO_UNLOCK_KEY = "fc_bio_unlock_tab"
@@ -312,13 +312,6 @@ export function useBioLockGate(): {
       elapsedSinceLeftMs: null,
     })
     applyBioLockStorageEffect(sessionStorage, next.effect)
-    if (event === "session-confirmed-signed-out") {
-      try {
-        clearLegacyBiometricCredentialId(localStorage)
-      } catch {
-        /* ignore */
-      }
-    }
     setLocked(next.locked)
     lockedRef.current = next.locked
   }, [status])
@@ -346,6 +339,7 @@ export function useBioLockGate(): {
 
     const onVisibility = (): void => {
       if (document.visibilityState === "hidden") {
+        coverNow()
         writeAppLockLeftAt(sessionStorage, Date.now())
         applyEvent("left")
       } else {
@@ -354,10 +348,12 @@ export function useBioLockGate(): {
         applyEvent("returned", { suppressed, elapsedSinceLeftMs })
         clearAppLockSuppressed(sessionStorage)
         clearAppLockLeftAt(sessionStorage)
+        uncoverAfterDecision()
       }
     }
 
     const onPageHide = (): void => {
+      coverNow()
       applyEvent("left")
     }
     const onBeforeUnload = (): void => {

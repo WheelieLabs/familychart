@@ -5,7 +5,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { refreshLocalUserSession } from "@/lib/local-user-session"
-import { canRead, canWrite, canManage, isAdmin, canReadForPerson, canWriteForPerson, hasAnyReadablePerson } from "@/lib/permissions"
+import { canRead, canWrite, canManage, isAdmin, canReport, canReadForPerson, canWriteForPerson, hasAnyReadablePerson } from "@/lib/permissions"
+import { findPersonalLinkPerson, sessionAccountUids } from "@/lib/account/account-identity"
 import type { AppSession, AppUser } from "@/lib/session"
 import type { Person } from "@/lib/domain-types"
 import { parseLocalAccountUid } from "@/lib/account/account-uid"
@@ -113,4 +114,40 @@ export function authorisePersonAccess(
       : canWriteForPerson(ctx.groups, ctx.session.user, person.account_uid)
   if (!allowed) return NextResponse.json({ error: "Not found" }, { status: 404 })
   return person
+}
+
+/**
+ * Export seam for one Person, active or inactive. An Admin may export anyone; any other Account
+ * only its own Personal-linked Person, whatever its Household Role (None included).
+ * Always 404 on denial, matching `authorisePersonAccess`.
+ */
+export function authorisePersonExport(
+  db: Database.Database,
+  ctx: AuthedContext,
+  personId: number,
+): Person | NextResponse {
+  const person = db.prepare("SELECT * FROM people WHERE id = ?").get(personId) as Person | undefined
+  if (!person) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  if (isAdmin(ctx.groups)) return person
+  if (person.account_uid && sessionAccountUids(ctx.session.user).includes(person.account_uid)) return person
+  return NextResponse.json({ error: "Not found" }, { status: 404 })
+}
+
+/**
+ * Generate-route seam for a report subject.
+ * Household Reports (`canReport`) may use any Person the session can read.
+ * Otherwise only the session's Personal-linked Person is allowed (Self-report).
+ * Always 404 on denial, matching `authorisePersonAccess`.
+ */
+export function authoriseReportSubject(
+  db: Database.Database,
+  ctx: AuthedContext,
+  personId: number,
+): Person | NextResponse {
+  const person = authorisePersonAccess(db, ctx, personId, "read")
+  if (person instanceof NextResponse) return person
+  if (canReport(ctx.groups)) return person
+  const linked = findPersonalLinkPerson(db, ctx.session)
+  if (linked && linked.id === person.id) return person
+  return NextResponse.json({ error: "Not found" }, { status: 404 })
 }

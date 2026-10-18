@@ -6,6 +6,7 @@ import { rejectDemoProfanity } from "@/lib/demo/demo-profanity-guard"
 import { getDb } from "@/lib/db"
 import { auditLog } from "@/lib/audit-log"
 import { deleteObservationGoal, getObservationGoal, setObservationGoal } from "@/lib/observation/observation-goals"
+import { isGoalEligible } from "@/lib/observation/goal-eligibility"
 import type { ObservationGoal } from "@/lib/domain-types"
 
 export async function GET(request: NextRequest) {
@@ -25,6 +26,8 @@ export async function GET(request: NextRequest) {
   if (person instanceof NextResponse) return person
 
   if (observationType) {
+    // Saved rows for types that no longer take goals stay in the database but are not served.
+    if (!isGoalEligible(observationType)) return NextResponse.json(null)
     const goal = getObservationGoal(db, personId, observationType)
     return NextResponse.json(goal ?? null)
   }
@@ -33,7 +36,7 @@ export async function GET(request: NextRequest) {
   const goals = db
     .prepare("SELECT * FROM observation_goals WHERE person_id = ? AND is_active = 1 ORDER BY observation_type")
     .all(personId) as ObservationGoal[]
-  return NextResponse.json(goals)
+  return NextResponse.json(goals.filter(g => isGoalEligible(g.observation_type, g.goal_type)))
 }
 
 export async function POST(request: NextRequest) {
@@ -48,6 +51,10 @@ export async function POST(request: NextRequest) {
   }
   if (typeof target_value !== "number" || !Number.isFinite(target_value) || target_value <= 0) {
     return NextResponse.json({ error: "target_value must be a positive number" }, { status: 400 })
+  }
+
+  if (!isGoalEligible(String(observation_type))) {
+    return NextResponse.json({ error: "This observation type does not take goals" }, { status: 400 })
   }
 
   const db = getDb()

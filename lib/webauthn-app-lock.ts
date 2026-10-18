@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-/** Legacy device-wide localStorage key (pre per-account binding). Do not read for unlock. */
+/** Prefix for per-account biometric credential ids in localStorage. */
 export const FAMILYCHART_BIOMETRIC_CREDENTIAL_ID_KEY =
   "familychart_biometric_credential_id"
 
@@ -77,19 +77,8 @@ export function writeBiometricCredentialId(
       rawId: encoded,
     }
     storage.setItem(biometricCredentialStorageKey(id), JSON.stringify(record))
-    clearLegacyBiometricCredentialId(storage)
   } catch {
     throw new Error("Cannot save biometric unlock on this device.")
-  }
-}
-
-export function clearLegacyBiometricCredentialId(
-  storage: Pick<Storage, "removeItem">,
-): void {
-  try {
-    storage.removeItem(FAMILYCHART_BIOMETRIC_CREDENTIAL_ID_KEY)
-  } catch {
-    /* ignore */
   }
 }
 

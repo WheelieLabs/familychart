@@ -25,7 +25,7 @@ This app already runs its middleware (`proxy.ts`) with direct `getDb()` / better
 ## Consequences
 
 - `lib/settings/auth-settings.ts` gained `resolveEntraCredentials(db): EntraCredentials | null` — the canonical, testable (DB-only, no next-auth import) resolution used by both the button gate and the provider.
-- `isEntraProviderActive(db)` reverted to its original simple form (`isEntraAuthEnabled(db) && entraCredentialsConfigured(db)`) — the earlier v0.51.0 change that additionally required the legacy `ENABLED_AUTH_PROVIDERS` env var was itself a step in the wrong direction (Option 2) and is superseded by this ADR.
+- `isEntraProviderActive(db)` is `isEntraAuthEnabled(db) && entraCredentialsConfigured(db)`. Enablement is the registry value (`FC_AUTH_ENTRA_ENABLED` or the database row), not a separate provider list.
 - The Entra Graph *revalidation* client ([ADR-0009](0009-entra-live-revocation.md)) deliberately stays env-only — a narrower, separate decision, since it needs an additional Graph permission grant or the same app registration and env is the simpler explicit signal that an operator has granted it.
 
 ## References

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { logger } from "@/lib/logger"
+import { isEntraProviderActive } from "@/lib/settings/auth-settings"
 
 import type Database from "better-sqlite3-multiple-ciphers"
 import {
@@ -225,6 +226,13 @@ async function checkGraphUser(cfg: EntraGraphConfig, oid: string): Promise<Graph
   }
 }
 
+let graphNotConfiguredLogged = false
+
+/** Test-only: re-arms the once-per-process "Graph not configured" log line. */
+export function __resetGraphNotConfiguredLogForTests(): void {
+  graphNotConfiguredLogged = false
+}
+
 export interface PollResult {
   checked: number
   errors: string[]
@@ -250,6 +258,14 @@ export async function pollEntraRevalidation(db: Database.Database): Promise<Poll
     // grant/creds beyond sign-in) — nothing to poll; still mark attempted so we
     // don't tight-loop the gate check every 5 min forever.
     markAuthRevalidationPolled(db, nowMs)
+    // Entra sign-in works without Graph, but then nobody's access is ever rechecked
+    // (ADR-0009). Say so once per process so the operator can find out from the logs.
+    if (!graphNotConfiguredLogged && isEntraProviderActive(db)) {
+      graphNotConfiguredLogged = true
+      logger.warn(
+        "[auth-revalidation] Entra sign-in is active but Graph revalidation is not configured; Entra access is not being rechecked. Grant User.Read.All and GroupMember.Read.All, or use Revoke when someone leaves.",
+      )
+    }
     return result
   }
 

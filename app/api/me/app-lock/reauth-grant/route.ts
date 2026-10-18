@@ -7,14 +7,15 @@ import { auditLog } from "@/lib/audit-log"
 import { parseLocalAccountUid } from "@/lib/account/account-uid"
 import { clientIpFromHeaders } from "@/lib/client-ip"
 import { confirmAppLockReauth } from "@/lib/account/account-local-reauth"
-import { isEntraAppLockReauthFresh } from "@/lib/app-lock/app-lock-reauth"
+import { isEntraAppLockReauthFresh, isLocalRecentSignInFresh } from "@/lib/app-lock/app-lock-reauth"
 import type { AppSession } from "@/lib/session"
 
 /**
  * Proves the Account holder is present again before App lock can be turned off — on the
  * lock screen's "turn off App lock on this device" and in Profile (ADR-0016:
  * "someone who picks up my unlocked phone can't disable it"). Grants nothing beyond this
- * one-shot `{granted: true}` response; the client writes its own device-local opt-out
+ * one-shot `{granted: true}` (a local Account may send `{recentSignIn: true}` instead of a
+ * password and is granted only inside the recent-sign-in window) response; the client writes its own device-local opt-out
  * immediately after, same as any other App lock setting.
  */
 export async function POST(request: Request) {
@@ -26,11 +27,23 @@ export async function POST(request: Request) {
   const localId = parseLocalAccountUid(session.user.id)
   if (localId != null) {
     const ip = clientIpFromHeaders(request.headers)
-    let body: { password?: string; otp?: string }
+    let body: { password?: string; otp?: string; recentSignIn?: boolean }
     try {
       body = await request.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+    }
+    if (!body.password && body.recentSignIn === true) {
+      // First App lock set-up: a password sign-in within the freshness window is proof enough.
+      // A session without the stamp (older, or not a password sign-in) must enter the password.
+      if (!isLocalRecentSignInFresh((session as AppSession).localAuthAt, Date.now())) {
+        return NextResponse.json({ error: "Enter your password to confirm it's you." }, { status: 401 })
+      }
+      auditLog(db, session.user?.email, "AUTH_SUCCESS", "accounts", localId, {
+        route: "me/app-lock/reauth-grant",
+        via: "recent_sign_in",
+      })
+      return NextResponse.json({ granted: true })
     }
     if (!body.password) {
       return NextResponse.json({ error: "Password is required" }, { status: 400 })
@@ -65,8 +78,8 @@ export async function POST(request: Request) {
   }
 
   if (session.user.entraOid) {
-    const entraAuthAt = (session as AppSession).entraAuthAt
-    if (!isEntraAppLockReauthFresh(entraAuthAt, Date.now())) {
+    const entraAuthTime = (session as AppSession).entraAuthTime
+    if (!isEntraAppLockReauthFresh(entraAuthTime, Date.now())) {
       return NextResponse.json(
         { error: "Sign in again with Microsoft to confirm it's you." },
         { status: 401 },

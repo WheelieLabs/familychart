@@ -24,7 +24,6 @@ export const SETTING_LOCALE_DEFAULT_TIMEZONE = "locale.default_timezone"
 export const SETTING_LOCALE_MEASUREMENT_SYSTEM = "locale.measurement_system"
 export const SETTING_SCHEDULE_LEAD_MINUTES = "schedule.lead_minutes"
 export const SETTING_SCHEDULE_OVERDUE_OFFSET_MINUTES = "schedule.overdue_offset_minutes"
-export const SETTING_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES = "schedule.slot_association_radius_minutes"
 
 export const SETTING_AUTH_ENTRA_ENABLED = "auth.entra.enabled"
 export const SETTING_AUTH_ENTRA_CLIENT_ID = "auth.entra.client_id"
@@ -49,9 +48,10 @@ export const GROUP_EMAIL_SMTP = "email.smtp"
 
 const SCHEDULE_LEAD_DEFAULT = "60"
 const SCHEDULE_OVERDUE_OFFSET_DEFAULT = "30"
-const SCHEDULE_SLOT_ASSOCIATION_RADIUS_DEFAULT = "60"
 const MFA_REQUIRED_DEFAULT = "false"
-const PASSWORD_MIN_LENGTH_DEFAULT = "10"
+/** Default local-account password minimum; the setup page falls back to this too. */
+export const PASSWORD_MIN_LENGTH_FALLBACK = 10
+const PASSWORD_MIN_LENGTH_DEFAULT = String(PASSWORD_MIN_LENGTH_FALLBACK)
 const SMTP_TLS_DEFAULT = "true"
 const AUTH_ENTRA_ENABLED_DEFAULT = "false"
 const SMTP_PORT_DEFAULT = "587"
@@ -66,12 +66,10 @@ export function isValidMeasurementSystem(value: string): value is MeasurementSys
 export function scheduleSettingDefaults(): {
   leadMinutes: number
   overdueOffsetMinutes: number
-  slotAssociationRadiusMinutes: number
 } {
   return {
     leadMinutes: parseInt(SCHEDULE_LEAD_DEFAULT, 10),
     overdueOffsetMinutes: parseInt(SCHEDULE_OVERDUE_OFFSET_DEFAULT, 10),
-    slotAssociationRadiusMinutes: parseInt(SCHEDULE_SLOT_ASSOCIATION_RADIUS_DEFAULT, 10),
   }
 }
 
@@ -87,10 +85,6 @@ export function isValidScheduleLeadMinutes(value: string): boolean {
 
 export function isValidScheduleOverdueOffsetMinutes(value: string): boolean {
   return isValidScheduleMinutes(value, 30, 720)
-}
-
-export function isValidScheduleSlotAssociationRadiusMinutes(value: string): boolean {
-  return isValidScheduleMinutes(value, 15, 480)
 }
 
 export function isValidBooleanSetting(value: string): boolean {
@@ -140,6 +134,8 @@ export function isValidIanaTz(value: string): boolean {
   if (value === "") return true
   if (IANA_TIMEZONES.length > 0) return IANA_TIMEZONES.includes(value)
   try {
+    // Only asks the runtime whether it knows the zone name; nothing is formatted for display.
+    // eslint-disable-next-line no-restricted-syntax
     new Intl.DateTimeFormat(undefined, { timeZone: value })
     return true
   } catch {
@@ -182,15 +178,6 @@ export const APP_SETTINGS_REGISTRY: Record<string, SettingDefinition> = {
     scope: "tenant",
     secret: false,
     default: SCHEDULE_OVERDUE_OFFSET_DEFAULT,
-    setupStage: "deferred",
-  },
-  [SETTING_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES]: {
-    key: SETTING_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES,
-    envVar: "FC_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES",
-    validate: isValidScheduleSlotAssociationRadiusMinutes,
-    scope: "tenant",
-    secret: false,
-    default: SCHEDULE_SLOT_ASSOCIATION_RADIUS_DEFAULT,
     setupStage: "deferred",
   },
   [SETTING_AUTH_ENTRA_ENABLED]: {

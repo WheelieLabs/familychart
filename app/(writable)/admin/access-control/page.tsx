@@ -3,10 +3,13 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import Link from "next/link"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
-import { mainContentTargetProps } from "@/lib/a11y"
+import Badge from "@/components/ui/Badge"
+import Banner from "@/components/ui/Banner"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
+import { administrationTrail } from "@/lib/ui/breadcrumbs"
 
 interface Member {
   id: string
@@ -59,65 +62,45 @@ export default function AdminAccessControlPage() {
   return (
     <div className="flex flex-col flex-1">
       <AppHeader title="Access Control" />
-      <main {...mainContentTargetProps} className="fc-surface-admin fc-scroll p-3 flex flex-col gap-3">
-        <div className="rounded-xl bg-fc-panel px-4 py-3 text-sm text-gray-800 leading-relaxed">
-          Read-only view of who is in each Entra security group configured for this instance.
-          Membership changes are made in the Microsoft Entra portal — this screen cannot add or
-          remove members.{" "}
-          <Link href="/admin/overview" className="underline font-medium text-fc-blue">
-            Back to Administration
-          </Link>
-        </div>
+      <PageContainer area="admin" trail={administrationTrail({ label: "Access Control" })}>
+        <Banner kind="info">
+          Read-only view of who is in each Entra security group configured for this instance. Membership changes are made in the Microsoft Entra portal — this screen cannot add or remove members.
+        </Banner>
 
-        {error && <p className="text-red-200 text-sm px-1">{error}</p>}
-        {loading && <p className="text-white text-center py-8">Loading…</p>}
+        {error && <Banner kind="error">{error}</Banner>}
+        {loading && <p className="fc-admin-note">Loading…</p>}
 
-        {!loading && data?.message && (
-          <div className="rounded-xl bg-white/10 px-4 py-3 text-sm text-white leading-relaxed">
-            {data.message}
-          </div>
-        )}
+        {!loading && data?.message && <Banner kind="info">{data.message}</Banner>}
 
         {!loading && data && data.groups.length > 0 && (
-          <ul className="flex flex-col gap-3">
+          <CardList>
             {data.groups.map(g => (
-              <li key={g.groupId} className="rounded-xl bg-white/10 px-4 py-3 text-white">
-                <div className="font-bold text-base">{g.role}</div>
-                <div className="text-xs text-white/80 mt-0.5">
-                  {g.groupDisplayName || "Unnamed group"} · {g.envVar}
-                </div>
-                <div className="text-xs font-mono text-white/70 mt-0.5 break-all">{g.groupId}</div>
-
-                {g.error && (
-                  <p className="text-red-200 text-sm mt-2">{g.error}</p>
-                )}
-
-                {!g.error && g.members.length === 0 && (
-                  <p className="text-white/80 text-sm mt-2">No members returned.</p>
-                )}
-
-                {!g.error && g.members.length > 0 && (
-                  <ul className="mt-2 flex flex-col gap-1.5">
-                    {g.members.map(m => (
-                      <li key={m.id} className="text-sm flex flex-wrap gap-x-2 gap-y-0.5">
-                        <span className="font-medium">
-                          {m.displayName || m.email || m.id}
-                        </span>
-                        {m.email && m.displayName && (
-                          <span className="text-white/80">{m.email}</span>
-                        )}
-                        {m.type !== "user" && (
-                          <span className="text-xs bg-white/20 rounded px-1.5 py-0.5">{m.type}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
+              <ListCard
+                key={g.groupId}
+                title={g.role}
+                meta={[`${g.groupDisplayName || "Unnamed group"} · ${g.envVar}`, g.groupId]}
+                extras={
+                  <div className="fc-members">
+                    {g.error && <p className="fc-members__error"><span aria-hidden="true">⚠ </span>{g.error}</p>}
+                    {!g.error && g.members.length === 0 && <p>No members returned.</p>}
+                    {!g.error && g.members.length > 0 && (
+                      <ul>
+                        {g.members.map(m => (
+                          <li key={m.id}>
+                            <span className="fc-members__name">{m.displayName || m.email || m.id}</span>
+                            {m.email && m.displayName && <span> {m.email}</span>}
+                            {m.type !== "user" && <> <Badge tone="neutral">{m.type}</Badge></>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                }
+              />
             ))}
-          </ul>
+          </CardList>
         )}
-      </main>
+      </PageContainer>
       <AppFooter />
     </div>
   )

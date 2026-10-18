@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { NextRequest, NextResponse } from "next/server"
+import { logger } from "@/lib/logger"
 import { requireAuth, authorisePersonAccess } from "@/lib/auth/auth-helpers"
 import { latestBpFromRecentRows } from "@/lib/blood-pressure-pairing"
 import { appendRecordedAtRangeFilters } from "@/lib/dashboard/dashboard-schedule-context"
@@ -10,6 +11,12 @@ import { getDb } from "@/lib/db"
 import { auditLog } from "@/lib/audit-log"
 import { clampHistoryLimit } from "@/lib/api-row-limits"
 import { setHydrationLastRecordAt } from "@/lib/hydration/hydration-config"
+import {
+  applyHydrationNotification,
+  hydrationRecordingDeviceNotification,
+  planHydrationNotification,
+} from "@/lib/hydration/hydration-notification"
+import { recordingEndpointFromRequest } from "@/lib/push/recording-device"
 import { validateRecordTiming } from "@/lib/medication/medication-record-validation"
 import { validateObservationWrite } from "@/lib/observation/observation-validation"
 
@@ -81,7 +88,7 @@ export async function GET(request: NextRequest) {
 
   const conditions: string[] = ["person_id = ?"]
   const values: (string | number)[] = [pid]
-  appendRecordedAtRangeFilters(request, from, to, conditions, values)
+  appendRecordedAtRangeFilters(request, db, from, to, conditions, values)
   if (type) { conditions.push("observation_type = ?"); values.push(type) }
 
   if (searchParams.get("fields") === "chart") {
@@ -159,6 +166,17 @@ export async function POST(request: NextRequest) {
   auditLog(db, session.user?.email, "CREATE", "observations",
     Number(result.lastInsertRowid), { person_id, observation_type })
 
+  // Recompute pacing with the new reading, before this reading's time is recorded (the plan compares
+  // a pending nudge against the previous reading). Never lets a notification problem fail the save.
+  let hydrationPlan: ReturnType<typeof planHydrationNotification> | null = null
+  if (observation_type === "Hydration") {
+    try {
+      hydrationPlan = planHydrationNotification(db, person, Date.now())
+    } catch (err) {
+      logger.error("[observations] hydration notification plan failed:", err)
+    }
+  }
+
   if (
     observation_type === "Hydration" &&
     person.account_uid &&
@@ -168,7 +186,22 @@ export async function POST(request: NextRequest) {
     if (uid) setHydrationLastRecordAt(db, uid, Date.now())
   }
 
-  return NextResponse.json({ id: result.lastInsertRowid }, { status: 201 })
+  // Caught up clears the nudge and still behind updates it quietly; muted today sends nothing. The
+  // recording device does this itself by tag, so the push skips it.
+  let hydrationNotification = null
+  if (hydrationPlan && hydrationPlan.decision.kind !== "none") {
+    hydrationNotification = hydrationRecordingDeviceNotification(hydrationPlan.decision, person_id, person.name)
+    applyHydrationNotification(db, {
+      personId: person_id,
+      personName: person.name,
+      decision: hydrationPlan.decision,
+      settingsUid: hydrationPlan.settingsUid,
+      nowMs: Date.now(),
+      recordingEndpoint: recordingEndpointFromRequest(request),
+    }).catch(err => logger.error("[observations] hydration notification push failed:", err))
+  }
+
+  return NextResponse.json({ id: result.lastInsertRowid, hydrationNotification }, { status: 201 })
 }
 
 export async function PATCH(request: NextRequest) {

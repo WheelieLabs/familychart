@@ -85,4 +85,13 @@ describe("POST /api/observation-goals ACL vs demo profanity order", () => {
     expect(authorisePersonAccess).toHaveBeenCalled()
     expect(rejectDemoProfanity).toHaveBeenCalledOnce()
   })
+
+  it.each(["Height", "Head Circumference"])("rejects a goal for %s", async type => {
+    authorisePersonAccess.mockReturnValue({ id: 1, name: "Pat", account_uid: null, is_active: 1 })
+    const { POST } = await import("@/app/api/observation-goals/route")
+    const res = await POST(
+      makeRequest({ person_id: 1, observation_type: type, goal_type: "range", target_value: 50, target_max: 60, unit: "cm" }),
+    )
+    expect(res.status).toBe(400)
+  })
 })

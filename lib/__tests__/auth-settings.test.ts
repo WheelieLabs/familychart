@@ -4,7 +4,6 @@ import {
   isEntraAuthEnabled,
   isEntraProviderActive,
   resolveEntraCredentials,
-  seedAuthSettingsFromLegacyEnv,
 } from "@/lib/settings/auth-settings"
 import { SETTING_AUTH_ENTRA_ENABLED } from "@/lib/settings/registry"
 
@@ -21,23 +20,32 @@ function createTestDb(): Database.Database {
   return db
 }
 
-describe("auth settings seed", () => {
+function insertSetting(db: Database.Database, key: string, value: string, updatedAt: number) {
+  db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
+    key,
+    value,
+    updatedAt,
+  )
+}
+
+describe("Entra auth settings", () => {
   let db: Database.Database
-  const originalProviders = process.env.ENABLED_AUTH_PROVIDERS
+  const originalEntraEnabled = process.env.FC_AUTH_ENTRA_ENABLED
   const originalEntraId = process.env.AUTH_MICROSOFT_ENTRA_ID_ID
   const originalEntraSecret = process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET
   const originalEntraTenant = process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT_ID
 
   beforeEach(() => {
     db = createTestDb()
+    delete process.env.FC_AUTH_ENTRA_ENABLED
     delete process.env.AUTH_MICROSOFT_ENTRA_ID_ID
     delete process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET
     delete process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT_ID
   })
 
   afterEach(() => {
-    if (originalProviders === undefined) delete process.env.ENABLED_AUTH_PROVIDERS
-    else process.env.ENABLED_AUTH_PROVIDERS = originalProviders
+    if (originalEntraEnabled === undefined) delete process.env.FC_AUTH_ENTRA_ENABLED
+    else process.env.FC_AUTH_ENTRA_ENABLED = originalEntraEnabled
     if (originalEntraId === undefined) delete process.env.AUTH_MICROSOFT_ENTRA_ID_ID
     else process.env.AUTH_MICROSOFT_ENTRA_ID_ID = originalEntraId
     if (originalEntraSecret === undefined) delete process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET
@@ -47,68 +55,20 @@ describe("auth settings seed", () => {
     db?.close()
   })
 
-  it("seeds auth.entra.enabled from legacy ENABLED_AUTH_PROVIDERS once", () => {
-    process.env.ENABLED_AUTH_PROVIDERS = "entra"
-    seedAuthSettingsFromLegacyEnv(db)
-    expect(isEntraAuthEnabled(db)).toBe(true)
+  it("stays disabled and does not write a row when enablement is unset", () => {
+    expect(isEntraAuthEnabled(db)).toBe(false)
     const row = db
       .prepare("SELECT value FROM app_settings WHERE key = ?")
-      .get(SETTING_AUTH_ENTRA_ENABLED) as { value: string }
-    expect(row.value).toBe("true")
+      .get(SETTING_AUTH_ENTRA_ENABLED)
+    expect(row).toBeUndefined()
   })
 
-  it("does not overwrite existing db value", () => {
-    process.env.ENABLED_AUTH_PROVIDERS = "entra"
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      SETTING_AUTH_ENTRA_ENABLED,
-      "false",
-      Date.now(),
-    )
-    seedAuthSettingsFromLegacyEnv(db)
-    expect(isEntraAuthEnabled(db)).toBe(false)
-  })
-
-  it("isEntraProviderActive requires credentials from some source", () => {
-    process.env.ENABLED_AUTH_PROVIDERS = "entra"
-    seedAuthSettingsFromLegacyEnv(db)
-    expect(isEntraProviderActive(db)).toBe(false)
-    expect(resolveEntraCredentials(db)).toBeNull()
-  })
-
-  it("is active when both enablement and credentials are env-sourced", () => {
-    process.env.ENABLED_AUTH_PROVIDERS = "entra"
-    process.env.AUTH_MICROSOFT_ENTRA_ID_ID = "client-id"
-    process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET = "client-secret"
-    process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT_ID = "tenant-id"
-    seedAuthSettingsFromLegacyEnv(db)
-    expect(isEntraProviderActive(db)).toBe(true)
-    expect(resolveEntraCredentials(db)).toEqual({
-      clientId: "client-id",
-      clientSecret: "client-secret",
-      tenantId: "tenant-id",
-    })
-  })
-
-  it("DB-only config (enabled + credentials purely in app_settings, no env at all) is fully active", () => {
-    // No ENABLED_AUTH_PROVIDERS, no AUTH_MICROSOFT_ENTRA_ID_* — purely configured
-    // through System Settings: a self-hoster who configures Entra purely through
-    // System Settings (DB-only, no env vars) gets a working Entra sign-in, not a
-    // broken button. lib/auth.ts resolves its provider from this exact same
-    // function, so DB-only credentials now actually reach the constructed
-    // NextAuth provider, not just the button.
+  it("stays enabled from the database row when no enablement environment variable is set", () => {
     const now = Date.now()
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      SETTING_AUTH_ENTRA_ENABLED, "true", now,
-    )
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      "auth.entra.client_id", "db-client-id", now,
-    )
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      "auth.entra.tenant_id", "db-tenant-id", now,
-    )
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      "auth.entra.client_secret", "db-secret", now,
-    )
+    insertSetting(db, SETTING_AUTH_ENTRA_ENABLED, "true", now)
+    insertSetting(db, "auth.entra.client_id", "db-client-id", now)
+    insertSetting(db, "auth.entra.tenant_id", "db-tenant-id", now)
+    insertSetting(db, "auth.entra.client_secret", "db-secret", now)
     expect(isEntraAuthEnabled(db)).toBe(true)
     expect(isEntraProviderActive(db)).toBe(true)
     expect(resolveEntraCredentials(db)).toEqual({
@@ -118,21 +78,37 @@ describe("auth settings seed", () => {
     })
   })
 
-  it("mixed sources — env credentials win over DB values for the same key, DB fills the rest", () => {
+  it("keeps a stored false when no enablement environment variable is set", () => {
+    insertSetting(db, SETTING_AUTH_ENTRA_ENABLED, "false", Date.now())
+    expect(isEntraAuthEnabled(db)).toBe(false)
+  })
+
+  it("is inactive when the database enables Entra but credentials are missing", () => {
+    insertSetting(db, SETTING_AUTH_ENTRA_ENABLED, "true", Date.now())
+    expect(isEntraProviderActive(db)).toBe(false)
+    expect(resolveEntraCredentials(db)).toBeNull()
+  })
+
+  it("is active when both enablement and credentials come from the environment", () => {
+    process.env.FC_AUTH_ENTRA_ENABLED = "true"
+    process.env.AUTH_MICROSOFT_ENTRA_ID_ID = "client-id"
+    process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET = "client-secret"
+    process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT_ID = "tenant-id"
+    expect(isEntraProviderActive(db)).toBe(true)
+    expect(resolveEntraCredentials(db)).toEqual({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      tenantId: "tenant-id",
+    })
+  })
+
+  it("lets environment credentials win over database values for the same key", () => {
     process.env.AUTH_MICROSOFT_ENTRA_ID_ID = "env-client-id"
     const now = Date.now()
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      SETTING_AUTH_ENTRA_ENABLED, "true", now,
-    )
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      "auth.entra.client_id", "db-client-id", now,
-    )
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      "auth.entra.tenant_id", "db-tenant-id", now,
-    )
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      "auth.entra.client_secret", "db-secret", now,
-    )
+    insertSetting(db, SETTING_AUTH_ENTRA_ENABLED, "true", now)
+    insertSetting(db, "auth.entra.client_id", "db-client-id", now)
+    insertSetting(db, "auth.entra.tenant_id", "db-tenant-id", now)
+    insertSetting(db, "auth.entra.client_secret", "db-secret", now)
     expect(resolveEntraCredentials(db)).toEqual({
       clientId: "env-client-id",
       clientSecret: "db-secret",
@@ -140,19 +116,11 @@ describe("auth settings seed", () => {
     })
   })
 
-  it("resolveEntraCredentials is null when auth.entra.enabled is false, even with full credentials in DB", () => {
+  it("resolves credentials without treating a disabled provider as active", () => {
     const now = Date.now()
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      "auth.entra.client_id", "db-client-id", now,
-    )
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      "auth.entra.tenant_id", "db-tenant-id", now,
-    )
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      "auth.entra.client_secret", "db-secret", now,
-    )
-    // resolveEntraCredentials itself is enablement-agnostic (pure credential lookup);
-    // isEntraProviderActive is the one that also requires auth.entra.enabled.
+    insertSetting(db, "auth.entra.client_id", "db-client-id", now)
+    insertSetting(db, "auth.entra.tenant_id", "db-tenant-id", now)
+    insertSetting(db, "auth.entra.client_secret", "db-secret", now)
     expect(resolveEntraCredentials(db)).toEqual({
       clientId: "db-client-id",
       clientSecret: "db-secret",

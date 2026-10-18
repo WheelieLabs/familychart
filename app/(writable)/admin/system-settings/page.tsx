@@ -3,15 +3,19 @@
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
 import RegistrySettingsPanel from "@/components/RegistrySettingsPanel"
-import { mainContentTargetProps } from "@/lib/a11y"
+import PageContainer from "@/components/ui/PageContainer"
+import { administrationTrail } from "@/lib/ui/breadcrumbs"
+import type { Metadata } from "next"
+
+export const metadata: Metadata = { title: "System Settings" }
 
 export default function SystemSettingsPage() {
   return (
     <div className="flex flex-col flex-1">
       <AppHeader title="System Settings" />
-      <main {...mainContentTargetProps} className="fc-surface-admin fc-scroll p-3 pb-8 flex flex-col gap-3">
+      <PageContainer area="admin" trail={administrationTrail({ label: "System Settings" })}>
         <RegistrySettingsPanel />
-      </main>
+      </PageContainer>
       <AppFooter />
     </div>
   )

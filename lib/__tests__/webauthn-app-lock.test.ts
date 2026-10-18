@@ -11,7 +11,6 @@ import {
   buildGetOptions,
   buildWebAuthnFailureReport,
   clearBiometricCredentialId,
-  clearLegacyBiometricCredentialId,
   createLiveWebAuthnAdapter,
   describeWebAuthnError,
   readBiometricCredentialId,
@@ -94,6 +93,11 @@ function memoryStorage(initial: Record<string, string> = {}): Storage {
 }
 
 describe("per-account biometric credential storage", () => {
+  it("does not export removed device-wide biometric key cleanup", async () => {
+    const mod = await import("@/lib/webauthn-app-lock")
+    expect(mod).not.toHaveProperty("clearLegacyBiometricCredentialId")
+  })
+
   it("does not unlock with another account's stored credential", () => {
     const storage = memoryStorage()
     writeBiometricCredentialId(storage, "alice", "alice-cred")
@@ -102,7 +106,7 @@ describe("per-account biometric credential storage", () => {
     expect(readBiometricCredentialId(storage, "alice")).toBe("alice-cred")
   })
 
-  it("does not unlock from the legacy device-wide key", () => {
+  it("does not unlock from a credential id stored without a per-account suffix", () => {
     const storage = memoryStorage({
       [FAMILYCHART_BIOMETRIC_CREDENTIAL_ID_KEY]: "shared-cred",
     })
@@ -137,17 +141,6 @@ describe("per-account biometric credential storage", () => {
 
     clearBiometricCredentialId(storage, "   ")
 
-    expect(readBiometricCredentialId(storage, "alice")).toBe("alice-cred")
-  })
-
-  it("clears the legacy device-wide key without removing per-account credentials", () => {
-    const storage = memoryStorage()
-    writeBiometricCredentialId(storage, "alice", "alice-cred")
-    storage.setItem(FAMILYCHART_BIOMETRIC_CREDENTIAL_ID_KEY, "shared-cred")
-
-    clearLegacyBiometricCredentialId(storage)
-
-    expect(storage.getItem(FAMILYCHART_BIOMETRIC_CREDENTIAL_ID_KEY)).toBeNull()
     expect(readBiometricCredentialId(storage, "alice")).toBe("alice-cred")
   })
 

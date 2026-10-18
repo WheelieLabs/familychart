@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { isSessionExemptPage } from "@/lib/proxy-paths"
+import { isPageAllowedBeforeSetupComplete, isSessionExemptPage } from "@/lib/proxy-paths"
 
 describe("isSessionExemptPage", () => {
   it("allows setup, the managed-admin reset-password page, and invite acceptance", () => {
@@ -10,6 +10,14 @@ describe("isSessionExemptPage", () => {
 
   it("allows the invite-accept API route, since it isn't under the matcher-excluded api/auth prefix", () => {
     expect(isSessionExemptPage("/api/accounts/invites/accept")).toBe(true)
+  })
+
+  it("lets the restore screen open during setup and keeps every other page on the wizard", () => {
+    expect(isPageAllowedBeforeSetupComplete("/setup")).toBe(true)
+    expect(isPageAllowedBeforeSetupComplete("/admin/export")).toBe(true)
+    expect(isPageAllowedBeforeSetupComplete("/admin/export/3/erase")).toBe(false)
+    expect(isPageAllowedBeforeSetupComplete("/")).toBe(false)
+    expect(isPageAllowedBeforeSetupComplete("/profile")).toBe(false)
   })
 
   it("does not exempt login (matcher-excluded) or authenticated app paths", () => {

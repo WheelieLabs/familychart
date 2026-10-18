@@ -18,7 +18,6 @@ describe("reverse-proxy mode", () => {
   it("defaults to direct exposure when unset", () => {
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("BEHIND_REVERSE_PROXY", "")
-    vi.stubEnv("NEXTAUTH_USE_SECURE_COOKIES", "")
     expect(isBehindReverseProxy()).toBe(false)
     expect(nextAuthTrustHost()).toBe(false)
     expect(nextAuthUseSecureCookies()).toBe(true)
@@ -40,17 +39,6 @@ describe("reverse-proxy mode", () => {
     expect(nextAuthUseSecureCookies()).toBe(true)
   })
 
-  it("legacy NEXTAUTH_USE_SECURE_COOKIES=false implies behind proxy", () => {
-    vi.stubEnv("BEHIND_REVERSE_PROXY", "")
-    vi.stubEnv("NEXTAUTH_USE_SECURE_COOKIES", "false")
-    expect(isBehindReverseProxy()).toBe(true)
-  })
-
-  it("explicit BEHIND_REVERSE_PROXY=false overrides legacy secure cookies", () => {
-    vi.stubEnv("BEHIND_REVERSE_PROXY", "false")
-    vi.stubEnv("NEXTAUTH_USE_SECURE_COOKIES", "false")
-    expect(isBehindReverseProxy()).toBe(false)
-  })
 })
 
 describe("publicOrigin", () => {

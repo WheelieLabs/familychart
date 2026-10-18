@@ -37,6 +37,18 @@ describe("local-user-session", () => {
     expect(localRoleToGroups("admin", 1)).toEqual(["local:admin", "local:report"])
   })
 
+  it("gives Role None no ladder groups and no Household Reports group", () => {
+    expect(localRoleToGroups("none", 0)).toEqual([])
+    expect(localRoleToGroups("none", 1)).toEqual([])
+  })
+
+  it("omits local:report from a leftover can_report flag on a None Account", () => {
+    db.prepare(
+      "INSERT INTO accounts (id, role, can_report, is_active, session_version) VALUES (2, 'none', 1, 1, 0)",
+    ).run()
+    expect(refreshLocalUserSession(db, 2, 0)?.groups).toEqual([])
+  })
+
   it("refreshes active session groups", () => {
     const refreshed = refreshLocalUserSession(db, 1, 0)
     expect(refreshed?.groups).toEqual(["local:admin", "local:report"])

@@ -21,7 +21,6 @@ import {
   SETTING_PUSH_VAPID_SUBJECT,
   SETTING_SCHEDULE_LEAD_MINUTES,
   SETTING_SCHEDULE_OVERDUE_OFFSET_MINUTES,
-  SETTING_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES,
   SETTING_SECURITY_MFA_REQUIRED,
   SETTING_SECURITY_PASSWORD_MIN_LENGTH,
   type SettingDefinition,
@@ -82,13 +81,6 @@ const UI_META: Record<string, SettingUiMeta> = {
     fieldType: "minutes",
     min: 30,
     max: 720,
-  },
-  [SETTING_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES]: {
-    label: "History association (minutes)",
-    description: "Radius within which a recorded dose associates with a scheduled slot.",
-    fieldType: "minutes",
-    min: 15,
-    max: 480,
   },
   [SETTING_AUTH_ENTRA_ENABLED]: {
     label: "Microsoft Entra enabled",
@@ -178,7 +170,6 @@ export const SETTINGS_UI_SECTIONS: SettingsUiSection[] = [
     keys: [
       SETTING_SCHEDULE_LEAD_MINUTES,
       SETTING_SCHEDULE_OVERDUE_OFFSET_MINUTES,
-      SETTING_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES,
     ],
   },
   {

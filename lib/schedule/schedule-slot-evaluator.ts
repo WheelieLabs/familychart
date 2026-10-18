@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import type { CalendarContext } from "@/lib/calendar-context"
-import { ianaLocalYmdHmToUtcMs, localCalendarYmdHmToUtcMs, parseHHMM, formatHHMM, utcMsToLocalYmd, tzLocalYmdAndOffset } from "@/lib/datetime"
+import {
+  ianaLocalYmdHmToUtcMs,
+  localCalendarYmdHmToUtcMs,
+  parseHHMM,
+  formatHHMM,
+  tzLocalYmdAndOffset,
+  utcMsToLocalYmd,
+} from "@/lib/datetime"
 import {
   isScheduleActiveOnYmd,
   parseScheduleTimesJson,
   parseScheduleFrequencyUnknown,
   dosageForScheduledTime,
-  type MedScheduleFreq,
 } from "@/lib/schedule/schedule-recurrence"
 
 export interface SlotEvaluatorConfig {
@@ -17,7 +23,7 @@ export interface SlotEvaluatorConfig {
   overdueOffsetMs: number
 }
 
-export type SlotStatus = "upcoming" | "due" | "overdue" | "overdue_push" | "suppressed" | "inactive"
+export type SlotStatus = "upcoming" | "due" | "overdue" | "overdue_push" | "inactive"
 
 /**
  * Resolve slot epoch ms from a CalendarContext — prefers IANA when available,
@@ -31,71 +37,46 @@ export function resolveSlotMs(ctx: CalendarContext, ymd: string, hhmm: string): 
     : localCalendarYmdHmToUtcMs(ymd, hhmm, ctx.offsetMinutes)
 }
 
-export interface SuppressibleScheduleInput {
-  scheduleTimes: string[]
-  scheduleFrequency: MedScheduleFreq | null
-  scheduleStartDate: string | null
-  scheduleEndDate: string | null
-}
-
-export interface NextSuppressibleSlot {
-  hhmm: string
-  slotMs: number
+/** The Calendar day (Schedule clock) an instant falls on. */
+export function localYmdAt(ctx: CalendarContext, ms: number): string {
+  return ctx.ianaTz ? tzLocalYmdAndOffset(ms, ctx.ianaTz).ymd : utcMsToLocalYmd(ms, ctx.offsetMinutes)
 }
 
 /**
- * First scheduled HH:mm strictly after `recordedMs`, on `calCtx`'s local calendar day, if the
- * schedule is active that day — via `resolveSlotMs` (IANA when available). The dose must fall
- * on that same local ymd, or within the slot's `isSlotClearedByDose` lead/grace window when
- * `config` is supplied, so a historical stamp cannot cancel today's earliest reminder.
- * Pure; Node-independent (`Intl.DateTimeFormat` with `timeZone` works in-browser), so this is
- * shared by the client preview (record-medication checkbox) and the server INSERT into
- * schedule_reminder_suppressions — previously reimplemented twice with different timezone models.
+ * The creation boundary: a schedule made part-way through its start day begins at the next dose, so
+ * a slot earlier that day, before the instant the schedule was created, is not an expectation. The
+ * one rule every slot walker applies after `isScheduleActiveOnYmd`. It only ever concerns the start
+ * day when that is also the creation day: a start date set earlier (backdated) keeps its slots, and
+ * a row with no recorded creation instant has no boundary. Creation only: edits never move it.
  */
-export function findNextSuppressibleSlot(
-  recordedMs: number,
-  schedule: SuppressibleScheduleInput,
-  calCtx: CalendarContext,
-  config?: SlotEvaluatorConfig,
-): NextSuppressibleSlot | null {
-  const ymd = calCtx.ymd
-  if (!isScheduleActiveOnYmd(schedule.scheduleFrequency, schedule.scheduleStartDate, schedule.scheduleEndDate, ymd)) {
-    return null
-  }
-  const recordedYmd = calCtx.ianaTz
-    ? tzLocalYmdAndOffset(recordedMs, calCtx.ianaTz).ymd
-    : utcMsToLocalYmd(recordedMs, calCtx.offsetMinutes)
-  for (const tStr of [...schedule.scheduleTimes].sort()) {
-    const hm = parseHHMM(tStr)
-    if (!hm) continue
-    const hhmm = formatHHMM(hm.h, hm.m)
-    const slotMs = resolveSlotMs(calCtx, ymd, hhmm)
-    if (slotMs <= recordedMs) continue
-    const sameLocalDay = recordedYmd === ymd
-    const inClearanceWindow = config != null && isSlotClearedByDose([recordedMs], slotMs, config)
-    if (sameLocalDay || inClearanceWindow) return { hhmm, slotMs }
-  }
-  return null
+export function isSlotBeforeScheduleCreation(
+  schedule: { startDate: string | null; createdAtMs: number | null },
+  ctx: CalendarContext,
+  ymd: string,
+  slotMs: number,
+): boolean {
+  const createdAtMs = schedule.createdAtMs
+  if (createdAtMs == null || !Number.isFinite(createdAtMs) || slotMs >= createdAtMs) return false
+  const createdYmd = localYmdAt(ctx, createdAtMs)
+  const startYmd = schedule.startDate?.trim() || createdYmd
+  return ymd === startYmd && createdYmd === startYmd
 }
 
 /**
  * Classify a scheduled slot relative to now.
  *
- * Pure — no DB or timezone logic. Suppression is pre-resolved by the caller
- * from schedule_reminder_suppressions.
+ * Pure — no DB or timezone logic.
  *
  * States:
  *   upcoming     — in lead window before slot; dashboard amber, no push
  *   due          — in on-time push window [slot, slot+slotWindowMs]; dashboard red, scheduled push
  *   overdue      — in grace gap (slot+slotWindowMs, slot+overdueOffsetMs); dashboard red, no push
  *   overdue_push — in overdue push window; dashboard red, overdue push
- *   suppressed   — in any active window but slot is suppressed by opt-in
  *   inactive     — outside all windows
  */
 export function evaluateScheduledSlot(
   slotMs: number,
   nowMs: number,
-  isSuppressed: boolean,
   config: SlotEvaluatorConfig,
 ): SlotStatus {
   const { leadMs, slotWindowMs, graceMs, overdueOffsetMs } = config
@@ -107,7 +88,6 @@ export function evaluateScheduledSlot(
   const inOverduePush = nowMs >= overdueStart && nowMs <= overdueStart + slotWindowMs
 
   if (!inUpcoming && !inGrace && !inOverduePush) return "inactive"
-  if (isSuppressed) return "suppressed"
   if (inUpcoming) return "upcoming"
   if (inDue) return "due"
   if (inOverduePush) return "overdue_push"
@@ -121,10 +101,6 @@ export function evaluateScheduledSlot(
  * window `[slot − leadMs, slot + graceMs]` — i.e. the slot's full active
  * window. A cleared slot emits no dashboard alert and fires no scheduled /
  * overdue push, because the dose for that slot has already been recorded.
- *
- * This restores the pre-0.37.8 behaviour that the opt-in
- * `schedule_reminder_suppressions` table alone does not cover (that table only
- * suppresses a *future* slot via the explicit "cancel reminder" checkbox).
  *
  * Pure — `doseMsList` is the list of recorded-at epoch ms for the slot's
  * person + medication, pre-loaded by the caller.
@@ -152,6 +128,8 @@ export interface ScheduleAssemblyRow {
   scheduleFrequencyRaw: string | null
   scheduleStartDate: string | null
   scheduleEndDate: string | null
+  /** Epoch ms the schedule was created; null for a row from before the boundary existed. */
+  scheduleCreatedAtMs?: number | null
   medDefaultDosage: number | null
   /** Pre-resolved by the caller — calendar-fallback strictness (row IANA → instance → offset,
    *  or cron's IANA-required hard gate) is a caller-side policy decision, not this function's. */
@@ -172,7 +150,7 @@ export interface DueScheduledSlot {
 
 /**
  * Shared scheduled-slot assembly: walks each row's scheduled times across `days`, resolving slot
- * epoch via `resolveSlotMs`, filtering inactive/suppressed/dose-cleared slots. Dashboard and cron
+ * epoch via `resolveSlotMs`, filtering inactive, dose-expectation (external) and dose-cleared slots. Dashboard and cron
  * both take slots from Alert readiness (`evaluateAlertReadiness`), which walks each row's own
  * local yesterday/today/tomorrow (row IANA → instance IANA → fallback) and a 3-day dose lookback.
  */
@@ -181,7 +159,8 @@ export function collectDueScheduledSlots(
   days: readonly string[],
   nowMs: number,
   cfg: SlotEvaluatorConfig,
-  isSuppressed: (personMedicationId: number, ymd: string, hhmm: string) => boolean,
+  /** Slots under a dose expectation get a confirmation prompt instead of a normal alert. */
+  isExternal: (personMedicationId: number, ymd: string, hhmm: string) => boolean,
   doseMsFor: (personId: number, medicationId: number) => readonly number[],
 ): DueScheduledSlot[] {
   const out: DueScheduledSlot[] = []
@@ -202,10 +181,11 @@ export function collectDueScheduledSlots(
 
         const slotMs = resolveSlotMs(row.calCtx, ymd, hhmm)
         if (!Number.isFinite(slotMs)) continue
+        if (isSlotBeforeScheduleCreation({ startDate: row.scheduleStartDate, createdAtMs: row.scheduleCreatedAtMs ?? null }, row.calCtx, ymd, slotMs)) continue
 
-        const suppressed = isSuppressed(row.personMedicationId, ymd, hhmm)
-        const status = evaluateScheduledSlot(slotMs, nowMs, suppressed, cfg)
-        if (status === "inactive" || status === "suppressed") continue
+        if (isExternal(row.personMedicationId, ymd, hhmm)) continue
+        const status = evaluateScheduledSlot(slotMs, nowMs, cfg)
+        if (status === "inactive") continue
         if (isSlotClearedByDose(recordedDoseMs, slotMs, cfg)) continue
 
         out.push({

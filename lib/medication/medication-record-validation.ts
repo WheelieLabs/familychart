@@ -4,12 +4,15 @@ import type Database from "better-sqlite3-multiple-ciphers"
 import { fractionalAgeYears } from "@/lib/person/person-age"
 import { resolveAgeTimezone } from "@/lib/instance-timezone"
 import { MEDICATION_DOSAGE_UNITS, normaliseMedicationDosageUnitAlias } from "@/lib/medication/medication-units"
+import { isMedicationAdministeredBy, type MedicationAdministeredBy } from "@/lib/medication/medication-administered-by"
 
 export interface MedicationRecordWriteInput {
   medication_id: number
   recorded_at: unknown
   dosage?: unknown
   dosage_unit?: unknown
+  /** Who gave the dose — "me" (default), "another_caregiver", or "away_from_home". */
+  administered_by?: unknown
   /**
    * Person the dose is recorded against. When set, the write is checked against the
    * person↔medication link and the medication's age bounds (see options below).
@@ -33,6 +36,7 @@ export interface MedicationRecordWriteFields {
   /** True when the recorded unit differs from the medication's catalogue unit — the dose
    *  still saves, but won't count toward that medication's unit-scoped 24h cap. */
   dosageUnitMismatch: boolean
+  administeredBy: MedicationAdministeredBy
 }
 
 /** Max accepted dosage magnitude; rejects absurd values that could abuse the 24h-cap SUM. */
@@ -107,6 +111,17 @@ export function validateRecordDosage(
   return { ok: true, dosage: numeric }
 }
 
+/** Validates an optional "who gave the dose" value in isolation; defaults to "me". */
+export function validateRecordAdministeredBy(
+  rawAdministeredBy: unknown,
+): { ok: true; administeredBy: MedicationAdministeredBy } | { ok: false; error: string } {
+  if (rawAdministeredBy == null) return { ok: true, administeredBy: "me" }
+  if (!isMedicationAdministeredBy(rawAdministeredBy)) {
+    return { ok: false, error: `administered_by "${String(rawAdministeredBy)}" is not a recognised value` }
+  }
+  return { ok: true, administeredBy: rawAdministeredBy }
+}
+
 export function validateMedicationRecordWrite(
   db: Database.Database,
   input: MedicationRecordWriteInput,
@@ -136,6 +151,10 @@ export function validateMedicationRecordWrite(
   if (!dosageResult.ok) return dosageResult
   const dosage = dosageResult.dosage
 
+  const administeredByResult = validateRecordAdministeredBy(input.administered_by)
+  if (!administeredByResult.ok) return administeredByResult
+  const administeredBy = administeredByResult.administeredBy
+
   const catalogueUnit = med.dosage_unit?.trim() || null
   const providedUnitRaw =
     typeof input.dosage_unit === "string" ? input.dosage_unit.trim() : ""
@@ -159,7 +178,7 @@ export function validateMedicationRecordWrite(
     dosageUnitMismatch = catalogueUnit != null && !matchesCatalogue
   }
 
-  return { ok: true, recordedAt: recordedAtRaw, dosage, dosageUnit, dosageUnitMismatch }
+  return { ok: true, recordedAt: recordedAtRaw, dosage, dosageUnit, dosageUnitMismatch, administeredBy }
 }
 
 /**

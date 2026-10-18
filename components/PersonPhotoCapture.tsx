@@ -4,6 +4,8 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react"
 import PhotoCropModal from "@/components/PhotoCropModal"
+import Button from "@/components/ui/Button"
+import HiddenFileInput from "@/components/ui/HiddenFileInput"
 import { markAppLockSuppressed } from "@/lib/app-lock-navigation"
 import type { CompressOptions } from "@/lib/photo-pipeline"
 
@@ -45,10 +47,7 @@ export default function PersonPhotoCapture({
     ref.current?.click()
   }
 
-  function handlePicked(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ""
-    if (!file) return
+  function handlePicked(file: File) {
     setPickedImage(file)
     setPickedImageSrc(URL.createObjectURL(file))
   }
@@ -61,28 +60,37 @@ export default function PersonPhotoCapture({
 
   return (
     <>
-      <div className="flex gap-2 lg:hidden">
-        <button type="button" onClick={() => openPicker(cameraInputRef)} disabled={uploading}
-          className="flex-1 bg-fc-blue text-white text-sm font-bold px-4 py-2 rounded-lg
-                     hover:bg-fc-blue-mid disabled:opacity-50 transition-colors">
-          {uploading ? "Uploading…" : "Take Photo"}
-        </button>
-        <button type="button" onClick={() => openPicker(libraryInputRef)} disabled={uploading}
-          className="flex-1 bg-fc-blue text-white text-sm font-bold px-4 py-2 rounded-lg
-                     hover:bg-fc-blue-mid disabled:opacity-50 transition-colors">
-          {uploading ? "Uploading…" : "Choose from Library"}
-        </button>
+      <div className="fc-photo-actions fc-photo-actions--phone">
+        <Button
+          variant="secondary"
+          onClick={() => openPicker(cameraInputRef)}
+          pending={uploading}
+          pendingLabel="Uploading…"
+        >
+          Take Photo
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => openPicker(libraryInputRef)}
+          pending={uploading}
+          pendingLabel="Uploading…"
+        >
+          Choose from Library
+        </Button>
       </div>
-      <button type="button" onClick={() => openPicker(libraryInputRef)} disabled={uploading}
-        className="hidden lg:inline-flex bg-fc-blue text-white text-sm font-bold px-4 py-2 rounded-lg
-                   hover:bg-fc-blue-mid disabled:opacity-50 transition-colors">
-        {uploading ? "Uploading…" : hasPhoto ? "Change Photo" : "Upload Photo"}
-      </button>
+      <div className="fc-photo-actions fc-photo-actions--desktop">
+        <Button
+          variant="secondary"
+          onClick={() => openPicker(libraryInputRef)}
+          pending={uploading}
+          pendingLabel="Uploading…"
+        >
+          {hasPhoto ? "Change Photo" : "Upload Photo"}
+        </Button>
+      </div>
 
-      <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp"
-        capture="environment" className="hidden" onChange={handlePicked} />
-      <input ref={libraryInputRef} type="file" accept="image/jpeg,image/png,image/webp"
-        className="hidden" onChange={handlePicked} />
+      <HiddenFileInput inputRef={cameraInputRef} accept="image/jpeg,image/png,image/webp" capture="environment" onFile={handlePicked} />
+      <HiddenFileInput inputRef={libraryInputRef} accept="image/jpeg,image/png,image/webp" onFile={handlePicked} />
 
       <PhotoCropModal
         image={pickedImage}

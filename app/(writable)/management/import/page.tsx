@@ -2,9 +2,16 @@
 
 "use client"
 
+/* eslint-disable no-restricted-syntax -- Import Records keeps its current styling until the 1.2.0 desktop layouts restyle it; only its landmark and skip target were brought onto the shared page. */
+
+import { formatDate } from "@/lib/date-format"
 import Link from "next/link"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { readSheet } from "read-excel-file/browser"
+import Breadcrumb from "@/components/ui/Breadcrumb"
+import Surface from "@/components/ui/Surface"
+import { managementTrail } from "@/lib/ui/breadcrumbs"
+import { mainContentTargetProps } from "@/lib/a11y"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
 import type { Person } from "@/lib/domain-types"
@@ -264,17 +271,15 @@ export default function ImportPage() {
     return (
       <div className="flex flex-col flex-1 min-h-0">
         <AppHeader title="Import Records" />
-        <div className="flex-1 flex flex-col items-center justify-center bg-fc-blue p-8 text-center">
+        <main {...mainContentTargetProps} className="flex-1 flex flex-col items-center justify-center bg-fc-blue p-8 text-center">
           <div className="text-white text-5xl mb-6">🖥️</div>
           <h1 className="text-white text-2xl font-bold mb-4">Desktop Required</h1>
-          <p className="text-white/80 text-lg leading-relaxed mb-8">
+          <p className="text-white text-lg leading-relaxed mb-8">
             This screen requires a desktop browser.<br />
             Please access FamilyChart on a PC to use the import tool.
           </p>
-          <Link href="/" className="bg-white text-fc-blue font-bold px-6 py-3 rounded-xl hover:bg-gray-100 inline-block">
-            Back to Home
-          </Link>
-        </div>
+          <Breadcrumb trail={managementTrail({ label: "Import Records" })} />
+        </main>
         <AppFooter />
       </div>
     )
@@ -284,13 +289,13 @@ export default function ImportPage() {
     return (
       <div className="flex flex-col flex-1">
         <AppHeader title="Import Records" />
-        <div className="flex-1 flex items-center justify-center bg-fc-blue">
+        <main {...mainContentTargetProps} className="flex-1 flex items-center justify-center bg-fc-blue">
           <div className="bg-white rounded-2xl p-10 text-center max-w-sm">
             <div className="text-4xl mb-4">🔒</div>
             <h2 className="text-xl font-bold text-gray-800 mb-2">Access Required</h2>
-            <p className="text-gray-500 text-sm">The import tool requires Manager or Admin access.</p>
+            <p className="text-gray-700 text-sm">The import tool requires Manager or Admin access.</p>
           </div>
-        </div>
+        </main>
         <AppFooter />
       </div>
     )
@@ -299,13 +304,14 @@ export default function ImportPage() {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       <AppHeader title="Import Records" />
-      <div className="flex flex-1 overflow-hidden">
+      <main {...mainContentTargetProps} className="flex flex-1 overflow-hidden">
 
         {/* Left panel */}
         <div className="w-80 shrink-0 bg-fc-panel border-r border-gray-200 flex flex-col overflow-y-auto p-5 gap-5">
+          <Surface kind="light"><Breadcrumb trail={managementTrail({ label: "Import Records" })} /></Surface>
 
           <div>
-            <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">1. Select Person</h2>
+            <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3">1. Select Person</h2>
             <div className="flex flex-col gap-2">
               {people.map(p => {
                 const initials = p.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)
@@ -330,7 +336,7 @@ export default function ImportPage() {
           </div>
 
           <div>
-            <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Import type</h2>
+            <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3">Import type</h2>
             <div className="flex flex-col gap-1.5 bg-white rounded-xl border border-gray-200 p-2">
               {(
                 [
@@ -357,7 +363,7 @@ export default function ImportPage() {
           </div>
 
           <div>
-            <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Upload file</h2>
+            <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3">Upload file</h2>
             <div
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
@@ -371,13 +377,13 @@ export default function ImportPage() {
                 <>
                   <div className="text-2xl mb-1">📄</div>
                   <div className="font-semibold text-gray-800 text-sm truncate">{file.name}</div>
-                  <div className="text-xs text-gray-500 mt-1">{(file.size / 1024).toFixed(0)} KB · {allRawRows.length} rows</div>
+                  <div className="text-xs text-gray-700 mt-1">{(file.size / 1024).toFixed(0)} KB · {allRawRows.length} rows</div>
                 </>
               ) : (
                 <>
                   <div className="text-2xl mb-1">📁</div>
                   <div className="text-sm text-gray-600">Drop file here or click to browse</div>
-                  <div className="text-xs text-gray-400 mt-1">.xlsx, .csv · Max 10MB</div>
+                  <div className="text-xs text-gray-600 mt-1">.xlsx, .csv · Max 10MB</div>
                 </>
               )}
             </div>
@@ -423,7 +429,7 @@ export default function ImportPage() {
             <Instructions />
           )}
         </div>
-      </div>
+      </main>
       <AppFooter />
     </div>
   )
@@ -449,12 +455,12 @@ function Instructions() {
               <span className="font-bold text-fc-blue shrink-0 text-lg">{i + 1}.</span>
               <div>
                 <p className="font-semibold">{title}</p>
-                <p className="text-sm text-gray-400">{desc}</p>
+                <p className="text-sm text-gray-600">{desc}</p>
               </div>
             </li>
           ))}
         </ol>
-        <p className="text-sm text-gray-400 mt-8 text-center">Supported: .xlsx and CSV</p>
+        <p className="text-sm text-gray-600 mt-8 text-center">Supported: .xlsx and CSV</p>
       </div>
     </div>
   )
@@ -504,7 +510,7 @@ function ColumnMapper({
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="px-6 pt-5 pb-3 border-b border-gray-100 shrink-0">
         <h2 className="text-xl font-bold text-gray-800">Map Columns</h2>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-sm text-gray-700 mt-1">
           Match each spreadsheet column using the dropdowns below.
         </p>
       </div>
@@ -524,7 +530,7 @@ function ColumnMapper({
                 .map(row => row[colIdx])
                 .filter(v => v != null && v !== "")
                 .slice(0, 3)
-                .map(v => v instanceof Date ? v.toLocaleDateString("en-AU") : String(v))
+                .map(v => v instanceof Date ? formatDate(v) : String(v))
 
               return (
                 // colIdx is the genuine stable identity here: it's the column's position in the
@@ -533,8 +539,8 @@ function ColumnMapper({
                 // eslint-disable-next-line react-x/no-array-index-key
                 <tr key={`${h}-${colIdx}`} className="hover:bg-gray-50">
                   <td className="px-3 py-2 border border-gray-200 font-medium text-gray-800">{h || `(${colIdx + 1})`}</td>
-                  <td className="px-3 py-2 border border-gray-200 text-gray-500 text-xs">
-                    {samples.length ? samples.join(" · ") : <span className="italic text-gray-300">no data</span>}
+                  <td className="px-3 py-2 border border-gray-200 text-gray-700 text-xs">
+                    {samples.length ? samples.join(" · ") : <span className="italic text-gray-600">no data</span>}
                   </td>
                   <td className="px-3 py-2 border border-gray-200">
                     <select
@@ -788,8 +794,8 @@ function PreviewTable({
 
       <div className="border-t border-gray-200 px-4 py-3 flex flex-wrap items-center gap-3 bg-white shrink-0">
         <button onClick={selectAll} className="text-sm text-fc-blue hover:underline whitespace-nowrap">Select all</button>
-        <button onClick={deselectAll} className="text-sm text-gray-400 hover:underline whitespace-nowrap">Deselect all</button>
-        <span className="text-sm text-gray-500">{selected.size} of {nImportable} · {visibleRows.length} rows</span>
+        <button onClick={deselectAll} className="text-sm text-gray-600 hover:underline whitespace-nowrap">Deselect all</button>
+        <span className="text-sm text-gray-700">{selected.size} of {nImportable} · {visibleRows.length} rows</span>
         <div className="flex-1 min-w-[8px]" />
         <button onClick={onBack}
           className="px-4 py-2 border border-gray-300 rounded-xl text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors whitespace-nowrap">

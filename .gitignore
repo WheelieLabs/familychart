@@ -16,6 +16,7 @@ lib/changelog.generated.json
 next-env.d.ts
 tsconfig.tsbuildinfo
 public/sw.js
+public/pdfjs/
 public/swe-worker-*.js
 public/workbox-*.js
 
@@ -25,3 +26,9 @@ public/workbox-*.js
 # Test output
 coverage/
 .teach/
+
+# Playwright
+e2e/.auth/
+test-results/
+!/lib/test-results/
+playwright-report/

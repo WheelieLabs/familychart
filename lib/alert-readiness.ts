@@ -3,9 +3,10 @@
 import type Database from "better-sqlite3-multiple-ciphers"
 import type { CalendarContext } from "@/lib/calendar-context"
 import { resolveCalendarContext } from "@/lib/calendar-context"
-import { addCalendarDaysToIsoYmd } from "@/lib/datetime"
+import { addCalendarDaysToIsoYmd, formatHHMM, parseHHMM } from "@/lib/datetime"
 import type { Person } from "@/lib/domain-types"
 import { resolveInstanceTimezone } from "@/lib/instance-timezone"
+import { allowsOnlyOneDosePerDay, type MedicationDoseSlice, type PrnEvalResult } from "@/lib/prn/prn-eval"
 import {
   doseSliceFromMaps,
   evaluatePrnState,
@@ -16,9 +17,21 @@ import { isObservationAlertEligible, loadLastObservationAtByPersonType } from "@
 import { listObservationTypeConfigs } from "@/lib/observation/observation-type-meta"
 import { PRN_REMIND_DEFAULT_MAX_HOURS } from "@/lib/prn/prn-remind-hours"
 import { loadSlotEvaluatorConfig } from "@/lib/schedule/schedule-config"
+import { derivePendingExpectations, isSlotExternal } from "@/lib/schedule/dose-expectation"
+import { loadDoseExpectationState } from "@/lib/schedule/dose-expectation-store"
+import { loadSlotOutcomes } from "@/lib/schedule/slot-outcomes"
+import {
+  dosageForScheduledTime,
+  isScheduleActiveOnYmd,
+  isScheduleInEffectOnYmd,
+  parseScheduleFrequencyUnknown,
+  parseScheduleTimesJson,
+} from "@/lib/schedule/schedule-recurrence"
 import {
   collectDueScheduledSlots,
+  resolveSlotMs,
   type DueScheduledSlot,
+  isSlotBeforeScheduleCreation,
   type ScheduleAssemblyRow,
 } from "@/lib/schedule/schedule-slot-evaluator"
 
@@ -59,11 +72,26 @@ export type OverdueObservationFact = {
   localYmd: string | null
 }
 
+/** A dose expected away from home (e.g. at school) that is awaiting the parent's confirmation. */
+export type PendingDoseExpectationFact = {
+  personId: number
+  personName: string
+  personMedicationId: number
+  medicationId: number
+  medicationName: string
+  expectationId: number
+  ymd: string
+  hhmm: string
+  slotMs: number
+  scheduledDosage: number
+}
+
 export type AlertReadiness = {
   scheduledSlots: ScheduledSlotFact[]
   prnBlockedSlots: ScheduledSlotFact[]
   prnFlags: PrnFrequencyFact[]
   overdueObservations: OverdueObservationFact[]
+  pendingDoseExpectations: PendingDoseExpectationFact[]
 }
 
 const EMPTY_READINESS: AlertReadiness = {
@@ -71,6 +99,7 @@ const EMPTY_READINESS: AlertReadiness = {
   prnBlockedSlots: [],
   prnFlags: [],
   overdueObservations: [],
+  pendingDoseExpectations: [],
 }
 
 type ScheduledMedRow = {
@@ -83,7 +112,35 @@ type ScheduledMedRow = {
   schedule_frequency: string | null
   schedule_start_date: string | null
   schedule_end_date: string | null
+  schedule_created_at_ms: number | null
   schedule_tz: string | null
+}
+
+/**
+ * Whether an assignment counts as "scheduled": it has schedule times and a schedule in effect on
+ * the day (started, not ended). Deliberately not `isScheduleActiveOnYmd`: a weekly or every-N-days
+ * schedule on an off day is still a scheduled medication, otherwise its expected cap would flip
+ * back into an alert every off day. A medication with several assignments counts if any one does.
+ */
+export function isAssignmentScheduledOnYmd(
+  row: Pick<ScheduleAssemblyRow, "scheduleTimesRaw" | "scheduleFrequencyRaw" | "scheduleStartDate" | "scheduleEndDate">,
+  ymd: string,
+): boolean {
+  if (parseScheduleTimesJson(row.scheduleTimesRaw).length === 0) return false
+  const freq = parseScheduleFrequencyUnknown(row.scheduleFrequencyRaw)
+  return isScheduleInEffectOnYmd(freq, row.scheduleStartDate, row.scheduleEndDate, ymd)
+}
+
+/**
+ * The single decision point for a medication's 24h-maximum state. Scheduled and allowing only one
+ * dose a day, the cap is the expected state after the dose, so `atCap` is cleared (cooldown, the
+ * coverage gap and timing are untouched). The dashboard issues, reminder blocking and the
+ * per-person medication timeline all read this result, so they cannot disagree.
+ */
+export function evaluateMedicationPrnState(slice: MedicationDoseSlice, now: Date, scheduled: boolean): PrnEvalResult {
+  const raw = evaluatePrnState(slice, now)
+  const capExpected = raw.atCap && scheduled && allowsOnlyOneDosePerDay(slice)
+  return capExpected ? { ...raw, atCap: false, canDose: !raw.cooldown } : raw
 }
 
 /**
@@ -107,7 +164,7 @@ export function evaluateAlertReadiness(
     .prepare(
       `SELECT pm.id AS person_medication_id, pm.person_id, pm.medication_id, m.name AS medication_name,
               pm.schedule_times, pm.schedule_slots, pm.schedule_frequency, pm.schedule_start_date, pm.schedule_end_date,
-              pm.schedule_tz
+              pm.schedule_created_at_ms, pm.schedule_tz
        FROM person_medications pm
        JOIN medications m ON m.id = pm.medication_id
        WHERE pm.is_active = 1 AND m.is_active = 1 AND pm.person_id IN (${placeholders})
@@ -128,6 +185,7 @@ export function evaluateAlertReadiness(
       scheduleFrequencyRaw: row.schedule_frequency,
       scheduleStartDate: row.schedule_start_date,
       scheduleEndDate: row.schedule_end_date,
+      scheduleCreatedAtMs: row.schedule_created_at_ms,
       medDefaultDosage: null,
       calCtx: ctx,
     })
@@ -139,30 +197,7 @@ export function evaluateAlertReadiness(
     rowDays.add(row.calCtx.ymd)
     rowDays.add(addCalendarDaysToIsoYmd(row.calCtx.ymd, 1))
   }
-  const suppressionYmds = [...rowDays].sort()
-  const suppressedSlotsByPmId = new Map<number, Set<string>>()
   const pmIds = scheduledMeds.map(r => r.person_medication_id)
-  if (pmIds.length > 0 && suppressionYmds.length > 0) {
-    const pmPlaceholders = pmIds.map(() => "?").join(",")
-    const suppRows = db
-      .prepare(
-        `SELECT person_medication_id, local_ymd, slot_hhmm
-         FROM schedule_reminder_suppressions
-         WHERE person_medication_id IN (${pmPlaceholders})
-           AND local_ymd >= ? AND local_ymd <= ?`,
-      )
-      .all(...pmIds, suppressionYmds[0], suppressionYmds[suppressionYmds.length - 1]) as {
-      person_medication_id: number
-      local_ymd: string
-      slot_hhmm: string
-    }[]
-    for (const r of suppRows) {
-      const key = `${r.local_ymd}:${r.slot_hhmm}`
-      const s = suppressedSlotsByPmId.get(r.person_medication_id)
-      if (s) s.add(key)
-      else suppressedSlotsByPmId.set(r.person_medication_id, new Set([key]))
-    }
-  }
 
   const recordedDoseMsByPersonMed = new Map<string, number[]>()
   const schedMedIds = [...new Set(scheduledMeds.map(r => r.medication_id))]
@@ -174,9 +209,9 @@ export function evaluateAlertReadiness(
            FROM medication_records
           WHERE person_id IN (${placeholders})
             AND medication_id IN (${medPlaceholders})
-            AND datetime(recorded_at) >= datetime('now', '-3 days')`,
+            AND datetime(recorded_at) >= datetime(?, 'unixepoch', '-3 days')`,
       )
-      .all(...ids, ...schedMedIds) as {
+      .all(...ids, ...schedMedIds, Math.floor(nowMs / 1000)) as {
       person_id: number
       medication_id: number
       recorded_at: string
@@ -208,6 +243,14 @@ export function evaluateAlertReadiness(
   const medNameByPmId = new Map(scheduledMeds.map(r => [r.person_medication_id, r.medication_name]))
 
   const cfg = loadSlotEvaluatorConfig(db)
+
+  // Dose expectations: a slot routinely given away from home is not a home-alert slot — its
+  // normal upcoming/overdue alert (and push) is replaced by a pending-confirmation prompt.
+  const expectationYmds = [...rowDays]
+  const expectationState = loadDoseExpectationState(db, pmIds, expectationYmds)
+  const externalSlot = (pmId: number, ymd: string, hhmm: string): boolean =>
+    isSlotExternal(expectationState.expectations, expectationState.exceptionsByExpectation, pmId, hhmm, ymd)
+
   const dueSlots: DueScheduledSlot[] = []
   for (const row of assemblyRows) {
     const days = [
@@ -221,10 +264,15 @@ export function evaluateAlertReadiness(
         days,
         nowMs,
         cfg,
-        (pmId, ymd, hhmm) => suppressedSlotsByPmId.get(pmId)?.has(`${ymd}:${hhmm}`) ?? false,
+        externalSlot,
         (personId, medId) => recordedDoseMsByPersonMed.get(`${personId}:${medId}`) ?? [],
       ),
     )
+  }
+
+  const scheduledMedKeys = new Set<string>()
+  for (const row of assemblyRows) {
+    if (isAssignmentScheduledOnYmd(row, row.calCtx.ymd)) scheduledMedKeys.add(`${row.personId}:${row.medicationId}`)
   }
 
   const blockedMedKeys = new Set<string>()
@@ -262,7 +310,7 @@ export function evaluateAlertReadiness(
       const key = `${pid}:${mid}`
       if (!(doseState.ruleByPersonMed.get(key) ?? null)) continue
       const slice = doseSliceFromMaps(doseState, pid, mid)
-      const ev = evaluatePrnState(slice, now)
+      const ev = evaluateMedicationPrnState(slice, now, scheduledMedKeys.has(key))
       if (ev.atCap || ev.cooldown) blockedMedKeys.add(key)
 
       const pendingIds = slice.rule?.min_hours_between ? (remindIdsByPersonMed.get(key) ?? []) : []
@@ -352,5 +400,61 @@ export function evaluateAlertReadiness(
     })
   }
 
-  return { scheduledSlots, prnBlockedSlots, prnFlags, overdueObservations }
+  const rowByPmId = new Map(scheduledMeds.map(r => [r.person_medication_id, r]))
+  const ctxByPmId = new Map(assemblyRows.map(r => [r.personMedicationId, r]))
+  // A dose attached to the slot (on time, late or early) answers the pending question.
+  const attachedSlots = new Set(
+    loadSlotOutcomes(db, pmIds, expectationYmds)
+      .filter(o => o.recordId != null)
+      .map(o => `${o.personMedicationId}|${o.ymd}|${o.slotHhmm}`),
+  )
+  const pendingDoseExpectations: PendingDoseExpectationFact[] = derivePendingExpectations({
+    expectations: expectationState.expectations,
+    exceptionsByExpectation: expectationState.exceptionsByExpectation,
+    outcomes: expectationState.outcomes,
+    doseMsFor: e => {
+      const row = rowByPmId.get(e.personMedicationId)
+      return row ? (recordedDoseMsByPersonMed.get(`${row.person_id}:${row.medication_id}`) ?? []) : []
+    },
+    resolve: e => {
+      const assembly = ctxByPmId.get(e.personMedicationId)
+      if (!assembly) return null
+      // The expectation only means something while the slot still exists and the medication's own
+      // schedule runs today (frequency, start and end dates, and an edited-out slot time).
+      const hasSlot = parseScheduleTimesJson(assembly.scheduleTimesRaw).some(t => {
+        const hm = parseHHMM(t)
+        return hm != null && formatHHMM(hm.h, hm.m) === e.slotHhmm
+      })
+      const freq = parseScheduleFrequencyUnknown(assembly.scheduleFrequencyRaw)
+      if (!hasSlot || !isScheduleActiveOnYmd(freq, assembly.scheduleStartDate, assembly.scheduleEndDate, assembly.calCtx.ymd)) {
+        return null
+      }
+      const slotMs = resolveSlotMs(assembly.calCtx, assembly.calCtx.ymd, e.slotHhmm)
+      if (!Number.isFinite(slotMs)) return null
+      const creation = { startDate: assembly.scheduleStartDate, createdAtMs: assembly.scheduleCreatedAtMs ?? null }
+      if (isSlotBeforeScheduleCreation(creation, assembly.calCtx, assembly.calCtx.ymd, slotMs)) return null
+      return { ymd: assembly.calCtx.ymd, slotMs }
+    },
+    nowMs,
+    cfg,
+  }).flatMap(p => {
+    if (attachedSlots.has(`${p.personMedicationId}|${p.ymd}|${p.hhmm}`)) return []
+    const row = rowByPmId.get(p.personMedicationId)
+    const assembly = ctxByPmId.get(p.personMedicationId)
+    if (!row || !assembly) return []
+    return [{
+      personId: row.person_id,
+      personName: personById.get(row.person_id)?.name ?? "",
+      personMedicationId: p.personMedicationId,
+      medicationId: row.medication_id,
+      medicationName: row.medication_name,
+      expectationId: p.expectationId,
+      ymd: p.ymd,
+      hhmm: p.hhmm,
+      slotMs: p.slotMs,
+      scheduledDosage: dosageForScheduledTime(p.hhmm, row.schedule_slots, assembly.medDefaultDosage),
+    }]
+  })
+
+  return { scheduledSlots, prnBlockedSlots, prnFlags, overdueObservations, pendingDoseExpectations }
 }

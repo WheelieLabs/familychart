@@ -20,12 +20,10 @@ services:
       BEHIND_REVERSE_PROXY: "true"
       # TRUST_PROXY_DEPTH: "1"  # default; use 2 for Cloudflare → nginx
 
-      # --- Auth providers ---
-      # Deprecated boot-seed for auth.entra.enabled (one-time; DB-backed thereafter).
-      # Local credentials are always on. Leave unset unless enabling Entra on first boot.
-      # ENABLED_AUTH_PROVIDERS: "entra"
-
-      # --- Microsoft Entra ID (optional; enables Entra sign-in alongside local credentials) ---
+      # --- Microsoft Entra ID (optional) ---
+      # Enable Entra sign-in. Default false; when unset, System Settings applies.
+      # Local credentials stay available either way.
+      # FC_AUTH_ENTRA_ENABLED: "true"
       # AUTH_MICROSOFT_ENTRA_ID_ID: ""
       # AUTH_MICROSOFT_ENTRA_ID_SECRET: ""
       # AUTH_MICROSOFT_ENTRA_ID_TENANT_ID: ""

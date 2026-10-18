@@ -230,4 +230,30 @@ describe("validateMedicationRecordWrite", () => {
       expect(res.ok).toBe(true)
     })
   })
+
+  describe("administered_by", () => {
+    it("defaults to \"me\" when omitted", () => {
+      const id = insertMed(db)
+      const res = validateMedicationRecordWrite(db, { medication_id: id, recorded_at: NOW })
+      expect(res).toMatchObject({ ok: true, administeredBy: "me" })
+    })
+
+    it("accepts each recognised value", () => {
+      const id = insertMed(db)
+      for (const value of ["me", "another_caregiver", "away_from_home"]) {
+        const res = validateMedicationRecordWrite(db, {
+          medication_id: id, recorded_at: NOW, administered_by: value,
+        })
+        expect(res).toMatchObject({ ok: true, administeredBy: value })
+      }
+    })
+
+    it("rejects an unrecognised value", () => {
+      const id = insertMed(db)
+      const res = validateMedicationRecordWrite(db, {
+        medication_id: id, recorded_at: NOW, administered_by: "grandma",
+      })
+      expect(res.ok).toBe(false)
+    })
+  })
 })

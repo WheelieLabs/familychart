@@ -1,32 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-export type DashboardStatus = "red" | "amber" | "green"
+/** Notice sits between amber and green: nothing needs care attention, but something wants a quick confirmation. */
+export type DashboardStatus = "red" | "amber" | "notice" | "green"
+
+/** Severity of one issue or alert: red outranks amber outranks notice. */
+export type DashboardSeverity = "red" | "amber" | "notice"
+
+const SEVERITY_RANK: Record<DashboardSeverity, number> = { red: 0, amber: 1, notice: 2 }
 
 export type DashboardIssueKind =
   | "prescription_overdue"
   | "prescription_upcoming"
-  | "dose_at_max"        // kept for type compat; no longer emitted
-  | "dose_wait"          // kept for type compat; no longer emitted
-  | "dose_window_open"   // kept for type compat; no longer emitted
   | "observation_overdue"
   | "prn_cooldown"       // amber, no action — waiting for chosen cadence
   | "prn_at_cap"         // red, no action — 24h cap exhausted
   | "prn_coverage_gap"   // red, with action — last dose before gap
+  | "dose_expectation_pending" // amber — a dose expected away from home awaits confirmation
+  | "symptom_open_pending"     // notice — an Open symptom awaits its daily "still ongoing or resolved?"
 
 export interface DashboardIssue {
   kind: DashboardIssueKind
-  /** All current issues are red or amber. */
-  severity: "red" | "amber"
+  severity: DashboardSeverity
   message: string
   /** Populated only for observation_overdue issues. */
   observationType?: string
-  /** Populated for prescription_overdue, prescription_upcoming, dose_at_max, and dose_wait issues. */
+  /** Populated for prescription and PRN medication issues. */
   medicationId?: number
   /** Scheduled slot HH:mm for prescription issues (dashboard deep link). */
   scheduledSlotTime?: string
   /** Dose amount for that slot (medication catalogue unit). */
   scheduledDosage?: number
-  /** Local HH:mm time when next dose is available — set for dose_wait and dose_window_open. */
+  /** Local HH:mm time when next dose is available — set for prn_cooldown. */
   nextAvailableTime?: string
   /** Local HH:mm time when the dose window closes — set when max_hours_between is configured. */
   maxAvailableTime?: string
@@ -36,11 +40,15 @@ export interface DashboardIssue {
   nextAvailableDayQualifier?: string | null
   /** Day qualifier for resetTime when it falls on a different local day. */
   resetDayQualifier?: string | null
+  /** Populated only for dose_expectation_pending issues: which expectation/day to resolve. */
+  expectation?: { expectationId: number; ymd: string }
+  /** Populated only for symptom_open_pending issues: which symptom to answer, and its start day. */
+  symptom?: { symptomId: number; startYmd: string; label: string }
 }
 
 export interface AlertItem {
-  severity: "red" | "amber"
-  type: "medication" | "observation"
+  severity: DashboardSeverity
+  type: "medication" | "observation" | "symptom"
   /** Same text as DashboardIssue.message. */
   description: string
   /** null = no action button; string = deep link shown as "Record ›" */
@@ -50,9 +58,15 @@ export interface AlertItem {
   short: string
   /** Structured label for the person page. */
   detail: { name: string; sub: string }
+  /** Set when the alert is resolved inline (Yes / No / Not yet) instead of by navigating. */
+  resolve?: { expectationId: number; ymd: string }
+  /** Set when an Open symptom is answered inline (Still ongoing / Resolved). */
+  resolveSymptom?: { symptomId: number; startYmd: string }
 }
 
+import type { DashboardMissedSlot } from "@/lib/dashboard/dashboard-missed-slots"
 import type { HydrationPacingStatus, PacingState } from "@/lib/hydration/hydration-pacing"
+import type { MedicationTimelineLane } from "@/lib/medication/medication-timeline"
 
 export interface HydrationStatus {
   total_ml: number
@@ -75,6 +89,21 @@ export interface DashboardPersonStatus {
   summary: string
   alerts: AlertItem[]
   hydration?: HydrationStatus
+  /** Per-medication coverage/gap timeline lanes for the Action screen. */
+  medicationTimeline?: MedicationTimelineLane[]
+  /**
+   * Slots that became Missed today: quiet information, never an alert. Not counted in `alerts`,
+   * `issues` or `status`, and gone when the Calendar day ends.
+   */
+  missedSlots?: DashboardMissedSlot[]
+}
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/** "2026-10-02" -> "2 Oct". */
+export function formatShortDay(ymd: string): string {
+  const [, m, d] = ymd.split("-").map(Number)
+  return `${d} ${MONTH_SHORT[(m ?? 1) - 1]}`
 }
 
 export function issueTier(kind: DashboardIssueKind): number {
@@ -82,11 +111,10 @@ export function issueTier(kind: DashboardIssueKind): number {
     case "prescription_overdue":  return 0
     case "prn_coverage_gap":      return 1  // red, actionable
     case "prn_at_cap":            return 2  // red, informational
-    case "dose_at_max":           return 2  // red, compat
     case "prescription_upcoming": return 3
-    case "dose_wait":             return 4  // compat
-    case "dose_window_open":      return 4  // compat
     case "prn_cooldown":          return 4
+    case "dose_expectation_pending": return 4
+    case "symptom_open_pending":  return 4
     case "observation_overdue":   return 5
     default:                      return 9
   }
@@ -100,8 +128,8 @@ function prescriptionKindOrder(kind: DashboardIssueKind): number {
 }
 
 export function compareDashboardIssues(a: DashboardIssue, b: DashboardIssue): number {
-  // One severity scale: red before amber
-  if (a.severity !== b.severity) return a.severity === "red" ? -1 : 1
+  // One severity scale: red, then amber, then notice
+  if (a.severity !== b.severity) return SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
   // Within same severity, use tier ordering
   const ta = issueTier(a.kind)
   const tb = issueTier(b.kind)
@@ -122,7 +150,11 @@ export function dedupeIssuesBySubject(issues: DashboardIssue[]): DashboardIssue[
   const winnerByKey = new Map<string, DashboardIssue>()
   let unkeyedIndex = 0
   for (const issue of issues) {
-    const key = issue.medicationId != null
+    const key = issue.symptom != null
+      ? `symptom:${issue.symptom.symptomId}`
+      : issue.expectation != null
+      ? `expectation:${issue.expectation.expectationId}:${issue.expectation.ymd}`
+      : issue.medicationId != null
       ? `medication:${issue.medicationId}`
       : issue.observationType != null
         ? `observation:${issue.observationType}`
@@ -138,7 +170,8 @@ export function dedupeIssuesBySubject(issues: DashboardIssue[]): DashboardIssue[
 export function aggregateStatusFromIssues(issues: DashboardIssue[]): DashboardStatus {
   if (issues.length === 0) return "green"
   if (issues.some(i => i.severity === "red")) return "red"
-  return "amber"
+  if (issues.some(i => i.severity === "amber")) return "amber"
+  return "notice"
 }
 
 export function formatAlertItem(
@@ -188,21 +221,19 @@ export function formatAlertItem(
       detailSub = `Next dose may leave a gap${issue.resetTime ? ` — resets ${issue.resetTime}${q ? ` ${q}` : ""}` : ""}`
       break
     }
-    case "dose_at_max":
-      short = `${medName} · max`
+    case "dose_expectation_pending":
+      short = `${medName} · ${issue.scheduledSlotTime ?? "?"} away from home?`
       detailName = medName!
-      detailSub = "At 24h max"
+      detailSub = `Was the ${issue.scheduledSlotTime ?? "?"} dose given away from home?`
       break
-    case "dose_wait":
-      short = `${medName} · until ${issue.nextAvailableTime ?? "?"}`
-      detailName = medName!
-      detailSub = `Not available until ${issue.nextAvailableTime ?? "?"}`
+    case "symptom_open_pending": {
+      const label = issue.symptom?.label ?? "Symptom"
+      const since = issue.symptom ? formatShortDay(issue.symptom.startYmd) : "?"
+      short = `${label} · open since ${since}`
+      detailName = label
+      detailSub = `Open since ${since}: still ongoing?`
       break
-    case "dose_window_open":
-      short = `${medName} · before ${issue.maxAvailableTime ?? "?"}`
-      detailName = medName!
-      detailSub = `Take before ${issue.maxAvailableTime ?? "?"}`
-      break
+    }
     case "observation_overdue":
       short = `${obsType} · overdue`
       detailName = obsType
@@ -224,8 +255,8 @@ export function formatAlertItem(
   const action_url: string | null =
     issue.kind === "prn_cooldown" ||
     issue.kind === "prn_at_cap" ||
-    issue.kind === "dose_at_max" ||
-    issue.kind === "dose_wait"
+    issue.kind === "dose_expectation_pending" ||
+    issue.kind === "symptom_open_pending"
       ? null
       : issue.kind === "observation_overdue"
         ? `/${personId}/record-observation${issue.observationType ? `?type=${encodeURIComponent(issue.observationType)}` : ""}`
@@ -235,11 +266,13 @@ export function formatAlertItem(
 
   return {
     severity: issue.severity,
-    type: issue.kind === "observation_overdue" ? "observation" : "medication",
+    type: issue.kind === "observation_overdue" ? "observation" : issue.kind === "symptom_open_pending" ? "symptom" : "medication",
     description: issue.message,
     action_url,
     sort_order: index,
     short,
     detail: { name: detailName, sub: detailSub },
+    ...(issue.expectation ? { resolve: issue.expectation } : {}),
+    ...(issue.symptom ? { resolveSymptom: { symptomId: issue.symptom.symptomId, startYmd: issue.symptom.startYmd } } : {}),
   }
 }

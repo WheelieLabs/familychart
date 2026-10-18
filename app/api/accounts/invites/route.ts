@@ -7,8 +7,8 @@ import { rejectDemoProfanity } from "@/lib/demo/demo-profanity-guard"
 import { getDb } from "@/lib/db"
 import { auditLog } from "@/lib/audit-log"
 import { isOutboundEmailConfigured, sendOutboundEmail } from "@/lib/email-send"
-import { createInvite, listInvitesForAdmin } from "@/lib/invite"
-import { VALID_ROLES } from "@/lib/account/account-roles"
+import { createInvite, inviteInputProblem, listInvitesForAdmin } from "@/lib/invite"
+import { NONE_ROLE_INVITE_ERROR } from "@/lib/account/none-role"
 import { publicOrigin } from "@/lib/reverse-proxy"
 
 const VALID_PERSON_ACTIONS = new Set(["link", "create", "none"])
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
   if (profanity) return profanity
 
   if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 })
-  if (!role || !VALID_ROLES.has(role))
+  if (!role || inviteInputProblem({ role, personAction: "link" }) === "invalid_role")
     return NextResponse.json({ error: "Invalid role" }, { status: 400 })
   if (!personAction || !VALID_PERSON_ACTIONS.has(personAction))
     return NextResponse.json({ error: "Invalid person decision" }, { status: 400 })
@@ -71,6 +71,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "personId is required to link an existing Person" }, { status: 400 })
   if (personAction === "create" && !personName)
     return NextResponse.json({ error: "Person name is required" }, { status: 400 })
+  if (inviteInputProblem({ role, personAction: personAction as "link" | "create" | "none" }) === "none_role_needs_person")
+    return NextResponse.json({ error: NONE_ROLE_INVITE_ERROR }, { status: 400 })
 
   const result = createInvite(
     db,
@@ -78,6 +80,13 @@ export async function POST(request: NextRequest) {
     { origin: publicOrigin(request.headers, request.nextUrl.origin), inviter: session.user ?? {} },
   )
   if (!result.ok) {
+    if (result.reason === "invalid_role") return NextResponse.json({ error: "Invalid role" }, { status: 400 })
+    if (result.reason === "none_role_needs_person") {
+      return NextResponse.json({ error: NONE_ROLE_INVITE_ERROR }, { status: 400 })
+    }
+    if (result.reason === "invalid_can_report") {
+      return NextResponse.json({ error: "Invalid report setting" }, { status: 400 })
+    }
     if (result.reason === "email_taken") {
       return NextResponse.json({ error: "Email already exists" }, { status: 409 })
     }

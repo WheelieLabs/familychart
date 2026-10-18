@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { DOSE_EXPECTATION_TABLES_SQL } from "@/lib/__tests__/dose-expectation-fixtures"
 import Database from "better-sqlite3-multiple-ciphers"
 import { afterEach, describe, expect, it } from "vitest"
 import { evaluateAlertReadiness } from "@/lib/alert-readiness"
@@ -50,7 +51,8 @@ function createTestDb(): Database.Database {
       schedule_start_date TEXT,
       schedule_end_date TEXT,
       schedule_slots TEXT,
-      schedule_tz TEXT
+      schedule_tz TEXT,
+      schedule_created_at_ms INTEGER
     );
     CREATE TABLE medication_records (
       id INTEGER PRIMARY KEY,
@@ -114,18 +116,13 @@ function createTestDb(): Database.Database {
       requested_at TEXT,
       remind_after_hours REAL
     );
-    CREATE TABLE schedule_reminder_suppressions (
-      id INTEGER PRIMARY KEY,
-      person_medication_id INTEGER NOT NULL,
-      local_ymd TEXT NOT NULL,
-      slot_hhmm TEXT NOT NULL
-    );
     CREATE TABLE app_settings (
       key TEXT NOT NULL PRIMARY KEY,
       value TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
   `)
+  db.exec(DOSE_EXPECTATION_TABLES_SQL)
   return db
 }
 
@@ -161,6 +158,7 @@ describe("evaluateAlertReadiness", () => {
       prnBlockedSlots: [],
       prnFlags: [],
       overdueObservations: [],
+      pendingDoseExpectations: [],
     })
   })
 
@@ -188,26 +186,6 @@ describe("evaluateAlertReadiness", () => {
         status: "due",
       }),
     ])
-    expect(facts.prnBlockedSlots).toEqual([])
-  })
-
-  it("does not emit a due fact for a same-day suppressed slot", () => {
-    db = createTestDb()
-    db.prepare("INSERT INTO people (id, name) VALUES (1, 'Alice')").run()
-    db.prepare("INSERT INTO medications (id, name) VALUES (1, 'Paracetamol')").run()
-    db.prepare(
-      `INSERT INTO person_medications (id, person_id, medication_id, schedule_times, schedule_frequency, schedule_tz)
-       VALUES (1, 1, 1, ?, ?, 'UTC')`,
-    ).run(JSON.stringify(["10:00"]), JSON.stringify({ kind: "daily" }))
-    db.prepare(
-      `INSERT INTO schedule_reminder_suppressions (person_medication_id, local_ymd, slot_hhmm)
-       VALUES (1, '2025-01-15', '10:00')`,
-    ).run()
-
-    const nowMs = Date.parse("2025-01-15T10:00:00.000Z")
-    const facts = evaluateAlertReadiness(db, [person()], nowMs, UTC_CALCTX)
-
-    expect(facts.scheduledSlots).toEqual([])
     expect(facts.prnBlockedSlots).toEqual([])
   })
 
@@ -251,45 +229,115 @@ describe("evaluateAlertReadiness", () => {
     }
   })
 
-  it("moves a due Scheduled slot to prnBlockedSlots when the medication is at PRN cap", () => {
-    db = createTestDb()
+  function seedScheduledMed(opts: {
+    rule: { maxQty: number; countDoses: 0 | 1; dosage?: number | null }
+    scheduled?: boolean
+    endDate?: string | null
+    doses: { dosage?: number; unit?: string }[]
+  }) {
     db.prepare("INSERT INTO people (id, name) VALUES (1, 'Alice')").run()
     db.prepare("INSERT INTO medications (id, name) VALUES (1, 'Paracetamol')").run()
-    db.prepare(
-      `INSERT INTO person_medications (id, person_id, medication_id, schedule_times, schedule_frequency, schedule_tz)
-       VALUES (1, 1, 1, ?, ?, 'UTC')`,
-    ).run(JSON.stringify(["12:00"]), JSON.stringify({ kind: "daily" }))
+    if (opts.scheduled === false) {
+      db.prepare("INSERT INTO person_medications (id, person_id, medication_id) VALUES (1, 1, 1)").run()
+    } else {
+      db.prepare(
+        `INSERT INTO person_medications
+           (id, person_id, medication_id, schedule_times, schedule_frequency, schedule_start_date, schedule_end_date, schedule_tz)
+         VALUES (1, 1, 1, ?, ?, '2025-01-01', ?, 'UTC')`,
+      ).run(JSON.stringify(["12:00"]), JSON.stringify({ kind: "daily" }), opts.endDate ?? null)
+    }
     db.prepare(
       `INSERT INTO medication_frequency_rules
-         (id, medication_id, min_hours_between, max_quantity_per_24h, max_per_24h_count_doses)
-       VALUES (1, 1, 0, 1, 1)`,
-    ).run()
-    db.prepare(
-      `INSERT INTO medication_records (id, person_id, medication_id, recorded_at)
-       VALUES (1, 1, 1, datetime('now', '-1 hour'))`,
-    ).run()
+         (id, medication_id, min_hours_between, max_quantity_per_24h, max_per_24h_count_doses, dosage)
+       VALUES (1, 1, 0, ?, ?, ?)`,
+    ).run(opts.rule.maxQty, opts.rule.countDoses, opts.rule.dosage ?? null)
+    opts.doses.forEach((d, i) => {
+      db.prepare(
+        `INSERT INTO medication_records (person_id, medication_id, recorded_at, dosage, dosage_unit)
+         VALUES (1, 1, datetime('now', ?), ?, ?)`,
+      ).run(`-${i + 1} hours`, d.dosage ?? null, d.unit ?? null)
+    })
+  }
 
-    const nowMs = Date.parse("2025-01-15T12:00:00.000Z")
-    const facts = evaluateAlertReadiness(db, [person()], nowMs, UTC_CALCTX)
+  const SLOT_NOW = Date.parse("2025-01-15T12:00:00.000Z")
+
+  it("moves a due Scheduled slot to prnBlockedSlots when a scheduled medication allowing two doses a day is at cap", () => {
+    db = createTestDb()
+    seedScheduledMed({ rule: { maxQty: 2, countDoses: 1 }, doses: [{}, {}] })
+
+    const facts = evaluateAlertReadiness(db, [person()], SLOT_NOW, UTC_CALCTX)
 
     expect(facts.scheduledSlots).toEqual([])
     expect(facts.prnBlockedSlots).toEqual([
-      expect.objectContaining({
-        personId: 1,
-        personName: "Alice",
-        medicationId: 1,
-        medicationName: "Paracetamol",
-        status: "due",
-      }),
+      expect.objectContaining({ personId: 1, medicationId: 1, medicationName: "Paracetamol", status: "due" }),
     ])
     expect(facts.prnFlags).toEqual([
-      expect.objectContaining({
-        personId: 1,
-        medicationId: 1,
-        atCap: true,
-        canDose: false,
-      }),
+      expect.objectContaining({ personId: 1, medicationId: 1, atCap: true, canDose: false }),
     ])
+  })
+
+  it("expects the cap for a scheduled once-a-day medication: no at-cap flag and its slot stays a Scheduled slot", () => {
+    db = createTestDb()
+    seedScheduledMed({ rule: { maxQty: 1, countDoses: 1 }, doses: [{}] })
+
+    const facts = evaluateAlertReadiness(db, [person()], SLOT_NOW, UTC_CALCTX)
+
+    expect(facts.prnFlags).toEqual([])
+    expect(facts.prnBlockedSlots).toEqual([])
+    expect(facts.scheduledSlots).toEqual([expect.objectContaining({ medicationId: 1, status: "due" })])
+  })
+
+  it("treats a quantity maximum of exactly one dose unit as once a day", () => {
+    db = createTestDb()
+    seedScheduledMed({
+      rule: { maxQty: 1, countDoses: 0, dosage: 1 },
+      doses: [{ dosage: 1, unit: "Tabs" }],
+    })
+
+    const facts = evaluateAlertReadiness(db, [person()], SLOT_NOW, UTC_CALCTX)
+
+    expect(facts.prnFlags).toEqual([])
+    expect(facts.prnBlockedSlots).toEqual([])
+  })
+
+  it("keeps the cap for a quantity maximum that allows two dose units", () => {
+    db = createTestDb()
+    seedScheduledMed({
+      rule: { maxQty: 2, countDoses: 0, dosage: 1 },
+      doses: [{ dosage: 1, unit: "Tabs" }, { dosage: 1, unit: "Tabs" }],
+    })
+
+    const facts = evaluateAlertReadiness(db, [person()], SLOT_NOW, UTC_CALCTX)
+
+    expect(facts.prnFlags).toEqual([expect.objectContaining({ atCap: true })])
+  })
+
+  it("keeps the cap for an unscheduled once-a-day medication", () => {
+    db = createTestDb()
+    seedScheduledMed({ rule: { maxQty: 1, countDoses: 1 }, scheduled: false, doses: [{}] })
+
+    const facts = evaluateAlertReadiness(db, [person()], SLOT_NOW, UTC_CALCTX)
+
+    expect(facts.prnFlags).toEqual([expect.objectContaining({ atCap: true })])
+  })
+
+  it("does not count an ended schedule as scheduled", () => {
+    db = createTestDb()
+    seedScheduledMed({ rule: { maxQty: 1, countDoses: 1 }, endDate: "2025-01-10", doses: [{}] })
+
+    const facts = evaluateAlertReadiness(db, [person()], SLOT_NOW, UTC_CALCTX)
+
+    expect(facts.prnFlags).toEqual([expect.objectContaining({ atCap: true })])
+  })
+
+  it("does not count an inactive assignment as scheduled", () => {
+    db = createTestDb()
+    seedScheduledMed({ rule: { maxQty: 1, countDoses: 1 }, doses: [{}] })
+    db.prepare("UPDATE person_medications SET is_active = 0").run()
+    // dosed within 14 days, so the medication is still evaluated for PRN state
+    const facts = evaluateAlertReadiness(db, [person()], SLOT_NOW, UTC_CALCTX)
+
+    expect(facts.prnFlags).toEqual([expect.objectContaining({ atCap: true })])
   })
 
   it("reports PRN at-cap flags with canDose meaning alert-clear only", () => {
@@ -407,5 +455,95 @@ describe("evaluateAlertReadiness", () => {
         observationType: "weight",
       }),
     ])
+  })
+
+  describe("dose expectations", () => {
+    function seedSchoolDose() {
+      db = createTestDb()
+      db.prepare("INSERT INTO people (id, name) VALUES (1, 'Alice')").run()
+      db.prepare("INSERT INTO medications (id, name, default_dosage) VALUES (1, 'Methylphenidate', 1)").run()
+      db.prepare(
+        `INSERT INTO person_medications (id, person_id, medication_id, schedule_times, schedule_frequency, schedule_tz)
+         VALUES (1, 1, 1, ?, ?, 'UTC')`,
+      ).run(JSON.stringify(["08:00", "12:00"]), JSON.stringify({ kind: "daily" }))
+      db.prepare(
+        `INSERT INTO dose_expectations (id, person_medication_id, slot_hhmm, start_date, end_date)
+         VALUES (1, 1, '12:00', '2025-01-13', '2025-03-28')`,
+      ).run()
+    }
+
+    it("replaces the normal overdue alert for an external slot with a pending expectation", () => {
+      seedSchoolDose()
+      const nowMs = Date.parse("2025-01-15T12:20:00.000Z")
+      const facts = evaluateAlertReadiness(db, [person()], nowMs, UTC_CALCTX)
+
+      expect(facts.scheduledSlots.filter(s => s.hhmm === "12:00")).toEqual([])
+      expect(facts.pendingDoseExpectations).toEqual([
+        expect.objectContaining({
+          personId: 1,
+          personName: "Alice",
+          personMedicationId: 1,
+          medicationId: 1,
+          medicationName: "Methylphenidate",
+          expectationId: 1,
+          ymd: "2025-01-15",
+          hhmm: "12:00",
+          scheduledDosage: 1,
+        }),
+      ])
+    })
+
+    it("leaves slots outside the expectation (the 08:00 home dose) alerting normally", () => {
+      seedSchoolDose()
+      const nowMs = Date.parse("2025-01-15T08:20:00.000Z")
+      const facts = evaluateAlertReadiness(db, [person()], nowMs, UTC_CALCTX)
+      expect(facts.scheduledSlots.filter(s => s.hhmm === "08:00")).toHaveLength(1)
+      expect(facts.pendingDoseExpectations).toEqual([])
+    })
+
+    it("alerts normally on a day the expectation does not cover (out of term)", () => {
+      seedSchoolDose()
+      db.prepare("UPDATE dose_expectations SET end_date = '2025-01-10'").run()
+      const nowMs = Date.parse("2025-01-15T12:20:00.000Z")
+      const facts = evaluateAlertReadiness(db, [person()], nowMs, UTC_CALCTX)
+      expect(facts.scheduledSlots.filter(s => s.hhmm === "12:00")).toHaveLength(1)
+      expect(facts.pendingDoseExpectations).toEqual([])
+    })
+
+    it("does not prompt on a day the medication's own schedule doesn't run", () => {
+      seedSchoolDose()
+      // Weekly on Mondays only; 2025-01-15 is a Wednesday.
+      db.prepare("UPDATE person_medications SET schedule_frequency = ?").run(JSON.stringify({ kind: "weekly", weekdays: [1] }))
+      db.prepare("UPDATE person_medications SET schedule_start_date = '2025-01-01'").run()
+      const facts = evaluateAlertReadiness(db, [person()], Date.parse("2025-01-15T12:20:00.000Z"), UTC_CALCTX)
+      expect(facts.pendingDoseExpectations).toEqual([])
+    })
+
+    it("stops prompting when the slot time has been removed from the schedule", () => {
+      seedSchoolDose()
+      db.prepare("UPDATE person_medications SET schedule_times = ?").run(JSON.stringify(["08:00"]))
+      const facts = evaluateAlertReadiness(db, [person()], Date.parse("2025-01-15T12:20:00.000Z"), UTC_CALCTX)
+      expect(facts.pendingDoseExpectations).toEqual([])
+    })
+
+    it("stops prompting once the parent has confirmed the outcome", () => {
+      seedSchoolDose()
+      db.prepare(
+        "INSERT INTO dose_expectation_outcomes (dose_expectation_id, local_ymd, status) VALUES (1, '2025-01-15', 'confirmed_missed')",
+      ).run()
+      const facts = evaluateAlertReadiness(db, [person()], Date.parse("2025-01-15T12:20:00.000Z"), UTC_CALCTX)
+      expect(facts.pendingDoseExpectations).toEqual([])
+      // A confirmed miss is history only: it must not resurrect the normal overdue alert either.
+      expect(facts.scheduledSlots.filter(s => s.hhmm === "12:00")).toEqual([])
+    })
+
+    it("stops prompting once a dose is logged near the slot", () => {
+      seedSchoolDose()
+      db.prepare(
+        "INSERT INTO medication_records (person_id, medication_id, recorded_at) VALUES (1, 1, '2025-01-15T12:05:00.000Z')",
+      ).run()
+      const facts = evaluateAlertReadiness(db, [person()], Date.parse("2025-01-15T12:20:00.000Z"), UTC_CALCTX)
+      expect(facts.pendingDoseExpectations).toEqual([])
+    })
   })
 })

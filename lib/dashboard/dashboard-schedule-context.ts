@@ -1,14 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import type Database from "better-sqlite3-multiple-ciphers"
 import type { NextRequest } from "next/server"
-import { localYmdRangeToUtcIsoBounds } from "@/lib/datetime"
+import { ianaLocalYmdHmToUtcMs, localCalendarYmdHmToUtcMs } from "@/lib/datetime"
+import { resolveAgeTimezone } from "@/lib/instance-timezone"
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
 
 /**
- * Append recorded_at range filters using local calendar bounds when the client
- * sent `dashboardScheduleHeaders()`; otherwise UTC midnight (legacy).
+ * Append recorded_at range filters for `from` / `to` calendar days (`YYYY-MM-DD`).
+ *
+ * Days are read in the client's local calendar when the request carries the
+ * `dashboardScheduleHeaders()`, otherwise in the instance timezone (UTC when none is set).
+ * A bound that is not a valid calendar day is ignored.
  */
 export function appendRecordedAtRangeFilters(
   request: NextRequest,
+  db: Database.Database,
   from: string | null,
   to: string | null,
   conditions: string[],
@@ -18,30 +26,35 @@ export function appendRecordedAtRangeFilters(
   if (!from && !to) return
 
   const todayH = request.headers.get("x-fc-local-today")?.trim()
-  const hasClientDay = todayH != null && /^\d{4}-\d{2}-\d{2}$/.test(todayH)
+  const hasClientDay = todayH != null && YMD_RE.test(todayH)
 
-  if (hasClientDay && from && to) {
+  let dayBoundMs: (ymd: string, hm: string) => number
+  if (hasClientDay) {
     const offRaw = request.headers.get("x-fc-tz-offset")
     const tzOffsetMinutes =
       offRaw != null && offRaw.trim() !== "" && Number.isFinite(Number.parseInt(offRaw, 10))
         ? Number.parseInt(offRaw, 10)
         : new Date().getTimezoneOffset()
-    const bounds = localYmdRangeToUtcIsoBounds(from, to, tzOffsetMinutes)
-    if (bounds) {
-      conditions.push(`${column} >= ?`)
-      values.push(bounds.fromUtc)
-      conditions.push(`${column} <= ?`)
-      values.push(bounds.toUtc)
-      return
-    }
+    dayBoundMs = (ymd, hm) => localCalendarYmdHmToUtcMs(ymd, hm, tzOffsetMinutes)
+  } else {
+    const timeZone = resolveAgeTimezone(db)
+    dayBoundMs = (ymd, hm) => ianaLocalYmdHmToUtcMs(ymd, hm, timeZone)
   }
 
-  if (from) {
-    conditions.push(`${column} >= ?`)
-    values.push(`${from}T00:00:00.000Z`)
+  const fromYmd = from?.trim() ?? ""
+  if (YMD_RE.test(fromYmd)) {
+    const ms = dayBoundMs(fromYmd, "00:00")
+    if (Number.isFinite(ms)) {
+      conditions.push(`${column} >= ?`)
+      values.push(new Date(ms).toISOString())
+    }
   }
-  if (to) {
-    conditions.push(`${column} <= ?`)
-    values.push(`${to}T23:59:59.999Z`)
+  const toYmd = to?.trim() ?? ""
+  if (YMD_RE.test(toYmd)) {
+    const ms = dayBoundMs(toYmd, "23:59") + 59_999
+    if (Number.isFinite(ms)) {
+      conditions.push(`${column} <= ?`)
+      values.push(new Date(ms).toISOString())
+    }
   }
 }

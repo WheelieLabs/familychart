@@ -206,7 +206,7 @@ describe("POST /api/accounts/invites", () => {
   })
 
   it("rejects a duplicate email that only differs in case from a pre-existing row " +
-    "(e.g. one created via /api/local-users, which doesn't lowercase)", async () => {
+    "(a pre-existing row stored with mixed-case email)", async () => {
     testDb.prepare("INSERT INTO accounts (email, role) VALUES ('Mixed@Example.com', 'write')").run()
     const res = await postInvite({ email: "mixed@example.com", role: "write", personAction: "none" })
     expect(res.status).toBe(409)
@@ -232,6 +232,51 @@ describe("POST /api/accounts/invites", () => {
     expect(res.status).toBe(409)
     const body = (await res.json()) as { error: string }
     expect(body.error).toBe("Email already exists")
+  })
+
+  it("rejects Role None without a Personal-link", async () => {
+    const res = await postInvite({ email: "new@example.com", role: "none", personAction: "none" })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toBe("A Personal-link is required when Role is None")
+    expect(testDb.prepare("SELECT id FROM accounts WHERE email = 'new@example.com'").get()).toBeUndefined()
+  })
+
+  it("invites Role None linked to an existing Person without Household Reports", async () => {
+    testDb.prepare("INSERT INTO people (id, name, account_uid) VALUES (5, 'Existing', NULL)").run()
+    const res = await postInvite({
+      email: "new@example.com",
+      role: "none",
+      personAction: "link",
+      personId: 5,
+    })
+    expect(res.status).toBe(201)
+    const account = testDb.prepare("SELECT id, role, can_report FROM accounts WHERE email = ?").get("new@example.com") as {
+      id: number
+      role: string
+      can_report: number
+    }
+    expect(account.role).toBe("none")
+    expect(account.can_report).toBe(0)
+    const person = testDb.prepare("SELECT account_uid FROM people WHERE id = 5").get() as { account_uid: string }
+    expect(person.account_uid).toBe(`local:${account.id}`)
+  })
+
+  it("invites Role None and creates their Person without Household Reports", async () => {
+    const res = await postInvite({
+      email: "new@example.com",
+      role: "none",
+      personAction: "create",
+      personName: "Alex",
+    })
+    expect(res.status).toBe(201)
+    const account = testDb.prepare("SELECT id, can_report FROM accounts WHERE email = ?").get("new@example.com") as {
+      id: number
+      can_report: number
+    }
+    expect(account.can_report).toBe(0)
+    const person = testDb.prepare("SELECT account_uid FROM people WHERE name = 'Alex'").get() as { account_uid: string }
+    expect(person.account_uid).toBe(`local:${account.id}`)
   })
 
   it("rejects an invalid role", async () => {

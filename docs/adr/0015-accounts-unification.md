@@ -5,7 +5,7 @@
 
 ## Context
 
-Creating a sign-in identity and a household-roster Person were three disconnected admin steps: create a row at `/admin/local-users` (admin-chosen password) → create a Person → link them by dropdown. There was no invite. “User” vs “Person” was confusing in UI copy. Federated (Entra) identities had no canonical row for admin-assigned role or Person linking until they happened to be stored as a raw oid on `people.user_uid`.
+Creating a sign-in identity and a household-roster Person were three disconnected admin steps: an admin chose a password for a sign-in row, created a Person, then linked them by dropdown. There was no invite. “User” vs “Person” was confusing in UI copy. Federated (Entra) identities had no canonical row for admin-assigned role or Person linking until they happened to be stored as a raw oid on `people.user_uid`.
 
 ## Decision
 
@@ -20,6 +20,6 @@ Creating a sign-in identity and a household-roster Person were three disconnecte
 ## Consequences
 
 - Existing self-hosted and managed databases upgrade in place; pre-existing rows are `status=active`, `auth_method=local`.
-- `/admin/local-users` and `/api/local-users` remain as redirects / compatibility surfaces; the product UI is `/admin/accounts`.
+- Admins invite and manage sign-in at `/admin/accounts` (`/api/accounts`).
 - Request-scoped identity columns (`push_endpoints.user_uid`, `person_notification_prefs.user_uid`, `favourites.user_uid`, `user_app_state.user_uid`, `user_settings.user_uid`) are **not** renamed.
 - Accepted gap: an Entra identity that has never signed in has no `accounts` row and cannot be pre-linked to a Person.

@@ -37,6 +37,8 @@ Reconcile with existing proxy redirect to `/setup` until `setup_complete`.
 
 `proxy.ts` excludes the entire `/api/setup/*` prefix from the session and MFA-enrollment gates (setup-phase invariant, not a pre-session free-for-all). Routes under that prefix — including post-admin steps such as `complete` and `timezone` — must enforce their own auth (typically `requireAdmin()` → `resolveAuth()`, which re-loads the session). Keep the broad exclusion; when adding a new setup API route, do not assume proxy coverage.
 
+Until `setup_complete` is set, an authenticated administrator may also open Data Export & Restore (`/admin/export`). The wizard's Person step links there at desktop width so a household can restore an export instead of creating a first person. That does not add a wizard step: `SetupStepKey` and the variable step list stay as they are. When any person exists (including one written by restore), the wizard opens on the timezone step. Other pages still redirect to `/setup`. The export page offers a way back to the wizard while setup is unfinished.
+
 ## Consequences
 
 - Managed path depends on [ADR-0004](0004-managed-platform-profile.md); managed-hosting provisioning mechanics are internal — see `docs-internal/managed-hosting.md`.

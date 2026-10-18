@@ -44,7 +44,7 @@ Mirrors `user_settings`. Scope is not a column — tenant scope = this instance'
 
 | Setting | Notes |
 |---------|-------|
-| Auth: Entra (enabled, client_id, tenant_id, client_secret) | **IMPLEMENTED** — `client_secret` secret; group env-lock; System Settings UI (`auth-entra` section). Local auth always-on. |
+| Auth: Entra (enabled, client_id, tenant_id, client_secret) | **IMPLEMENTED** — enablement is `FC_AUTH_ENTRA_ENABLED` or the database row (default off). `client_secret` secret; group env-lock; System Settings UI (`auth-entra` section). Local auth always-on. |
 | MFA-required | **IMPLEMENTED** — env `FC_MFA_REQUIRED`. Self-host: editable via System Settings (`security` section). Managed: `platformLocked`. |
 | Password policy | **IMPLEMENTED** — env `FC_PASSWORD_MIN_LENGTH`. Self-host: editable via System Settings (`security` section). Managed: `platformLocked`. |
 | SMTP block | **IMPLEMENTED** — env `FC_SMTP_*`. Self-host: editable via System Settings (`email-smtp` section) with a send-test-email action; password secret. Managed: platform-owned, hidden (read-only "Outbound email — Managed via environment" card). |
@@ -52,8 +52,7 @@ Mirrors `user_settings`. Scope is not a column — tenant scope = this instance'
 | `locale.default_timezone` | **IMPLEMENTED** — env `FC_DEFAULT_TIMEZONE`; audited writes; System Settings UI. |
 | `locale.measurement_system` | **IMPLEMENTED** — env `FC_MEASUREMENT_SYSTEM` (`metric` \| `imperial`, default `metric`); default units on record form; display-layer conversion. |
 | `schedule.lead_minutes` | **IMPLEMENTED** — env `FC_SCHEDULE_LEAD_MINUTES`; upcoming alert lead (default 60). |
-| `schedule.overdue_offset_minutes` | **IMPLEMENTED** — env `FC_SCHEDULE_OVERDUE_OFFSET_MINUTES`; overdue push offset from slot time (default 30). Legacy env `PUSH_OVERDUE_HOURS` honoured when unset. |
-| `schedule.slot_association_radius_minutes` | **IMPLEMENTED** — env `FC_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES`; history dose-to-slot match (default 60). Push delivery width (30 min) is not a registry entry. |
+| `schedule.overdue_offset_minutes` | **IMPLEMENTED** — env `FC_SCHEDULE_OVERDUE_OFFSET_MINUTES`; overdue push offset from slot time (default 30). |
 
 ### Env-only (not in registry)
 

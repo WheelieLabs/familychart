@@ -25,6 +25,7 @@ npm run typecheck # TypeScript only
 npm run build     # production build
 npm run lint      # ESLint
 npm run test:run  # Vitest — non-interactive (watch: npm run test)
+npm run test:ui   # Playwright + axe accessibility scan of every route (builds the app; see docs/architecture.md > UI components)
 ```
 
 When you add or upgrade **production dependencies**, regenerate third-party licence notices:
@@ -61,6 +62,7 @@ If a batch of new `app/`, `components/`, or `lib/` files ever lands without the 
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributors | Dev workflow (this file) |
 | [`docs/architecture.md`](docs/architecture.md) | Contributors | Schema, auth, patterns, project layout |
 | [`docs/adr/`](docs/adr/) | Contributors | Architecture decision records |
+| [`docs/architecture.md`](docs/architecture.md) › UI components | Contributors | Shared UI components, colour tokens and date formatter; enforced by `npm run lint` ([ADR-0023](docs/adr/0023-centralised-ui-components-and-enforcement.md)) |
 | [`.env.local.example`](.env.local.example) | Operators | Commented env template |
 | [`CHANGELOG.md`](CHANGELOG.md) | Maintainers | Technical release notes (Keep a Changelog) |
 | [`WHATS_NEW.md`](WHATS_NEW.md) | Maintainers | User-facing notes for the in-app What's New screen |
@@ -75,7 +77,7 @@ Update in the **same change** when you:
 - Change **schema**, API patterns, permissions, or project structure → [`docs/architecture.md`](docs/architecture.md)
 - Make a **durable architectural decision** → add or update an ADR in [`docs/adr/`](docs/adr/)
 - Change **dev commands** or verification expectations → this file
-- Ship a **user-visible feature or fix** users should discover → [`WHATS_NEW.md`](WHATS_NEW.md) (in-app modal); technical detail still goes in [`CHANGELOG.md`](CHANGELOG.md). The `## [N]` section for version N must be on the **same tree** that sets `package.json` to N (before or in that bump commit, never as a follow-up after deploy) — the modal is baked at image build from `WHATS_NEW.md` and compared to baked `APP_VERSION`.
+- Ship a **user-visible feature or fix** users should discover → [`WHATS_NEW.md`](WHATS_NEW.md) (in-app modal); technical detail still goes in [`CHANGELOG.md`](CHANGELOG.md). The `## [N]` section for version N must be on the **same tree** that sets `package.json` to N (before or in that bump commit, never as a follow-up after deploy) — the modal is baked at image build from `WHATS_NEW.md` and compared to baked `APP_VERSION`. `WHATS_NEW.md` is a trail of minor versions: a new minor deletes the previous line's patch sections in the same commit, after folding anything upgraders still need into its own section (header of `WHATS_NEW.md`).
 
 Do not duplicate deep architecture in README — link to `docs/architecture.md` instead.
 

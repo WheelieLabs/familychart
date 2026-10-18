@@ -11,7 +11,9 @@ import {
   resolveEntraJwtGroups,
   revokeAuthRevalidation,
   shouldPollAuthRevalidation,
+  __resetGraphNotConfiguredLogForTests,
 } from "@/lib/auth/auth-revalidation"
+import { logger } from "@/lib/logger"
 import { __resetAppOnlyGraphTokenCacheForTests, __setAppOnlyGraphTokenAdapterForTests } from "@/lib/entra-graph-token"
 
 function createTestDb(): Database.Database {
@@ -27,6 +29,11 @@ function createTestDb(): Database.Database {
       display_name    TEXT,
       updated_at      INTEGER NOT NULL,
       PRIMARY KEY (provider, external_id)
+    );
+    CREATE TABLE app_settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
     );
     CREATE TABLE system_config (
       key TEXT UNIQUE NOT NULL,
@@ -229,6 +236,7 @@ describe("pollEntraRevalidation", () => {
     process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT_ID = "tenant-id"
     __resetAppOnlyGraphTokenCacheForTests()
     __setAppOnlyGraphTokenAdapterForTests(null)
+    __resetGraphNotConfiguredLogForTests()
   })
 
   afterEach(() => {
@@ -239,6 +247,44 @@ describe("pollEntraRevalidation", () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     db.close()
+  })
+
+  describe("when Graph is not configured", () => {
+    function enableEntraSignInViaSettings(): void {
+      db.exec(`
+        INSERT INTO app_settings (key, value, updated_at) VALUES
+          ('auth.entra.enabled', 'true', 0),
+          ('auth.entra.client_id', 'client', 0),
+          ('auth.entra.tenant_id', 'tenant', 0),
+          ('auth.entra.client_secret', 'secret', 0);
+      `)
+      delete process.env.AUTH_MICROSOFT_ENTRA_ID_ID
+      delete process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET
+      delete process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT_ID
+    }
+
+    it("logs once that Entra access is not being rechecked while Entra sign-in is active", async () => {
+      enableEntraSignInViaSettings()
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => {})
+
+      await pollEntraRevalidation(db)
+      db.prepare("DELETE FROM system_config").run()
+      await pollEntraRevalidation(db)
+
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0]![0])).toContain("not configured")
+    })
+
+    it("stays quiet when Entra sign-in is not active", async () => {
+      delete process.env.AUTH_MICROSOFT_ENTRA_ID_ID
+      delete process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET
+      delete process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT_ID
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => {})
+
+      await pollEntraRevalidation(db)
+
+      expect(warn).not.toHaveBeenCalled()
+    })
   })
 
   it("no-ops (and doesn't touch rows) when the hourly gate hasn't elapsed", async () => {

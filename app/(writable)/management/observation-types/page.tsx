@@ -6,13 +6,21 @@ import { useCallback, useEffect, useState } from "react"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
 import ConfirmModal, { type ConfirmVariant } from "@/components/ConfirmModal"
-import {
-  CatalogActiveStatusButton,
-  InactiveCatalogBadge,
-} from "@/components/EntityRowActions"
+import Badge from "@/components/ui/Badge"
+import Banner from "@/components/ui/Banner"
+import { Toggle } from "@/components/ui/controls"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
 import type { ObservationTypeConfig } from "@/lib/domain-types"
-import { mainContentTargetProps } from "@/lib/a11y"
 import { formatCount } from "@/lib/format-count"
+import { managementTrail } from "@/lib/ui/breadcrumbs"
+
+function chartLabel(chartType: string): string {
+  if (chartType === "line") return "Line chart"
+  if (chartType === "bar") return "Bar chart"
+  return "Table only"
+}
 
 export default function ManagementObservationTypesPage() {
   const [configs, setConfigs] = useState<ObservationTypeConfig[]>([])
@@ -74,66 +82,47 @@ export default function ManagementObservationTypesPage() {
     <div className="flex flex-col flex-1">
       <AppHeader title="Observation Types" />
 
-      <main {...mainContentTargetProps} className="fc-surface-app fc-scroll flex flex-col min-h-0">
-        <div className="flex flex-col gap-3 p-3 flex-1">
-          <div className="rounded-xl bg-fc-panel px-4 py-3 text-sm text-gray-800 leading-relaxed space-y-2">
-            <p>
-              Per-person schedules live on each family member&apos;s{" "}
-              <strong className="font-bold text-gray-900">Observation Reminders</strong> screen from
-              the home menu.
-            </p>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              This is the curated observation catalogue. Toggle types active or inactive for this
-              household — chart defaults, units, and age caps come with the app and cannot be edited
-              here.
-            </p>
-          </div>
+      <PageContainer trail={managementTrail({ label: "Observation Types" })}>
+        <Banner kind="info" lead="Where schedules live">
+          Per-person schedules are under Schedules &amp; Goals › Observations on each family member&apos;s
+          page. This is the curated observation catalogue: switch types on or off for this household.
+          Chart defaults, units and age caps come with the app and cannot be edited here.
+        </Banner>
 
-          {loading && <p className="text-white/80 text-center py-8">Loading…</p>}
+        {loading && <p className="fc-admin-note">Loading…</p>}
 
-          {!loading && configs.length === 0 && (
-            <p className="text-white/70 text-center py-8">No Observation Types configured.</p>
-          )}
+        {!loading && configs.length === 0 && (
+          <EmptyState icon={EMPTY_STATE_ICONS.noObservationTypes} heading="No observation types">
+            The catalogue is empty. Observation types come with the app.
+          </EmptyState>
+        )}
 
-          {!loading &&
-            configs.map(c => (
-              <div
-                key={c.id}
-                className={`rounded-xl px-4 py-3 flex items-center gap-3 ${
-                  c.is_active ? "bg-white/10" : "bg-white/5"
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-white font-bold truncate">{c.observation_type}</span>
-                    {c.is_active === 0 && <InactiveCatalogBadge />}
-                  </div>
-                  <div className="text-white/60 text-xs mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                    <span>{c.is_static ? "Static" : "Repeated"}</span>
-                    <span>{c.chart_type === "line" ? "Line chart" : c.chart_type === "bar" ? "Bar chart" : "Table only"}</span>
-                    <span>Unit {c.typical_unit ?? "—"}</span>
-                    <span>
-                      Max age{" "}
-                      {c.max_age_years != null ? formatCount(c.max_age_years, "yr") : "—"}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <CatalogActiveStatusButton
-                    active={c.is_active === 1}
-                    disabled={togglingId === c.id}
-                    aria-label={
-                      c.is_active === 1
-                        ? `Deactivate ${c.observation_type}`
-                        : `Activate ${c.observation_type}`
-                    }
-                    onClick={() => void handleToggleActive(c)}
-                  />
-                </div>
-              </div>
-            ))}
-        </div>
-      </main>
+        <CardList>
+          {configs.map(c => (
+            <ListCard
+              key={c.id}
+              title={c.observation_type}
+              inactive={c.is_active === 0}
+              extras={c.is_active === 0 ? <Badge tone="neutral">Inactive</Badge> : undefined}
+              meta={[
+                c.is_static ? "Static" : "Repeated",
+                chartLabel(c.chart_type),
+                `Unit ${c.typical_unit ?? "—"}`,
+                `Max age ${c.max_age_years != null ? formatCount(c.max_age_years, "yr") : "—"}`,
+              ]}
+              trailing={
+                <Toggle
+                  label="Active"
+                  checked={c.is_active === 1}
+                  disabled={togglingId === c.id}
+                  disabledReason="Saving…"
+                  onChange={() => void handleToggleActive(c)}
+                />
+              }
+            />
+          ))}
+        </CardList>
+      </PageContainer>
 
       {confirmDlg && (
         <ConfirmModal

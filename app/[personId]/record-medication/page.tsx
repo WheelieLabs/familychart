@@ -2,30 +2,40 @@
 
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import PendingExpectationNotice from "@/components/PendingExpectationNotice"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import AppHeader from "@/components/AppHeader"
-import AppFooter from "@/components/AppFooter"
-import { PersonHeader } from "@/components/AppHeader"
-import Toggle from "@/components/Toggle"
+import CollapsibleNotes from "@/components/CollapsibleNotes"
 import ConfirmModal, { confirmCopy } from "@/components/ConfirmModal"
 import MedicationUnitMismatchModal from "@/components/MedicationUnitMismatchModal"
+import RecordDateTime from "@/components/RecordDateTime"
+import RecordShell, { RecordLoading } from "@/components/RecordShell"
+import SymptomDoseLinkField from "@/components/SymptomDoseLinkField"
+import TimingPromptBanner from "@/components/TimingPromptBanner"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import Chip, { ChipGroup } from "@/components/ui/Chip"
+import { Input, Select } from "@/components/ui/controls"
+import FormField, { FieldGroup, FieldRow } from "@/components/ui/FormField"
+import SuggestionList from "@/components/ui/SuggestionList"
 import type { FrequencyRule, Person } from "@/lib/domain-types"
-import { localDateAndTimeToUtcIso, localDateToIsoYmd } from "@/lib/datetime"
+import { instantToZonedYmdHm, localDateAndTimeToUtcIso } from "@/lib/datetime"
+import { formatDateTime, formatTime, formatWeekdayDate } from "@/lib/date-format"
+import { getDisplayTimeZone, setDisplayTimeZone } from "@/lib/display-time-zone"
 import { completedCalendarYears } from "@/lib/person/person-age"
-import { mainContentTargetProps } from "@/lib/a11y"
+import { disabledWhen } from "@/lib/ui/disabled-props"
+import { reportProblem } from "@/lib/ui/form-errors"
+import { setSaveFlash } from "@/lib/ui/save-flash"
+import { closeNotificationsByTag, recordingDeviceHeaders } from "@/lib/push/notification-client"
 import { evaluatePrnState } from "@/lib/prn/prn-eval"
 import { ruleMax24hIsDoseCount } from "@/lib/frequency-rule"
-import { findNextSuppressibleSlot } from "@/lib/schedule/schedule-slot-evaluator"
-import type { CalendarContext } from "@/lib/calendar-context"
-import { parseScheduleFrequencyJson } from "@/lib/schedule/schedule-recurrence"
-
-function formatSlotTime12h(hhmm: string): string {
-  const [h, m] = hhmm.split(":").map(Number)
-  const period = h < 12 ? "AM" : "PM"
-  const h12 = h % 12 === 0 ? 12 : h % 12
-  return `${h12}:${String(m).padStart(2, "0")} ${period}`
-}
+import { describeTimingPrompt, promptFromTiming, type NeedsPromptTiming } from "@/lib/schedule/dose-timing-prompt"
+import type { DoseTiming, PromptAnswer } from "@/lib/schedule/slot-outcomes"
+import {
+  MEDICATION_ADMINISTERED_BY,
+  MEDICATION_ADMINISTERED_BY_LABELS,
+  type MedicationAdministeredBy,
+} from "@/lib/medication/medication-administered-by"
 
 function ruleMax24hCountsDoses(r: FrequencyRule | null | undefined): boolean {
   return ruleMax24hIsDoseCount(r)
@@ -55,7 +65,6 @@ interface MedicationResult {
   schedule_start_date?: string | null
   schedule_end_date?: string | null
   /** Server-resolved (incl. instance IANA fallback) — client never replicates that DB lookup. */
-  schedule_calendar_context?: CalendarContext | null
 }
 
 /** Rule-specific dose overrides the medication catalogue default when set. */
@@ -70,14 +79,6 @@ import { MEDICATION_DOSAGE_UNITS } from "@/lib/medication/medication-units"
 const DOSAGE_UNITS = [...MEDICATION_DOSAGE_UNITS]
 
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000
-
-function toLocalDatetime(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return {
-    date: localDateToIsoYmd(d),
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-  }
-}
 
 function formatHm(hours: number): string {
   const h = Math.floor(Math.abs(hours))
@@ -123,29 +124,14 @@ function formatDurationHuman(hours: number): string {
   return s
 }
 
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })
-}
 
-function formatDateTime(d: Date, refNow: Date): string {
-  const now = refNow
-  const isToday    = d.toDateString() === now.toDateString()
-  const tomorrow   = new Date(now); tomorrow.setDate(now.getDate() + 1)
-  const isTomorrow = d.toDateString() === tomorrow.toDateString()
+/** `today at 7:46 pm`, `tomorrow at 7:46 pm`, or `Fri 9 Oct at 7:46 pm`, in the household's zone. */
+function formatRelativeDayTime(d: Date, now: Date): string {
+  const day = instantToZonedYmdHm(d).date
   const time = formatTime(d)
-  if (isToday)    return `today at ${time}`
-  if (isTomorrow) return `tomorrow at ${time}`
-  return `${d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })} at ${time}`
-}
-
-function formatWeightRecordedCaption(d: Date): string {
-  const datePart = d.toLocaleDateString("en-AU", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })
-  return `${datePart} at ${formatTime(d)}`
+  if (day === instantToZonedYmdHm(now).date) return `today at ${time}`
+  if (day === instantToZonedYmdHm(new Date(now.getTime() + 24 * 3600000)).date) return `tomorrow at ${time}`
+  return `${formatWeekdayDate(d)} at ${time}`
 }
 
 function ruleHasWeightRange(rule: FrequencyRule | null): boolean {
@@ -196,11 +182,7 @@ function DosageStatusPanel({
   oldestInWindowAt: string | null
 }) {
   if (!rule) {
-    return (
-      <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-lg px-3 py-2 text-sm">
-        ℹ️ No dosing limits configured for this medication
-      </div>
-    )
+    return <Banner kind="info" lead="No limits">No dosing limits configured for this medication.</Banner>
   }
 
   const lastDose = lastDoseAt
@@ -234,19 +216,18 @@ function DosageStatusPanel({
   if (ev.atCap) {
     const windowClearsAt = ev.resetAtMs != null ? new Date(ev.resetAtMs) : null
     return (
-      <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg px-3 py-2 text-sm">
-        <div className="font-semibold">⛔ {count24hDoses ? "Maximum doses reached" : "Maximum quantity reached"}</div>
-        <div className="text-xs mt-0.5">
+      <Banner kind="error" lead={count24hDoses ? "Maximum doses reached" : "Maximum quantity reached"}>
+        <span className="block">
           {count24hDoses ? (
             <>{totalTaken24h} of {rule.max_quantity_per_24h} doses taken in the last 24 hours.</>
           ) : (
             <>{totalTaken24h} of {rule.max_quantity_per_24h} {catalogQtyUnit} taken in the last 24 hours.</>
           )}
-        </div>
+        </span>
         {windowClearsAt && (
-          <div className="text-xs">Next dose available: {formatDateTime(windowClearsAt, now)}</div>
+          <span className="block">Next dose available: {formatRelativeDayTime(windowClearsAt, now)}</span>
         )}
-      </div>
+      </Banner>
     )
   }
 
@@ -262,59 +243,47 @@ function DosageStatusPanel({
         : "as required (no minimum interval)")
       : `every ${intervalCompact} hours`
     return (
-      <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm">
-        <div className="font-semibold">⚠️ Too soon to dose</div>
-        <div className="text-xs mt-0.5">
+      <Banner kind="warning" lead="Too soon to dose">
+        <span className="block">
           Last dose: {lastDoseMedName ?? "unknown"} — {formatDurationHuman(hoursSince!)} ago
-        </div>
+        </span>
         {groups.length > 0 && (
-          <div className="text-xs">Contains: {groups.map(g => g.name).join(", ")}</div>
+          <span className="block">Contains: {groups.map(g => g.name).join(", ")}</span>
         )}
-        <div className="text-xs">
+        <span className="block">
           Earliest next dose: in {formatDurationHuman(remaining)} (at {formatTime(nextDoseAt)})
-        </div>
-        <div className="text-xs">Interval: {intervalLine}</div>
+        </span>
+        <span className="block">Interval: {intervalLine}</span>
         {unitMismatch && (
-          <div className="text-xs mt-1">
-            ℹ️ Dose limit tracking unavailable — unit mismatch
-          </div>
+          <span className="block">Dose limit tracking unavailable — unit mismatch</span>
         )}
-      </div>
+      </Banner>
     )
   }
 
   if (unitMismatch) {
     return (
-      <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-lg px-3 py-2 text-sm">
-        ℹ️ Dose limit tracking unavailable — unit mismatch
-        (use {catalogQtyUnit} to track the 24h limit)
-      </div>
+      <Banner kind="info" lead="Limit tracking unavailable">
+        Unit mismatch (use {catalogQtyUnit} to track the 24h limit).
+      </Banner>
     )
   }
 
   if (!lastDoseAt) {
-    return (
-      <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-lg px-3 py-2 text-sm">
-        <div className="font-semibold text-blue-800 mb-1">Dosing guide</div>
-        <div className="text-xs text-blue-700">{ruleInfoText(rule, catalogQtyUnit)}</div>
-      </div>
-    )
+    return <Banner kind="info" lead="Dosing guide">{ruleInfoText(rule, catalogQtyUnit)}</Banner>
   }
 
   return (
-    <div className="bg-green-50 border border-green-200 text-green-800 rounded-lg px-3 py-2 text-sm">
-      <div className="font-semibold">Safe to give</div>
-      <div className="text-xs mt-0.5">
-        Last given {formatDurationHuman(hoursSince!)} ago.
-        {rule.max_quantity_per_24h != null && (
-          count24hDoses ? (
-            <> {totalTaken24h} of {rule.max_quantity_per_24h} doses used in the last 24 hours.</>
-          ) : (
-            <> {totalTaken24h} of {rule.max_quantity_per_24h} {catalogQtyUnit} used in the last 24 hours.</>
-          )
-        )}
-      </div>
-    </div>
+    <Banner kind="success" lead="Safe to give">
+      Last given {formatDurationHuman(hoursSince!)} ago.
+      {rule.max_quantity_per_24h != null && (
+        count24hDoses ? (
+          <> {totalTaken24h} of {rule.max_quantity_per_24h} doses used in the last 24 hours.</>
+        ) : (
+          <> {totalTaken24h} of {rule.max_quantity_per_24h} {catalogQtyUnit} used in the last 24 hours.</>
+        )
+      )}
+    </Banner>
   )
 }
 
@@ -328,15 +297,19 @@ export default function RecordMedicationPage() {
 
   const [person, setPerson]               = useState<Person | null>(null)
   const [recordNow, setRecordNow]         = useState(true)
-  const { date: todayDate, time: nowTime } = toLocalDatetime(new Date())
+  const { date: todayDate, time: nowTime } = instantToZonedYmdHm(new Date())
   const [date, setDate]                   = useState(todayDate)
   const [time, setTime]                   = useState(nowTime)
+
   const [medicationQuery, setMedicationQuery] = useState("")
+  const [medicationInvalid, setMedicationInvalid] = useState(false)
   const [suggestions, setSuggestions]     = useState<MedicationResult[]>([])
   const [selectedMed, setSelectedMed]     = useState<MedicationResult | null>(null)
   const [dosage, setDosage]               = useState("")
   const [dosageUnit, setDosageUnit]       = useState("Tabs")
   const [comments, setComments]           = useState("")
+  const [administeredBy, setAdministeredBy] = useState<MedicationAdministeredBy>("me")
+  const [linkedSymptomIds, setLinkedSymptomIds] = useState<number[]>([])
   const [saving, setSaving]               = useState(false)
   const [error, setError]                 = useState("")
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -351,10 +324,22 @@ export default function RecordMedicationPage() {
   const [weightSaveError, setWeightSaveError]     = useState("")
   const [weightSaving, setWeightSaving]           = useState(false)
   const [selectedPrnHours, setSelectedPrnHours]   = useState<number | null>(null)
-  const [suppressNextSlot, setSuppressNextSlot]   = useState(false)
   const [instanceTimezone, setInstanceTimezone]   = useState<string | null>(null)
+  // Until the instance timezone arrives the date and time default to UTC, so re-seed them once it does.
+  // They are only shown while "Record now" is on, so this never overwrites something the person typed.
+  useEffect(() => {
+    if (!instanceTimezone || !recordNow) return
+    const now = instantToZonedYmdHm(new Date(), instanceTimezone)
+    setDate(now.date)
+    setTime(now.time)
+  }, [instanceTimezone]) // eslint-disable-line react-hooks/exhaustive-deps -- seeds once per zone
   const [prnClearedNoticeOpen, setPrnClearedNoticeOpen] = useState(false)
   const [isManager, setIsManager] = useState(false)
+  // Set after Save when the dose fell outside every slot window; the dose is already saved.
+  const [timingPrompt, setTimingPrompt] = useState<{ recordId: number; timing: NeedsPromptTiming } | null>(null)
+  const [timingAnswering, setTimingAnswering] = useState<PromptAnswer | null>(null)
+  const [timingError, setTimingError] = useState("")
+  const timingPromptRef = useRef<HTMLDivElement>(null)
   const [unitMismatchNotice, setUnitMismatchNotice] = useState<{
     recordId: number
     medication: MedicationResult
@@ -373,6 +358,7 @@ export default function RecordMedicationPage() {
       .then((me: { instanceTimezone?: string; role?: string | null } | null) => {
         setIsManager(me?.role === "manager" || me?.role === "admin")
         if (typeof me?.instanceTimezone === "string" && me.instanceTimezone.trim() !== "") {
+          setDisplayTimeZone(me.instanceTimezone)
           setInstanceTimezone(me.instanceTimezone)
         }
       })
@@ -453,22 +439,25 @@ export default function RecordMedicationPage() {
     setWeightInput("")
     setWeightSaveError("")
     setSelectedPrnHours(null)
-    setSuppressNextSlot(false)
   }, [selectedMed?.id])
 
   const doseDate = recordNow
     ? alignedNow
     : (() => {
-        const [y, mo, d] = date.split("-").map(Number)
-        const [h, m] = time.split(":").map(Number)
-        return new Date(y, mo - 1, d, h, m)
+        try { return new Date(localDateAndTimeToUtcIso(date, time, getDisplayTimeZone())) } catch { return alignedNow }
       })()
+
+  // Symptoms are offered by the dose's local day, so a midday stand-in keeps the candidate fetch stable.
+  const linkDay = instantToZonedYmdHm(doseDate).date
+  const linkCandidateIso = useMemo(() => {
+    try { return localDateAndTimeToUtcIso(linkDay, "12:00") } catch { return new Date().toISOString() }
+  }, [linkDay])
 
   useEffect(() => {
     if (selectedPrnHours === null) return
     const chipMs = doseDate.getTime() + selectedPrnHours * 3600000
     if (chipMs <= alignedNow.getTime()) setSelectedPrnHours(null)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- clear expired PRN chip when dose time or tick changes
   }, [date, time, recordNow, nowTick, selectedPrnHours])
 
   useEffect(() => {
@@ -621,8 +610,12 @@ export default function RecordMedicationPage() {
 
   async function handleSave() {
     if (!selectedMed && !medicationQuery.trim()) {
-      setError("Please select or enter a medication"); return
+      setError("Please select or enter a medication")
+      setMedicationInvalid(true)
+      reportProblem("medication-query", "Medication")
+      return
     }
+    setMedicationInvalid(false)
     setSaving(true); setError("")
     try {
       let medId = selectedMed?.id
@@ -633,10 +626,14 @@ export default function RecordMedicationPage() {
           body: JSON.stringify({
             name: medicationQuery.trim(),
             default_dosage: dosage ? parseFloat(dosage) : null,
-            dosage_unit: dosageUnit
+            dosage_unit: dosageUnit,
+            person_id: parseInt(personId),
           })
         })
-        if (!medRes.ok) throw new Error("Failed to create medication")
+        if (!medRes.ok) {
+          const medBody = await medRes.json().catch(() => null) as { error?: string } | null
+          throw new Error(medBody?.error || "Failed to create medication")
+        }
         const newMed = await medRes.json()
         medId = newMed.id
       }
@@ -646,11 +643,16 @@ export default function RecordMedicationPage() {
         : localDateAndTimeToUtcIso(date, time)
       const recRes = await fetch("/api/records", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-FC-Tz-Offset": String(new Date().getTimezoneOffset()) },
+        headers: {
+          "Content-Type": "application/json",
+          "X-FC-Tz-Offset": String(new Date().getTimezoneOffset()),
+          ...(await recordingDeviceHeaders()),
+        },
         body: JSON.stringify({
           person_id: parseInt(personId), medication_id: medId, recorded_at: recordedAt,
           dosage: dosage ? parseFloat(dosage) : null, dosage_unit: dosageUnit, comments,
-          suppressNextSlot: suppressNextSlot || undefined,
+          administered_by: administeredBy,
+          linked_symptom_ids: linkedSymptomIds.length > 0 ? linkedSymptomIds : undefined,
         })
       })
       if (!recRes.ok) {
@@ -661,8 +663,17 @@ export default function RecordMedicationPage() {
         id: number
         clearedPrnPushRequests?: number
         dosageUnitMismatch?: boolean
+        timing?: DoseTiming
+        closeNotificationTag?: string | null
       }
+      // A dose attached to a slot closes this device's own reminder; the other devices get a push.
+      await closeNotificationsByTag(recData.closeNotificationTag)
+      setSaveFlash(
+        [selectedMed?.name ?? medicationQuery.trim(), dosage ? `${dosage} ${dosageUnit}` : ""].filter(Boolean).join(" "),
+      )
       const prnCleared = (recData.clearedPrnPushRequests ?? 0) >= 1
+      const timing = promptFromTiming(recData.timing)
+      if (timing) setTimingPrompt({ recordId: recData.id, timing })
       // A single post-save notice, never two: unit-mismatch subsumes the PRN-cleared copy
       // when both apply, instead of stacking a second dialog after it.
       if (recData.dosageUnitMismatch && selectedMed) {
@@ -682,7 +693,7 @@ export default function RecordMedicationPage() {
           if (!notifBlocked) {
             if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
               const perm = await Notification.requestPermission()
-              if (perm !== "granted") { router.push(`/${personId}`); return }
+              if (perm !== "granted") { if (!timing) router.push(`/${personId}`); return }
             }
             if ("serviceWorker" in navigator) {
               const reg = await navigator.serviceWorker.register("/sw-push.js")
@@ -713,8 +724,9 @@ export default function RecordMedicationPage() {
           // Silent — don't block navigation on push errors
         }
       }
-      // A unit-mismatch or PRN-cleared notice (if shown) blocks navigation until dismissed.
-      if (!(recData.dosageUnitMismatch && selectedMed) && !prnCleared) {
+      // A unit-mismatch or PRN-cleared notice (if shown) blocks navigation until dismissed, and so does
+      // the timing prompt until it is answered.
+      if (!(recData.dosageUnitMismatch && selectedMed) && !prnCleared && !timing) {
         router.push(`/${personId}`)
       }
     } catch (e) {
@@ -725,13 +737,47 @@ export default function RecordMedicationPage() {
 
   function dismissPrnClearedNotice() {
     setPrnClearedNoticeOpen(false)
-    router.push(`/${personId}`)
+    if (!timingPrompt) router.push(`/${personId}`)
   }
 
   function dismissUnitMismatchNotice() {
     setUnitMismatchNotice(null)
-    router.push(`/${personId}`)
+    if (!timingPrompt) router.push(`/${personId}`)
   }
+
+  // The dose is already saved; leaving without an answer keeps it as an extra dose.
+  async function answerTiming(answer: PromptAnswer) {
+    if (!timingPrompt) return
+    setTimingAnswering(answer)
+    setTimingError("")
+    try {
+      const res = await fetch(`/api/records/${timingPrompt.recordId}/timing`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-FC-Tz-Offset": String(new Date().getTimezoneOffset()),
+          ...(await recordingDeviceHeaders()),
+        },
+        body: JSON.stringify({ answer }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null
+        throw new Error(body?.error || "Could not save your answer")
+      }
+      // Late or Early attaches the dose to a slot, which clears this device's reminder.
+      const answered = await res.json().catch(() => null) as { closeNotificationTag?: string | null } | null
+      await closeNotificationsByTag(answered?.closeNotificationTag)
+      router.push(`/${personId}`)
+    } catch (e) {
+      setTimingError(e instanceof Error && e.message ? e.message : "Could not save your answer. Please try again.")
+      setTimingAnswering(null)
+    }
+  }
+
+  // The Save button goes away once the prompt appears, so move focus to the prompt rather than lose it.
+  useEffect(() => {
+    if (timingPrompt && !unitMismatchNotice && !prnClearedNoticeOpen) timingPromptRef.current?.focus()
+  }, [timingPrompt, unitMismatchNotice, prnClearedNoticeOpen])
 
   async function applyRecordedUnitAsDefault() {
     if (!unitMismatchNotice) return
@@ -771,11 +817,7 @@ export default function RecordMedicationPage() {
     dismissUnitMismatchNotice()
   }
 
-  if (!person) return (
-    <div className="flex-1 bg-fc-blue flex items-center justify-center">
-      <div className="text-white text-lg">Loading…</div>
-    </div>
-  )
+  if (!person) return <RecordLoading title="Record Medication" />
 
   const personAgeRaw =
     person.date_of_birth && instanceTimezone
@@ -826,22 +868,6 @@ export default function RecordMedicationPage() {
 
   const hasPrnRule = (rule?.min_hours_between ?? 0) > 0
 
-  // Show suppression checkbox when: dose is today AND a scheduled slot exists after the dose time
-  const isDoseToday = localDateToIsoYmd(doseDate) === localDateToIsoYmd(alignedNow)
-  const nextUpcomingSlot =
-    isDoseToday && selectedMed?.schedule_times?.length && selectedMed.schedule_calendar_context
-      ? findNextSuppressibleSlot(
-          doseDate.getTime(),
-          {
-            scheduleTimes: selectedMed.schedule_times,
-            scheduleFrequency: parseScheduleFrequencyJson(selectedMed.schedule_frequency ?? null),
-            scheduleStartDate: selectedMed.schedule_start_date ?? null,
-            scheduleEndDate: selectedMed.schedule_end_date ?? null,
-          },
-          selectedMed.schedule_calendar_context,
-        )?.hhmm ?? null
-      : null
-
   const chipHours: number[] = (() => {
     if (!rule || !hasPrnRule) return []
     const minH = rule.min_hours_between
@@ -855,176 +881,137 @@ export default function RecordMedicationPage() {
   }
 
   function chipLabel(offsetH: number): string {
-    const cd = new Date(chipClockMs(offsetH))
-    const hh = String(cd.getHours()).padStart(2, "0")
-    const mm = String(cd.getMinutes()).padStart(2, "0")
-    return `${formatHm(offsetH)} · ${hh}:${mm}`
+    return `${formatHm(offsetH)} · ${formatTime(new Date(chipClockMs(offsetH)))}`
   }
-
   return (
-    <div className="flex flex-col flex-1">
-      <AppHeader title="Record Medication" />
-      <PersonHeader name={person.name} photoUrl={person.photo_url} color={person.color} backHref={`/${personId}`} />
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue overflow-y-auto fc-scroll">
-        <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
+    <>
+      <RecordShell title="Record Medication" person={person}>
+        <div className="fc-form">
+          <PendingExpectationNotice personId={parseInt(personId, 10)} medicationId={selectedMed?.id ?? null} />
 
-          <Toggle label="Record Now?" value={recordNow} onChange={setRecordNow} />
+          <RecordDateTime
+            recordNow={recordNow}
+            onRecordNowChange={setRecordNow}
+            date={date}
+            onDateChange={setDate}
+            time={time}
+            onTimeChange={setTime}
+            timeZone={instanceTimezone ?? undefined}
+          />
 
-          <div className="flex items-center gap-3">
-            <label className="font-bold text-gray-800 w-16 shrink-0">Date:</label>
-            <input type="date" value={date} disabled={recordNow}
-              onChange={e => setDate(e.target.value)}
-              className="flex-1 bg-white border border-gray-300 rounded px-3 py-2 text-gray-700
-                         disabled:bg-gray-100 disabled:text-gray-400" />
-          </div>
-
-          <div className="flex items-center gap-3">
-            <label className="font-bold text-gray-800 w-16 shrink-0">Time:</label>
-            <input type="time" value={time} disabled={recordNow}
-              onChange={e => setTime(e.target.value)}
-              className="flex-1 bg-white border border-gray-300 rounded px-3 py-2 text-gray-700
-                         disabled:bg-gray-100 disabled:text-gray-400" />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="font-bold text-gray-800">Medication:</label>
-              {personAge !== null && (
-                <span className="text-xs text-gray-500">Filtered for age {personAge} yrs</span>
-              )}
-            </div>
-            <div className="relative">
-              <input type="text" value={medicationQuery} placeholder="Start typing…"
+          <FormField
+            id="medication-query"
+            label="Medication"
+            hint={personAge !== null ? `Filtered for age ${personAge} yrs` : undefined}
+            error={medicationInvalid ? "Select or enter a medication." : undefined}
+          >
+            <div
+              className="fc-suggest-wrap"
+              onBlur={e => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setShowSuggestions(false)
+              }}
+            >
+              <Input
+                type="text"
+                value={medicationQuery}
+                placeholder="Start typing…"
+                autoComplete="off"
                 onChange={e => { setMedicationQuery(e.target.value); setSelectedMed(null) }}
                 onFocus={() => !selectedMed && medicationQuery.length > 0 && setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-800" />
+              />
               {showSuggestions && medicationQuery.trim().length > 0 && !selectedMed && (
-                <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded
-                               shadow-lg max-h-48 overflow-y-auto">
-                  {suggestions.map(med => {
-                    const effDosage = effectiveCatalogDosage(med)
-                    return (
-                    <li key={med.id}>
-                      <button
-                        type="button"
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => selectMedication(med)}
-                        className="w-full text-left px-3 py-2 hover:bg-fc-panel text-gray-800"
-                      >
-                        <span className="font-medium">{med.name}</span>
-                        {effDosage != null && (
-                          <span className="text-gray-500 text-sm ml-2">
-                            ({effDosage} {med.dosage_unit})
-                          </span>
-                        )}
-                        {med.groups.length > 0 && (
-                          <span className="text-gray-400 text-xs ml-2">🧪 {med.groups.map(g => g.name).join(", ")}</span>
-                        )}
-                      </button>
-                    </li>
-                  )})}
-                  <li>
-                    <button
-                      type="button"
-                      onMouseDown={e => e.preventDefault()}
-                      onClick={() => { setShowSuggestions(false); setSuggestions([]) }}
-                      className={`w-full text-left px-3 py-2 text-fc-blue hover:bg-fc-panel text-sm${suggestions.length > 0 ? " border-t" : ""}`}
-                    >
-                      Add &quot;{medicationQuery}&quot; as new medication
-                    </button>
-                  </li>
-                </ul>
+                <SuggestionList
+                  items={[
+                    ...suggestions.map(med => {
+                      const effDosage = effectiveCatalogDosage(med)
+                      return {
+                        key: med.id,
+                        onSelect: () => selectMedication(med),
+                        label: (
+                          <>
+                            <span className="fc-suggest__name">{med.name}</span>
+                            {effDosage != null && (
+                              <span className="fc-suggest__detail">({effDosage} {med.dosage_unit})</span>
+                            )}
+                            {med.groups.length > 0 && (
+                              <span className="fc-suggest__detail">🧪 {med.groups.map(g => g.name).join(", ")}</span>
+                            )}
+                          </>
+                        ),
+                      }
+                    }),
+                    {
+                      key: "new",
+                      onSelect: () => { setShowSuggestions(false); setSuggestions([]) },
+                      label: <>Add &quot;{medicationQuery}&quot; as new medication</>,
+                    },
+                  ]}
+                />
               )}
             </div>
-            {showSuggestions && medicationQuery.trim().length > 0 && !selectedMed && (
-              <div className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
-                <span className="font-semibold">Adding a new medication type?</span>{" "}
-                Ask a <strong>Manager</strong> or <strong>Administrator</strong> to set up dosing frequency rules,
-                medication groups, or other catalogue options when you need them.
-              </div>
-            )}
-          </div>
+          </FormField>
+          {showSuggestions && medicationQuery.trim().length > 0 && !selectedMed && (
+            <Banner kind="info" lead="New medication">
+              Ask a Manager or Administrator to set up dosing frequency rules, medication groups or other
+              catalogue options when you need them.
+            </Banner>
+          )}
 
           {selectedMed && weightChecking && (
-            <p className="text-xs text-gray-500">Checking recent weight…</p>
+            <p className="fc-field__hint">Checking recent weight…</p>
           )}
 
           {selectedMed && !weightChecking && recentWeight && isUnder18 &&
             ruleHasWeightRange(selectedMed.applicable_rule) && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-              <div className="font-semibold">Current weight on file</div>
-              <p className="text-xs mt-0.5 text-blue-800">
-                {recentWeight.kg} kg — recorded {formatWeightRecordedCaption(recentWeight.recordedAt)}
-              </p>
-            </div>
+            <Banner kind="info" lead="Current weight on file">
+              {recentWeight.kg} kg, recorded {formatDateTime(recentWeight.recordedAt)}
+            </Banner>
           )}
 
           {selectedMed && !weightChecking && weightPromptVisible && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <>
+              <Banner kind="warning" lead="No recent weight recorded">
+                Weight-based dosing may be available for this medication. You can still save this dose without
+                recording weight; adding weight is optional.
+              </Banner>
               {!weightFormOpen ? (
-                <>
-                  <div className="font-semibold">⚠️ No recent weight recorded</div>
-                  <p className="text-xs mt-1 text-amber-800">
-                    Weight-based dosing may be available for this medication.
-                  </p>
-                  <p className="text-xs mt-1 text-amber-800">
-                    You can still save this dose without recording weight — adding weight is optional.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => { setWeightFormOpen(true); setWeightSaveError("") }}
-                    className="mt-2 text-sm font-semibold text-fc-blue hover:underline"
-                  >
+                <div>
+                  <Button variant="quiet" onClick={() => { setWeightFormOpen(true); setWeightSaveError("") }}>
                     + Record weight
-                  </button>
-                </>
+                  </Button>
+                </div>
               ) : (
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold text-gray-800">Weight:</span>
-                    <input
+                <div className="fc-subform">
+                  <FormField label="Weight (kg)" error={weightSaveError || undefined}>
+                    <Input
                       type="number"
                       min="0"
                       step="0.1"
                       value={weightInput}
                       onChange={e => setWeightInput(e.target.value)}
-                      className="w-28 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800"
                       disabled={weightSaving}
                     />
-                    <span className="text-gray-700">kg</span>
-                    <button
-                      type="button"
-                      onClick={handleRecordWeightSave}
-                      disabled={weightSaving}
-                      className="rounded-lg bg-fc-blue px-4 py-2 text-sm font-bold text-white
-                                 hover:bg-fc-blue-mid active:bg-fc-blue-dark disabled:opacity-50"
-                    >
-                      {weightSaving ? "Saving…" : "Save"}
-                    </button>
-                    <button
-                      type="button"
+                  </FormField>
+                  <div className="fc-form-actions">
+                    <Button onClick={handleRecordWeightSave} pending={weightSaving}>Save weight</Button>
+                    <Button
+                      variant="secondary"
                       onClick={() => {
                         setWeightFormOpen(false)
                         setWeightSaveError("")
                       }}
-                      disabled={weightSaving}
-                      className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-800
-                                 disabled:opacity-50"
+                      {...disabledWhen(weightSaving && "Saving the weight…")}
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
-                  {weightSaveError && (
-                    <p className="text-xs text-red-600 font-medium">{weightSaveError}</p>
-                  )}
                 </div>
               )}
-            </div>
+            </>
           )}
 
           {selectedMed && loadingStatus && (
-            <p className="text-xs text-gray-500">Checking dose timing…</p>
+            <p className="fc-field__hint">Checking dose timing…</p>
           )}
           {selectedMed && !loadingStatus && (
             <DosageStatusPanel
@@ -1043,90 +1030,86 @@ export default function RecordMedicationPage() {
             />
           )}
 
-          <div>
-            <label className="font-bold text-gray-800 block mb-1">Dosage:</label>
-            <div className="flex gap-2">
-              <input type="number" value={dosage} onChange={e => setDosage(e.target.value)}
-                min="0" step="0.5"
-                className="w-24 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800" />
-              <select value={dosageUnit} onChange={e => setDosageUnit(e.target.value)}
-                className="flex-1 bg-fc-blue text-white font-bold border border-gray-300 rounded px-3 py-2">
+          <FormField label="Dosage" optional>
+            <FieldRow>
+              <Input type="number" value={dosage} onChange={e => setDosage(e.target.value)} min="0" step="0.5" />
+              <Select aria-label="Unit" value={dosageUnit} onChange={e => setDosageUnit(e.target.value)}>
                 {DOSAGE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-              </select>
-            </div>
-            {wouldExceedLimit && (
-              <div className="mt-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-xs">
-                {count24hDoses ? (
-                  <>⚠️ This would exceed the 24-hour limit of {rule!.max_quantity_per_24h} doses ({totalTaken24h} already recorded).</>
-                ) : (
-                  <>⚠️ This dose would bring total to{" "}
-                  {Math.round((totalTaken24h + parsedDosage) * 100) / 100} {catalogDosageUnit} in 24 hours,
-                  exceeding the maximum of {rule!.max_quantity_per_24h} {catalogDosageUnit}</>
-                )}
-              </div>
-            )}
-          </div>
+              </Select>
+            </FieldRow>
+          </FormField>
+          {wouldExceedLimit && (
+            <Banner kind="warning" lead="Over the limit">
+              {count24hDoses ? (
+                <>This would exceed the 24-hour limit of {rule!.max_quantity_per_24h} doses ({totalTaken24h} already recorded).</>
+              ) : (
+                <>This dose would bring the total to{" "}
+                {Math.round((totalTaken24h + parsedDosage) * 100) / 100} {catalogDosageUnit} in 24 hours,
+                exceeding the maximum of {rule!.max_quantity_per_24h} {catalogDosageUnit}.</>
+              )}
+            </Banner>
+          )}
 
-          <div>
-            <label className="font-bold text-gray-800 block mb-1">Comments:</label>
-            <textarea value={comments} onChange={e => setComments(e.target.value)} rows={3}
-              className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 resize-none" />
-          </div>
+          <ChipGroup
+            legend="Administered by"
+            options={MEDICATION_ADMINISTERED_BY.map(v => ({ value: v, label: MEDICATION_ADMINISTERED_BY_LABELS[v] }))}
+            value={administeredBy}
+            onChange={setAdministeredBy}
+          />
 
-          {error && <p className="text-red-600 text-sm font-medium">{error}</p>}
+          <SymptomDoseLinkField
+            kind="dose"
+            personId={personId}
+            recordedAtIso={linkCandidateIso}
+            selected={linkedSymptomIds}
+            onChange={setLinkedSymptomIds}
+          />
+
+          <CollapsibleNotes noun="comment" value={comments} onChange={setComments} />
+
+          {error && <Banner kind="error">{error}</Banner>}
 
           {hasPrnRule && chipHours.length > 0 && (
-            <div>
-              <label className="font-bold text-gray-800 block mb-2 text-sm">
-                Remind me when another dose is due
-              </label>
-              <div className="flex gap-2 flex-wrap">
+            <FieldGroup
+              label="Remind me when another dose is due"
+              optional
+              hint="Times that have already passed cannot be chosen."
+            >
+              <div className="fc-chip-set__chips">
                 {chipHours.map(h => {
                   const past = chipClockMs(h) <= alignedNow.getTime()
-                  const active = selectedPrnHours === h
                   return (
-                    <button
+                    <Chip
                       key={h}
-                      type="button"
+                      kind="toggle"
                       disabled={past}
-                      onClick={() => setSelectedPrnHours(active ? null : h)}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors
-                        ${past
-                          ? "opacity-40 cursor-not-allowed border-gray-300 bg-gray-100 text-gray-400"
-                          : active
-                            ? "bg-fc-blue text-white border-fc-blue"
-                            : "bg-white text-gray-700 border-gray-300 hover:border-fc-blue hover:text-fc-blue"}`}
+                      pressed={selectedPrnHours === h}
+                      onPressedChange={on => setSelectedPrnHours(on ? h : null)}
                     >
                       {chipLabel(h)}
-                    </button>
+                    </Chip>
                   )
                 })}
               </div>
+            </FieldGroup>
+          )}
+
+          {timingPrompt ? (
+            <div ref={timingPromptRef} role="group" aria-label="Which dose was this?" tabIndex={-1}>
+              <TimingPromptBanner
+                timing={timingPrompt.timing}
+                answering={timingAnswering}
+                error={timingError}
+                onAnswer={answerTiming}
+              />
+            </div>
+          ) : (
+            <div className="fc-actions-end">
+              <Button onClick={handleSave} pending={saving}>Save</Button>
             </div>
           )}
-
-          {nextUpcomingSlot && (
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={suppressNextSlot}
-                onChange={e => setSuppressNextSlot(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-fc-blue"
-              />
-              <span className="text-sm text-gray-700">
-                Cancel the {formatSlotTime12h(nextUpcomingSlot)} reminder
-              </span>
-            </label>
-          )}
-
-          <button onClick={handleSave} disabled={saving}
-            className="self-end bg-fc-blue text-white font-bold px-6 py-3 rounded-xl
-                       hover:bg-fc-blue-mid active:bg-fc-blue-dark disabled:opacity-50 transition-colors">
-            {saving ? "Saving…" : "Save"}
-          </button>
         </div>
-      </main>
-      <AppFooter />
+      </RecordShell>
       <ConfirmModal
         open={prnClearedNoticeOpen}
         {...confirmCopy.prnPushRequestCleared}
@@ -1144,6 +1127,6 @@ export default function RecordMedicationPage() {
         onCreateVariant={createMedicationVariant}
         onDismiss={dismissUnitMismatchNotice}
       />
-    </div>
+    </>
   )
 }

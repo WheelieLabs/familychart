@@ -1,6 +1,6 @@
 # ADR-0014: Managed admin forced-reset first-login flow
 
-**Status:** Accepted — fully implemented
+**Status:** Accepted — fully implemented. Paths updated for the `lib/` sub-folders; `local_users` is now `accounts` (see the table-name note below).
 **Tracking:** Manual-provisioning admin pre-seed (internal issue tracker, familychart-admin)
 
 ## Context
@@ -40,7 +40,7 @@ The email link is `https://{subdomain}.familychart.app/reset-password#token=<tok
 ### Routes
 
 - `app/reset-password/page.tsx` — reads the token from the fragment, presents new-password + confirm.
-- `app/api/auth/reset-password/route.ts` (POST, `{ token, password, confirmPassword }`) — verifies HMAC + expiry + `must_reset_password === true`, bcrypt-hashes the new password (cost 12, matching `app/api/local-users/route.ts`), updates `local_users`, and returns the account's email on success. No session is issued by the route itself — this app has no precedent anywhere for a route handler minting a NextAuth session outside the credentials provider's own `authorize()` flow. Instead `app/reset-password/page.tsx` **auto-signs-in** immediately after a successful POST, by calling `next-auth/react`'s `signIn("credentials", { email, password, redirect: false })` client-side with the email the route returned and the password the user just chose — the same `fetch` → `signIn` sequence `app/setup/page.tsx` already uses after bootstrap succeeds. The user never sees `/login` or re-enters credentials, so this satisfies "no redirect to a separate login step" without introducing a new session-issuance mechanism. Possessing a valid token already stands in for proof of identity in this one-time flow, so re-entering the just-chosen password adds friction without a security benefit.
+- `app/api/auth/reset-password/route.ts` (POST, `{ token, password, confirmPassword }`) — verifies HMAC + expiry + `must_reset_password === true`, bcrypt-hashes the new password (cost 12, matching invite acceptance and first-run setup), updates `accounts`, and returns the account's email on success. No session is issued by the route itself — this app has no precedent anywhere for a route handler minting a NextAuth session outside the credentials provider's own `authorize()` flow. Instead `app/reset-password/page.tsx` **auto-signs-in** immediately after a successful POST, by calling `next-auth/react`'s `signIn("credentials", { email, password, redirect: false })` client-side with the email the route returned and the password the user just chose — the same `fetch` → `signIn` sequence `app/setup/page.tsx` already uses after bootstrap succeeds. The user never sees `/login` or re-enters credentials, so this satisfies "no redirect to a separate login step" without introducing a new session-issuance mechanism. Possessing a valid token already stands in for proof of identity in this one-time flow, so re-entering the just-chosen password adds friction without a security benefit.
 
 ### No public "request a reset link" endpoint
 
@@ -62,7 +62,7 @@ The HMAC/HKDF scheme above must be implemented identically on both sides (family
 
 Considered and rejected: a real shared npm package (`@wheelielabs/fc-reset-token` via GitHub Packages). It would need a new repo/publish workflow, private-registry auth wired into both consumers' CI, and turns any future algorithm change into three PRs with a live cross-version window instead of one. Disproportionate for this much shared code, unless this pattern recurs elsewhere.
 
-**Chosen instead**: the algorithm is specified precisely enough (above) that both sides implement it independently, and **both repos carry the same known-answer test vector** (fixed `userId`/`exp`/secret → fixed expected token) in their respective test suites (`lib/reset-token.test.ts` here; the equivalent in familychart-admin). A silent algorithm drift fails a test loudly in CI on whichever side changed, rather than surfacing as "first-login links are broken" in production.
+**Chosen instead**: the algorithm is specified precisely enough (above) that both sides implement it independently, and **both repos carry the same known-answer test vector** (fixed `userId`/`exp`/secret → fixed expected token) in their respective test suites (`lib/__tests__/reset-token.test.ts` here; the equivalent in familychart-admin). A silent algorithm drift fails a test loudly in CI on whichever side changed, rather than surfacing as "first-login links are broken" in production.
 
 ## Consequences
 

@@ -121,6 +121,28 @@ describe("local Account sign-in", () => {
     }
   })
 
+  it.each(["undefined", "12", "abcdef", "1234567"])(
+    "treats a malformed code (%s) as a wrong code, not an error",
+    async otp => {
+      const db = makeDb()
+      const hash = bcrypt.hashSync("secret", 4)
+      db.prepare("INSERT INTO accounts (email, password_hash, totp_secret) VALUES (?, ?, ?)").run(
+        "mfa3@example.com",
+        hash,
+        "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+      )
+
+      const result = await localAccountSignIn(db, {
+        email: "mfa3@example.com",
+        password: "secret",
+        otp,
+        ip: "1.2.3.4",
+      })
+      expect(result.ok).toBe(false)
+      db.close()
+    },
+  )
+
   it("rejects a wrong OTP", async () => {
     const db = makeDb()
     const hash = bcrypt.hashSync("secret", 4)

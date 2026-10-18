@@ -43,9 +43,9 @@ async function unwrapDbKeyFromKeyserver(): Promise<string> {
 }
 
 function resolveEnvKey(): string {
-  const key = process.env.FC_DB_KEY?.trim() || process.env.DB_ENCRYPTION_KEY?.trim()
+  const key = process.env.FC_DB_KEY?.trim()
   if (!key) {
-    throw new Error("env encryption mode requires FC_DB_KEY (or legacy DB_ENCRYPTION_KEY)")
+    throw new Error("env encryption mode requires FC_DB_KEY")
   }
   return key
 }

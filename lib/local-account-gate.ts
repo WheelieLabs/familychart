@@ -18,6 +18,11 @@ export function hasAnyLocalAccount(db: Database.Database): boolean {
   return !!db.prepare("SELECT id FROM accounts WHERE auth_method = 'local' LIMIT 1").get()
 }
 
+/**
+ * Setup gate: does any local Admin row exist at all. Deliberately counts disabled rows, unlike
+ * `isLastLocalAdmin` (lib/account/last-local-admin.ts), which protects the last *active* Admin from
+ * a lockout: setup is complete once an Admin was ever created, whatever its current state.
+ */
 export function hasLocalAdminAccount(db: Database.Database): boolean {
   return !!db
     .prepare("SELECT id FROM accounts WHERE auth_method = 'local' AND role = 'admin' LIMIT 1")

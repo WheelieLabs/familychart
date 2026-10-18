@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { describe, expect, it } from "vitest"
+// @vitest-environment jsdom
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   applyKeysetPage,
   buildBpTableRows,
@@ -8,16 +10,10 @@ import {
   convertGoalValue,
   daysAgo,
   displayObsValue,
-  fmtAU,
+  useObservationHistory,
   type ObsRecord,
+  type ObsSummary,
 } from "@/lib/observation/observation-history"
-
-describe("fmtAU", () => {
-  it("formats a local afternoon timestamp as D Mon YYYY h:mm AM/PM", () => {
-    const iso = new Date(2024, 0, 5, 14, 5, 0).toISOString()
-    expect(fmtAU(iso)).toBe("5 Jan 2024 2:05 PM")
-  })
-})
 
 describe("daysAgo", () => {
   it("subtracts whole calendar days from an ISO local date", () => {
@@ -117,5 +113,98 @@ describe("buildBpTableRows", () => {
       sys: { id: 1, value: 120 },
       dia: { id: 2, value: 80 },
     })
+  })
+})
+
+describe("useObservationHistory schedule headers", () => {
+  const SCHEDULE_HEADER_KEYS = ["X-FC-Client-Now", "X-FC-Tz-Offset", "X-FC-Local-Today", "X-FC-Local-Yesterday"]
+
+  function summary(observation_type: string): ObsSummary {
+    return { observation_type, last_recorded: "2025-06-01T10:00:00.000Z", total_count: 1, latest_value: 1, latest_unit: "kg" }
+  }
+
+  function observationCalls(fetchMock: ReturnType<typeof vi.fn>) {
+    return fetchMock.mock.calls
+      .map(([url, init]) => ({ url: String(url), init: init as RequestInit | undefined }))
+      .filter(c => c.url.startsWith("/api/observations?") && !c.url.includes("summary=true"))
+  }
+
+  function expectScheduleHeaders(call: { init: RequestInit | undefined }) {
+    const headers = (call.init?.headers ?? {}) as Record<string, string>
+    for (const key of SCHEDULE_HEADER_KEYS) expect(headers[key], key).toBeTruthy()
+  }
+
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => (url.includes("limit=") ? { rows: [], nextCursor: null } : []),
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  it("sends the schedule headers on the unpaginated list request", async () => {
+    const { result } = renderHook(() =>
+      useObservationHistory({ personId: "1", active: false, todayYmd: "2025-06-02" }),
+    )
+    act(() => result.current.selectObs(summary("Blood Pressure")))
+    await waitFor(() => expect(observationCalls(fetchMock).length).toBeGreaterThan(0))
+
+    const calls = observationCalls(fetchMock)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).not.toContain("limit=")
+    expectScheduleHeaders(calls[0]!)
+  })
+
+  it("sends the schedule headers on the first paginated page request", async () => {
+    const { result } = renderHook(() =>
+      useObservationHistory({ personId: "1", active: false, todayYmd: "2025-06-02" }),
+    )
+    act(() => result.current.selectObs(summary("Weight")))
+    await waitFor(() => expect(observationCalls(fetchMock).length).toBeGreaterThan(1))
+
+    const page = observationCalls(fetchMock).find(c => c.url.includes("limit=") && !c.url.includes("cursorTs="))
+    expect(page).toBeDefined()
+    expectScheduleHeaders(page!)
+  })
+
+  it("sends the schedule headers on the chart data request", async () => {
+    const { result } = renderHook(() =>
+      useObservationHistory({ personId: "1", active: false, todayYmd: "2025-06-02" }),
+    )
+    act(() => result.current.selectObs(summary("Weight")))
+    await waitFor(() => expect(observationCalls(fetchMock).length).toBeGreaterThan(1))
+
+    const chart = observationCalls(fetchMock).find(c => c.url.includes("fields=chart"))
+    expect(chart).toBeDefined()
+    expectScheduleHeaders(chart!)
+  })
+
+  it("sends the schedule headers on the load-more request", async () => {
+    fetchMock.mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => {
+        if (!url.includes("limit=")) return []
+        return url.includes("cursorTs=")
+          ? { rows: [], nextCursor: null }
+          : { rows: [], nextCursor: { ts: "2025-06-01T10:00:00.000Z", id: 7 } }
+      },
+    }))
+    const { result } = renderHook(() =>
+      useObservationHistory({ personId: "1", active: false, todayYmd: "2025-06-02" }),
+    )
+    act(() => result.current.selectObs(summary("Weight")))
+    await waitFor(() => expect(result.current.cursor).not.toBeNull())
+    await act(async () => { await result.current.loadMoreRecords() })
+
+    const more = observationCalls(fetchMock).find(c => c.url.includes("cursorTs="))
+    expect(more).toBeDefined()
+    expectScheduleHeaders(more!)
   })
 })

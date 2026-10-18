@@ -2,11 +2,18 @@ import nextConfig from "eslint-config-next"
 import reactX from "eslint-plugin-react-x"
 import tseslint from "typescript-eslint"
 import * as espree from "espree"
+import {
+  UI_RULE_ALWAYS_IGNORED,
+  UI_RULE_FILES,
+  UI_RULE_PAGE_FILES,
+  uiRestrictions,
+  uiRestrictionsForPages,
+} from "./eslint/ui-restrictions.mjs"
 
 /** @type {import("eslint").Linter.Config[]} */
 const eslintConfig = [
   {
-    ignores: [".claude/worktrees/**"],
+    ignores: [".claude/worktrees/**", "public/pdfjs/**"],
   },
   ...nextConfig,
   // eslint-plugin-react (bundled by eslint-config-next) is unmaintained and incompatible with
@@ -31,6 +38,18 @@ const eslintConfig = [
       parser: tseslint.parser,
       parserOptions: { sourceType: "module" },
     },
+  },
+  // Shared UI components and the date formatter (see eslint/ui-restrictions.mjs). The page-file
+  // block repeats the selectors because a later block replaces, not merges, the same rule's options.
+  {
+    files: UI_RULE_FILES,
+    ignores: [...UI_RULE_ALWAYS_IGNORED],
+    rules: { "no-restricted-syntax": ["error", ...uiRestrictions] },
+  },
+  {
+    files: UI_RULE_PAGE_FILES,
+    ignores: [...UI_RULE_ALWAYS_IGNORED],
+    rules: { "no-restricted-syntax": ["error", ...uiRestrictionsForPages] },
   },
   {
     rules: {

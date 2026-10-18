@@ -5,9 +5,11 @@ import {
   buildScheduledMedicationIssues,
   buildPrnFrequencyIssues,
   buildObservationIssues,
+  buildPendingDoseExpectationIssues,
+  buildOpenSymptomIssues,
   type DashboardIssueScheduleContext,
 } from "@/lib/dashboard/dashboard-issue-builders"
-import type { AlertReadiness, OverdueObservationFact, PrnFrequencyFact, ScheduledSlotFact } from "@/lib/alert-readiness"
+import type { AlertReadiness, OverdueObservationFact, PendingDoseExpectationFact, PrnFrequencyFact, ScheduledSlotFact } from "@/lib/alert-readiness"
 import type { Person } from "@/lib/domain-types"
 
 function person(overrides: Partial<Person> = {}): Person {
@@ -31,6 +33,7 @@ function emptyFacts(overrides: Partial<AlertReadiness> = {}): AlertReadiness {
     prnBlockedSlots: [],
     prnFlags: [],
     overdueObservations: [],
+    pendingDoseExpectations: [],
     ...overrides,
   }
 }
@@ -200,5 +203,60 @@ describe("buildObservationIssues", () => {
     expect(
       buildObservationIssues(person({ id: 1 }), emptyFacts({ overdueObservations: [obs({ personId: 2 })] })),
     ).toEqual([])
+  })
+})
+
+describe("buildPendingDoseExpectationIssues", () => {
+  const fact: PendingDoseExpectationFact = {
+    personId: 1,
+    personName: "Test",
+    personMedicationId: 3,
+    medicationId: 5,
+    medicationName: "Methylphenidate",
+    expectationId: 9,
+    ymd: "2025-01-15",
+    hhmm: "12:00",
+    slotMs: Date.UTC(2025, 0, 15, 12, 0),
+    scheduledDosage: 1,
+  }
+
+  it("emits one neutral amber issue per pending expectation for the person", () => {
+    const issues = buildPendingDoseExpectationIssues(person(), emptyFacts({ pendingDoseExpectations: [fact] }))
+    expect(issues).toEqual([
+      {
+        kind: "dose_expectation_pending",
+        severity: "amber",
+        message: "Methylphenidate — was the 12:00 dose given away from home?",
+        medicationId: 5,
+        scheduledSlotTime: "12:00",
+        scheduledDosage: 1,
+        expectation: { expectationId: 9, ymd: "2025-01-15" },
+      },
+    ])
+  })
+
+  it("ignores other people's expectations", () => {
+    expect(
+      buildPendingDoseExpectationIssues(person(), emptyFacts({ pendingDoseExpectations: [{ ...fact, personId: 2 }] })),
+    ).toEqual([])
+  })
+})
+
+describe("buildOpenSymptomIssues", () => {
+  const prompts = [
+    { symptomId: 1, personId: 1, label: "Headache", startYmd: "2026-10-02" },
+    { symptomId: 2, personId: 1, label: "Cough", startYmd: "2026-10-01" },
+    { symptomId: 3, personId: 2, label: "Rash", startYmd: "2026-10-01" },
+  ]
+
+  it("makes one notice per open symptom for that person only", () => {
+    const issues = buildOpenSymptomIssues(person({ id: 1 }), prompts)
+    expect(issues.map(i => i.symptom?.symptomId)).toEqual([1, 2])
+    expect(issues.every(i => i.kind === "symptom_open_pending" && i.severity === "notice")).toBe(true)
+    expect(issues[0]!.message).toBe("Headache — open since 2 Oct: still ongoing?")
+  })
+
+  it("makes none for a person with no open symptoms", () => {
+    expect(buildOpenSymptomIssues(person({ id: 9 }), prompts)).toEqual([])
   })
 })

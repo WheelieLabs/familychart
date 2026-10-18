@@ -3,10 +3,20 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import Link from "next/link"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
-import { mainContentTargetProps } from "@/lib/a11y"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import { Input, Select } from "@/components/ui/controls"
+import FormField from "@/components/ui/FormField"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
+import Panel from "@/components/ui/Panel"
+import { displayAccountActor } from "@/lib/account/removed-account-label"
+import { formatDateTime } from "@/lib/date-format"
+import { sqliteUtcToIso } from "@/lib/datetime"
+import { administrationTrail } from "@/lib/ui/breadcrumbs"
 
 interface AuditRow {
   id: number
@@ -27,15 +37,8 @@ interface AuditPage {
   entityTypes: string[]
 }
 
-function formatWhen(iso: string): string {
-  return new Date(iso).toLocaleString("en-AU", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  })
+function formatWhen(stored: string): string {
+  return formatDateTime(sqliteUtcToIso(stored), { seconds: true })
 }
 
 function formatDetails(raw: string | null): string {
@@ -109,150 +112,99 @@ export default function AdminAuditLogPage() {
   return (
     <div className="flex flex-col flex-1">
       <AppHeader title="Audit Log" />
-      <main {...mainContentTargetProps} className="fc-surface-admin fc-scroll p-3 flex flex-col gap-3">
-        <div className="rounded-xl bg-fc-panel px-4 py-3 text-sm text-gray-800 leading-relaxed">
-          Read-only trail of writes on this instance. Clinical measurement and dose values are not
-          stored here — see entity ids and metadata only.{" "}
-          <Link href="/admin/overview" className="underline font-medium text-fc-blue">
-            Back to Administration
-          </Link>
-        </div>
+      <PageContainer area="admin" trail={administrationTrail({ label: "Audit Log" })}>
+        <Banner kind="info">
+          Read-only trail of writes on this instance. Clinical measurement and dose values are not stored here — see entity ids and metadata only.
+        </Banner>
 
-        <form
-          onSubmit={applyFilters}
-          className="rounded-xl bg-white/10 px-4 py-3 flex flex-col gap-3"
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <label className="flex flex-col gap-1 text-sm text-white">
-              Actor email
-              <input
-                type="search"
-                value={draft.actor}
-                onChange={e => setDraft(d => ({ ...d, actor: e.target.value }))}
-                className="rounded-lg px-3 py-2 text-gray-900 bg-white"
-                placeholder="partial match"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-white">
-              Action
-              <select
-                value={draft.action}
-                onChange={e => setDraft(d => ({ ...d, action: e.target.value }))}
-                className="rounded-lg px-3 py-2 text-gray-900 bg-white"
-              >
+        <Panel as="form" onSubmit={applyFilters}>
+          <div className="fc-form-grid">
+            <FormField label="Actor email" hint="Partial match">
+              <Input type="search" value={draft.actor} onChange={e => setDraft(d => ({ ...d, actor: e.target.value }))} />
+            </FormField>
+            <FormField label="Action">
+              <Select value={draft.action} onChange={e => setDraft(d => ({ ...d, action: e.target.value }))}>
                 <option value="">All</option>
                 {(data?.actions ?? []).map(a => (
                   <option key={a} value={a}>{a}</option>
                 ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-white">
-              Entity
-              <select
-                value={draft.entity}
-                onChange={e => setDraft(d => ({ ...d, entity: e.target.value }))}
-                className="rounded-lg px-3 py-2 text-gray-900 bg-white"
-              >
+              </Select>
+            </FormField>
+            <FormField label="Entity">
+              <Select value={draft.entity} onChange={e => setDraft(d => ({ ...d, entity: e.target.value }))}>
                 <option value="">All</option>
                 {(data?.entityTypes ?? []).map(t => (
                   <option key={t} value={t}>{t}</option>
                 ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-white">
-              From
-              <input
-                type="date"
-                value={draft.from}
-                onChange={e => setDraft(d => ({ ...d, from: e.target.value }))}
-                className="rounded-lg px-3 py-2 text-gray-900 bg-white"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-white">
-              To
-              <input
-                type="date"
-                value={draft.to}
-                onChange={e => setDraft(d => ({ ...d, to: e.target.value }))}
-                className="rounded-lg px-3 py-2 text-gray-900 bg-white"
-              />
-            </label>
+              </Select>
+            </FormField>
+            <FormField label="From">
+              <Input type="date" value={draft.from} onChange={e => setDraft(d => ({ ...d, from: e.target.value }))} />
+            </FormField>
+            <FormField label="To">
+              <Input type="date" value={draft.to} onChange={e => setDraft(d => ({ ...d, to: e.target.value }))} />
+            </FormField>
           </div>
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="rounded-lg bg-fc-blue-mid hover:bg-fc-blue-dark text-white font-medium px-4 py-2 text-sm"
-            >
-              Apply filters
-            </button>
-            <button
-              type="button"
+          <div className="fc-form-actions">
+            <Button type="submit" size="compact">Apply filters</Button>
+            <Button
+              variant="secondary"
+              size="compact"
               onClick={() => {
                 setDraft(EMPTY_FILTERS)
                 setFilters(EMPTY_FILTERS)
                 setOffset(0)
               }}
-              className="rounded-lg bg-white/20 hover:bg-white/30 text-white font-medium px-4 py-2 text-sm"
             >
               Clear
-            </button>
+            </Button>
           </div>
-        </form>
+        </Panel>
 
-        {error && <p className="text-red-200 text-sm px-1">{error}</p>}
+        {error && <Banner kind="error">{error}</Banner>}
 
-        {loading && <p className="text-white text-center py-8">Loading…</p>}
+        {loading && <p className="fc-admin-note">Loading…</p>}
 
         {!loading && data && data.rows.length === 0 && (
-          <p className="text-white text-center py-8">No audit entries match these filters.</p>
+          <EmptyState icon={EMPTY_STATE_ICONS.noAuditEntries} heading="No entries">
+            No audit entries match these filters. Try widening them.
+          </EmptyState>
         )}
 
         {!loading && data && data.rows.length > 0 && (
           <>
-            <p className="text-white text-sm px-1">
+            <p className="fc-export-note">
               Showing {offset + 1}–{Math.min(offset + data.rows.length, total)} of {total}
             </p>
-            <ul className="flex flex-col gap-2">
+            <CardList>
               {data.rows.map(row => (
-                <li key={row.id} className="rounded-xl px-4 py-3 bg-white/10 text-white">
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm items-baseline">
-                    <span className="font-bold">{row.action}</span>
-                    <span className="text-white/90">{row.entity_type}</span>
-                    {row.entity_id != null && (
-                      <span className="text-white/80">#{row.entity_id}</span>
-                    )}
-                    <span className="text-white/80 ml-auto text-xs">{formatWhen(row.created_at)}</span>
-                  </div>
-                  <div className="text-sm mt-1 text-white/90">
-                    {row.user_email || <span className="italic text-white/70">system</span>}
-                  </div>
-                  <div className="text-xs mt-1 font-mono break-all text-white/80">
-                    {formatDetails(row.details)}
-                  </div>
-                </li>
+                <ListCard
+                  key={row.id}
+                  title={row.action}
+                  meta={[
+                    row.entity_id != null ? `${row.entity_type} #${row.entity_id}` : row.entity_type,
+                    displayAccountActor(row.user_email),
+                    formatWhen(row.created_at),
+                  ]}
+                  extras={<code className="fc-audit-details">{formatDetails(row.details)}</code>}
+                />
               ))}
-            </ul>
-            <div className="flex gap-2 justify-center pb-2">
-              <button
-                type="button"
-                disabled={!canPrev}
-                onClick={() => setOffset(o => Math.max(0, o - limit))}
-                className="rounded-lg bg-white/20 hover:bg-white/30 disabled:opacity-40 text-white px-4 py-2 text-sm"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                disabled={!canNext}
-                onClick={() => setOffset(o => o + limit)}
-                className="rounded-lg bg-white/20 hover:bg-white/30 disabled:opacity-40 text-white px-4 py-2 text-sm"
-              >
-                Next
-              </button>
+            </CardList>
+            <div className="fc-form-actions">
+              {canPrev && (
+                <Button variant="secondary" size="compact" onClick={() => setOffset(o => Math.max(0, o - limit))}>
+                  Previous
+                </Button>
+              )}
+              {canNext && (
+                <Button variant="secondary" size="compact" onClick={() => setOffset(o => o + limit)}>
+                  Next
+                </Button>
+              )}
             </div>
           </>
         )}
-      </main>
+      </PageContainer>
       <AppFooter />
     </div>
   )

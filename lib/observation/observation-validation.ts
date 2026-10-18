@@ -11,6 +11,7 @@ export interface ObservationWriteInput {
 export function validateObservationWrite(
   db: Database.Database,
   input: ObservationWriteInput,
+  options?: { requireActive?: boolean },
 ): { ok: true; observationType: string; value: number } | { ok: false; error: string } {
   const observationType =
     typeof input.observation_type === "string" ? input.observation_type.trim() : ""
@@ -19,7 +20,15 @@ export function validateObservationWrite(
   }
 
   const config = findObservationTypeConfig(db, observationType)
-  if (!config || !config.is_active) {
+  // Restore writes history for a type the household has switched off, so activity is optional.
+  // A type that is not in the catalogue at all stays an error either way.
+  if (!config) {
+    return {
+      ok: false,
+      error: options?.requireActive === false ? "Unknown observation type" : "Unknown or inactive observation type",
+    }
+  }
+  if (!config.is_active && options?.requireActive !== false) {
     return { ok: false, error: "Unknown or inactive observation type" }
   }
 

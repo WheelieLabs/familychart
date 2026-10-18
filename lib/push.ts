@@ -9,6 +9,7 @@ import {
   createPushHttpsAgent,
   PUSH_REQUEST_TIMEOUT_MS,
 } from "@/lib/push/push-endpoint-validation"
+import { medicationReminderTag } from "@/lib/push/notification-tags"
 import { pushSubscriberStillAuthorised } from "@/lib/push/push-subscriptions"
 import { getVapidConfig } from "@/lib/vapid-config"
 
@@ -33,6 +34,10 @@ export interface PushPayload {
   requireInteraction?: boolean
   /** Notification action buttons (handled in public/sw-push.js). */
   actions?: { action: string; title: string }[]
+  /** Show without sound or vibration (a quiet in-place replacement). */
+  silent?: boolean
+  /** Ask the service worker to close this notification after this many milliseconds. */
+  closeAfterMs?: number
   data?: Record<string, unknown>
 }
 
@@ -182,7 +187,14 @@ export function resolveSubscribersForPerson(
   db: Database.Database,
   personId: number,
   notifyFields: NotifyField | NotifyField[],
-  opts?: { excludeUserUids?: string[]; linkedAccountOnly?: boolean },
+  opts?: {
+    excludeUserUids?: string[]
+    linkedAccountOnly?: boolean
+    /** Restrict to these Accounts (the recorder's own devices). */
+    onlyUserUids?: string[]
+    /** Skip these devices, by push endpoint (the device that made the change). */
+    excludeEndpoints?: string[]
+  },
 ): PushEndpointWithUser[] {
   const fields = (Array.isArray(notifyFields) ? notifyFields : [notifyFields]).map(
     f => NOTIFY_FIELD_COLUMNS[f],
@@ -206,8 +218,16 @@ export function resolveSubscribersForPerson(
        )`
     : ""
 
+  const onlyIds = (opts?.onlyUserUids ?? []).map(u => u.trim()).filter(Boolean)
+  if (opts?.onlyUserUids && onlyIds.length === 0) return []
+  const onlyClause = onlyIds.length > 0 ? `AND pe.user_uid IN (${onlyIds.map(() => "?").join(", ")})` : ""
+  const excludeEndpoints = (opts?.excludeEndpoints ?? []).filter(Boolean)
+  const endpointClause =
+    excludeEndpoints.length > 0 ? `AND pe.endpoint NOT IN (${excludeEndpoints.map(() => "?").join(", ")})` : ""
+
   const params: (string | number)[] = [personId, ...excludeIds]
   if (opts?.linkedAccountOnly) params.push(personId)
+  params.push(...onlyIds, ...excludeEndpoints)
 
   const rows = db
     .prepare(
@@ -217,7 +237,9 @@ export function resolveSubscribersForPerson(
        WHERE pnp.person_id = ?
          AND (${notifyClause})
          AND ${excludeClause}
-         ${linkedFilter}`,
+         ${linkedFilter}
+         ${onlyClause}
+         ${endpointClause}`,
     )
     .all(...params) as PushEndpointWithUser[]
 
@@ -225,7 +247,7 @@ export function resolveSubscribersForPerson(
 }
 
 /** Inserts push_log entry. Returns true if inserted (first send), false if already exists. */
-function markSent(db: Database.Database, refKey: string): boolean {
+export function markSent(db: Database.Database, refKey: string): boolean {
   try {
     db.prepare("INSERT INTO push_log (ref_key) VALUES (?)").run(refKey)
     return true
@@ -252,6 +274,10 @@ export async function dispatchPersonPush(
     skipIfAlreadySent?: boolean
     excludeUserUids?: string[]
     linkedAccountOnly?: boolean
+    onlyUserUids?: string[]
+    excludeEndpoints?: string[]
+    /** False for quiet replacements that should not appear in the notification history. */
+    writeLog?: boolean
   },
 ): Promise<{ sent: number; errors: string[] }> {
   let claimedRefKey = false
@@ -269,21 +295,38 @@ export async function dispatchPersonPush(
     claimedRefKey = true
   }
 
-  const endpoints = resolveSubscribersForPerson(db, opts.personId, opts.notifyFields, {
-    excludeUserUids: opts.excludeUserUids,
-    linkedAccountOnly: opts.linkedAccountOnly,
-  })
-  if (endpoints.length === 0) {
+  const releaseClaim = () => {
     if (claimedRefKey && opts.refKey) {
       db.prepare("DELETE FROM push_log WHERE ref_key = ?").run(opts.refKey)
     }
-    return { sent: 0, errors: [] }
   }
 
-  return sendAndLogPush(db, endpoints, opts.payload, {
-    personId: opts.personId,
-    type: opts.type,
-  })
+  try {
+    const endpoints = resolveSubscribersForPerson(db, opts.personId, opts.notifyFields, {
+      excludeUserUids: opts.excludeUserUids,
+      linkedAccountOnly: opts.linkedAccountOnly,
+      onlyUserUids: opts.onlyUserUids,
+      excludeEndpoints: opts.excludeEndpoints,
+    })
+    if (endpoints.length === 0) {
+      releaseClaim()
+      return { sent: 0, errors: [] }
+    }
+
+    const result = await sendAndLogPush(
+      db,
+      endpoints,
+      opts.payload,
+      opts.writeLog === false ? undefined : { personId: opts.personId, type: opts.type },
+    )
+    // Every endpoint failed transiently: nobody got it, so release the claim and let the
+    // next tick retry. Keep it if at least one endpoint received it (no duplicate sends).
+    if (result.sent === 0 && result.errors.length > 0) releaseClaim()
+    return result
+  } catch (err) {
+    releaseClaim()
+    throw err
+  }
 }
 
 export function getNotificationLogForUser(
@@ -321,6 +364,42 @@ export function getNotificationLogForUser(
   return { rows, nextCursor }
 }
 
+/** "8:10 am" in the recorder's local time. tzOffsetMinutes is getTimezoneOffset() (negative for UTC+ zones). */
+function acknowledgementTime(recordedAt: string, tzOffsetMinutes: number): string {
+  const localMs = new Date(recordedAt).getTime() - tzOffsetMinutes * 60_000
+  const d = new Date(localMs)
+  const h = d.getUTCHours()
+  const m = d.getUTCMinutes()
+  const ampm = h >= 12 ? "pm" : "am"
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`
+}
+
+/** "<who> gave <Person>'s <medication> at <time>", replacing the dose reminder on the same tag. */
+function buildAcknowledgementPayload(opts: {
+  who: string
+  personId: number
+  medicationId: number
+  personName: string
+  medicationName: string
+  recordedAt: string
+  tzOffsetMinutes: number
+}): PushPayload {
+  const timeStr = acknowledgementTime(opts.recordedAt, opts.tzOffsetMinutes)
+  return {
+    title: "Medication given",
+    body: `${opts.who} gave ${opts.personName}'s ${opts.medicationName} at ${timeStr}`,
+    icon: "/icons/icon-192.png",
+    badge: "/icons/badge-72.png",
+    tag: medicationReminderTag(opts.personId, opts.medicationId),
+    requireInteraction: false,
+    data: {
+      url: `/${opts.personId}/history`,
+      type: "acknowledgement",
+    },
+  }
+}
+
 export async function sendMedicationAcknowledgementPushes(
   db: Database.Database,
   personId: number,
@@ -332,28 +411,15 @@ export async function sendMedicationAcknowledgementPushes(
   recordedAt: string,
   tzOffsetMinutes: number = 0,
 ): Promise<void> {
-  // Convert UTC timestamp to recorder's local time using their timezone offset.
-  // tzOffsetMinutes = getTimezoneOffset() (negative for UTC+ zones, e.g. BST = -60).
-  const localMs = new Date(recordedAt).getTime() - tzOffsetMinutes * 60_000
-  const d = new Date(localMs)
-  const h = d.getUTCHours()
-  const m = d.getUTCMinutes()
-  const ampm = h >= 12 ? "pm" : "am"
-  const h12 = h % 12 || 12
-  const timeStr = `${h12}:${String(m).padStart(2, "0")} ${ampm}`
-
-  const payload: PushPayload = {
-    title: "Medication given",
-    body: `${recorderName} gave ${personName}'s ${medicationName} at ${timeStr}`,
-    icon: "/icons/icon-192.png",
-    badge: "/icons/badge-72.png",
-    tag: `medication-reminder-${personId}-${medicationId}`,
-    requireInteraction: false,
-    data: {
-      url: `/${personId}/history`,
-      type: "acknowledgement",
-    },
-  }
+  const payload = buildAcknowledgementPayload({
+    who: recorderName,
+    personId,
+    medicationId,
+    personName,
+    medicationName,
+    recordedAt,
+    tzOffsetMinutes,
+  })
 
   dispatchPersonPush(db, {
     personId,
@@ -362,4 +428,41 @@ export async function sendMedicationAcknowledgementPushes(
     type: "acknowledgement",
     excludeUserUids: recordedByUserIds,
   }).catch(err => logger.error("[push] acknowledgement push failed:", err))
+}
+
+/**
+ * The recorder's other devices get "You gave…" in place of the reminder they are still showing. The
+ * recording device is skipped (it closes its own notification by tag); when it is unknown every
+ * device of the recorder gets the replacement. Other Accounts are not sent this one: they keep the
+ * "<name> gave…" acknowledgement above.
+ */
+export async function sendSelfDoseAcknowledgementPushes(
+  db: Database.Database,
+  opts: {
+    personId: number
+    medicationId: number
+    recorderUserUids: string[]
+    recordingEndpoint: string | null
+    personName: string
+    medicationName: string
+    recordedAt: string
+    tzOffsetMinutes?: number
+  },
+): Promise<{ sent: number; errors: string[] }> {
+  return dispatchPersonPush(db, {
+    personId: opts.personId,
+    notifyFields: ["notify_prn", "notify_prescribed", "notify_overdue"],
+    payload: buildAcknowledgementPayload({
+      who: "You",
+      personId: opts.personId,
+      medicationId: opts.medicationId,
+      personName: opts.personName,
+      medicationName: opts.medicationName,
+      recordedAt: opts.recordedAt,
+      tzOffsetMinutes: opts.tzOffsetMinutes ?? 0,
+    }),
+    type: "acknowledgement",
+    onlyUserUids: opts.recorderUserUids,
+    excludeEndpoints: opts.recordingEndpoint ? [opts.recordingEndpoint] : undefined,
+  })
 }

@@ -18,7 +18,8 @@ import { vi } from "vitest"
 let testDb: Database.Database
 let sessionOverride: {
   user: { id: string; email: string; groups: string[]; entraOid?: string }
-  entraAuthAt?: number
+  entraAuthTime?: number
+  localAuthAt?: number
 }
 
 vi.mock("@/lib/auth/auth-helpers", () => ({
@@ -62,14 +63,17 @@ function insertAccount(overrides: { password?: string } = {}): { id: number; pas
   return { id: info.lastInsertRowid as number, password }
 }
 
-function asLocalSession(localId: number): void {
-  sessionOverride = { user: { id: formatLocalAccountUid(localId), email: "a@example.com", groups: [] } }
+function asLocalSession(localId: number, localAuthAt?: number): void {
+  sessionOverride = {
+    user: { id: formatLocalAccountUid(localId), email: "a@example.com", groups: [] },
+    localAuthAt,
+  }
 }
 
-function asEntraSession(entraAuthAt: number | undefined): void {
+function asEntraSession(entraAuthTime: number | undefined): void {
   sessionOverride = {
     user: { id: "entra-oid-123", email: "e@example.com", groups: [], entraOid: "entra-oid-123" },
-    entraAuthAt,
+    entraAuthTime,
   }
 }
 
@@ -144,6 +148,60 @@ describe("POST /api/me/app-lock/reauth-grant", () => {
     const { POST } = await import("@/app/api/me/app-lock/reauth-grant/route")
     const res = await POST(postJson("/api/me/app-lock/reauth-grant", {}))
     expect(res.status).toBe(401)
+  })
+})
+
+describe("POST /api/me/app-lock/reauth-grant with recentSignIn", () => {
+  async function grant(body: Record<string, unknown>) {
+    const { POST } = await import("@/app/api/me/app-lock/reauth-grant/route")
+    return POST(postJson("/api/me/app-lock/reauth-grant", body))
+  }
+
+  it("grants a local Account that password-signed-in inside the window, with no password", async () => {
+    const { id } = insertAccount()
+    asLocalSession(id, Date.now() - 30_000)
+    const res = await grant({ recentSignIn: true })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ granted: true })
+    expect(auditRows()).toEqual([{ action: "AUTH_SUCCESS", entity_type: "accounts" }])
+  })
+
+  it("refuses a stale sign-in and tells the client to enter the password", async () => {
+    const { id } = insertAccount()
+    asLocalSession(id, Date.now() - ENTRA_APP_LOCK_REAUTH_MAX_AGE_MS - 1)
+    const res = await grant({ recentSignIn: true })
+    expect(res.status).toBe(401)
+    expect((await res.json()).error).toMatch(/password/)
+    expect(auditRows()).toEqual([])
+  })
+
+  it("refuses a session with no sign-in stamp (created before this deploy)", async () => {
+    const { id } = insertAccount()
+    asLocalSession(id, undefined)
+    expect((await grant({ recentSignIn: true })).status).toBe(401)
+  })
+
+  it("refuses a future-dated or non-finite stamp", async () => {
+    const { id } = insertAccount()
+    asLocalSession(id, Date.now() + 60_000)
+    expect((await grant({ recentSignIn: true })).status).toBe(401)
+    asLocalSession(id, Number.NaN)
+    expect((await grant({ recentSignIn: true })).status).toBe(401)
+  })
+
+  it("still verifies a supplied password even when the sign-in is stale", async () => {
+    const { id } = insertAccount()
+    asLocalSession(id, undefined)
+    const res = await grant({ recentSignIn: true, password: "wrong" })
+    expect(res.status).toBe(401)
+    expect(auditRows()).toEqual([{ action: "AUTH_FAILURE", entity_type: "accounts" }])
+  })
+
+  it("ignores recentSignIn for Entra; the auth_time path decides", async () => {
+    asEntraSession(Date.now())
+    expect((await grant({ recentSignIn: true })).status).toBe(200)
+    asEntraSession(Date.now() - ENTRA_APP_LOCK_REAUTH_MAX_AGE_MS - 1)
+    expect((await grant({ recentSignIn: true })).status).toBe(401)
   })
 })
 

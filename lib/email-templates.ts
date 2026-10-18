@@ -153,3 +153,17 @@ export function testEmailHtml({ statusLine }: { statusLine: string }): string {
     footerHtml: footerBrandOnly(),
   })
 }
+
+/** The Admin fallback for the Entra revalidation warning. Carries no personal data; `pageUrl` opens the fix page. */
+export function entraRevalidationGapEmailHtml({ paragraphs, pageUrl }: { paragraphs: string[]; pageUrl: string }): string {
+  const paragraphStyle = `margin:0 0 16px;font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.6;color:${COLORS.body}`
+  const bodyHtml = `${paragraphs.map(p => `<p style="${paragraphStyle}">${escapeHtml(p)}</p>`).join("\n    ")}
+    ${ctaButton("Open Entra Sessions", escapeHtml(pageUrl))}`
+
+  return shell({
+    heroHeading: "Entra group data is not being rechecked",
+    heroBody: "",
+    bodyHtml,
+    footerHtml: footerLinkFallback(escapeHtml(pageUrl)),
+  })
+}

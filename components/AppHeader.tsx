@@ -2,11 +2,10 @@
 
 "use client"
 
-import Link from "next/link"
 import { signOut } from "next-auth/react"
-import BackButton from "@/components/BackButton"
 import QuickRecordSheet from "@/components/QuickRecordSheet"
-import { clearLegacyBiometricCredentialId } from "@/lib/webauthn-app-lock"
+import IconButton from "@/components/ui/IconButton"
+import { MenuAction, MenuLink, MenuPanel } from "@/components/ui/Menu"
 import { useState, useEffect, useRef } from "react"
 
 interface AppHeaderProps {
@@ -82,89 +81,61 @@ export default function AppHeader({ title, minimal = false }: AppHeaderProps) {
 
   return (
     <>
-    <header className="bg-fc-header px-4 py-3 flex items-center justify-between shrink-0 relative sticky top-0 z-10">
+    <header className="fc-header">
       {fullChrome ? (
         <nav ref={menuRef} aria-label="Primary">
-          <button onClick={() => setMenuOpen(v => !v)}
-            className="p-1 rounded-lg hover:bg-black/10 active:bg-black/20 transition-colors"
-            aria-label="Menu"
-            aria-expanded={menuOpen}>
+          <IconButton label="Menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(v => !v)}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-              <path d="M3 6h18M3 12h18M3 18h18" stroke="#374151" strokeWidth="2.5" strokeLinecap="round"/>
+              <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
             </svg>
-          </button>
+          </IconButton>
 
           {menuOpen && (
-            <div className="absolute top-14 left-3 z-50 bg-white rounded-2xl shadow-2xl
-                            border border-gray-200 overflow-hidden min-w-48">
-              <Link href="/" onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 px-5 py-4 hover:bg-fc-panel
-                           text-gray-800 font-semibold text-base border-b border-gray-100">
-                <span className="text-xl">🏠</span> Home
-              </Link>
-              <Link href="/profile" onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 px-5 py-4 hover:bg-fc-panel
-                           text-gray-800 font-semibold text-base border-b border-gray-100">
-                <span className="text-xl">👤</span> Profile
-              </Link>
-              <Link href="/favourites" onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 px-5 py-4 hover:bg-fc-panel
-                           text-gray-800 font-semibold text-base border-b border-gray-100">
-                <span className="text-xl">⭐</span> Favourites
-              </Link>
+            <MenuPanel>
+              <MenuLink href="/" icon="🏠" onNavigate={() => setMenuOpen(false)}>Home</MenuLink>
+              <MenuLink href="/profile" icon="👤" onNavigate={() => setMenuOpen(false)}>Profile</MenuLink>
+              <MenuLink href="/favourites" icon="⭐" onNavigate={() => setMenuOpen(false)}>Favourites</MenuLink>
               {showManagementLink && (
-                <Link href="/management" onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-3 px-5 py-4 hover:bg-fc-panel
-                             text-gray-800 font-semibold text-base border-b border-gray-100">
-                  <span className="text-xl">⚙️</span> Management
-                </Link>
+                <MenuLink href="/management" icon="⚙️" onNavigate={() => setMenuOpen(false)}>Management</MenuLink>
               )}
               {isAdminUser && (
-                <Link href="/admin" onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-3 px-5 py-4 hover:bg-fc-panel
-                             text-gray-800 font-semibold text-base border-b border-gray-100">
-                  <span className="text-xl">🔐</span> Admin
-                </Link>
+                <MenuLink href="/admin" icon="🔐" onNavigate={() => setMenuOpen(false)}>Administration</MenuLink>
               )}
-              <button onClick={() => {
-                setMenuOpen(false)
-                // Per-account credentials stay so the same user does not re-enrol on every
-                // login. Drop the legacy device-wide key so a previous enrollee cannot unlock
-                // the next account on this device.
-                clearLegacyBiometricCredentialId(localStorage)
-                signOut({ callbackUrl: "/login" })
-              }}
-                className="w-full flex items-center gap-3 px-5 py-4 hover:bg-red-50
-                           text-red-600 font-semibold text-base">
-                <span className="text-xl">🚪</span> Sign Out
-              </button>
-            </div>
+              {isAdminUser && (
+                <MenuLink href="/admin/export" icon="📦" onNavigate={() => setMenuOpen(false)}>Data Export & Restore</MenuLink>
+              )}
+              <MenuAction
+                icon="🚪"
+                destructive
+                onClick={() => {
+                  setMenuOpen(false)
+                  signOut({ callbackUrl: "/login" })
+                }}
+              >
+                Sign out
+              </MenuAction>
+            </MenuPanel>
           )}
         </nav>
       ) : (
         <div className="w-9" aria-hidden="true" />
       )}
 
-      <h1 className="text-2xl font-bold text-gray-800 absolute left-1/2 -translate-x-1/2">
+      <h1 className="fc-header__title" title={title}>
         {title}
       </h1>
 
-      <div className="flex items-center gap-1">
+      <div className="fc-header__right">
         {fullChrome && (
-          <button
-            type="button"
-            onClick={() => setSheetOpen(v => !v)}
-            aria-label="Quick record"
-            aria-expanded={sheetOpen}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg
-                       hover:bg-black/10 active:bg-black/20 transition-colors text-gray-700"
-          >
-            <span className="text-base">⭐</span>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-                 className={`transition-transform duration-200 ${sheetOpen ? "rotate-180" : ""}`}>
-              <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+          <IconButton label="Quick record" aria-expanded={sheetOpen} onClick={() => setSheetOpen(v => !v)}>
+            <span className="inline-flex items-center gap-1">
+              <span className="text-base">⭐</span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                   className={`transition-transform duration-200 ${sheetOpen ? "rotate-180" : ""}`}>
+                <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </span>
+          </IconButton>
         )}
         <FamilyChartLogo />
       </div>
@@ -180,14 +151,12 @@ interface PersonHeaderProps {
   name: string
   photoUrl?: string | null
   color?: string
-  /** When set, shows a back chevron on the person bar (person-scoped pages only). */
-  backHref?: string
 }
 
-export function PersonHeader({ name, photoUrl, color = "#256AA5", backHref }: PersonHeaderProps) {
+export function PersonHeader({ name, photoUrl, color = "#256AA5" }: PersonHeaderProps) {
   const initials = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)
   return (
-    <div className="bg-fc-blue px-4 py-4 flex items-start gap-4">
+    <div className="bg-fc-blue px-4 py-1 flex items-center gap-4">
       <div className="w-16 h-16 rounded-full border-[3px] border-fc-ring flex items-center
                       justify-center overflow-hidden shrink-0"
            style={{ backgroundColor: color }}>
@@ -198,7 +167,6 @@ export function PersonHeader({ name, photoUrl, color = "#256AA5", backHref }: Pe
         }
       </div>
       <span className="text-white font-bold text-2xl flex-1">{name}</span>
-      {backHref && <BackButton href={backHref} className="shrink-0" />}
     </div>
   )
 }

@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest"
-import { addCalendarDaysToIsoYmd, dayQualifierForYmd, ianaLocalYmdHmToUtcMs, localCalendarYmdHmToUtcMs, localDateToIsoYmd } from "@/lib/datetime"
+import {
+  addCalendarDaysToIsoYmd,
+  dayQualifierForYmd,
+  deviceZoneDiffersFrom,
+  ianaLocalYmdHmToUtcMs,
+  instantToZonedYmdHm,
+  localCalendarYmdHmToUtcMs,
+  localDateAndTimeToUtcIso,
+  localDateToIsoYmd,
+  sqliteUtcToIso,
+  zonedTodayYmd,
+} from "@/lib/datetime"
+import { setDisplayTimeZone } from "@/lib/display-time-zone"
 
 describe("dayQualifierForYmd", () => {
   it("returns null for same-day", () => {
@@ -68,5 +80,84 @@ describe("ianaLocalYmdHmToUtcMs", () => {
     expect(new Date(startMs).toISOString()).toBe("2024-10-05T14:00:00.000Z")
     expect(new Date(endMs).toISOString()).toBe("2024-10-06T13:00:00.000Z")
     expect(endMs - startMs).toBe(23 * 60 * 60 * 1000)
+  })
+})
+
+describe("entry in the instance timezone", () => {
+  it("reads a typed date and time in the given zone, whatever the device zone is", () => {
+    expect(localDateAndTimeToUtcIso("2026-10-09", "23:03", "Australia/Sydney")).toBe("2026-10-09T12:03:00.000Z")
+    expect(localDateAndTimeToUtcIso("2026-10-09", "23:03", "Europe/London")).toBe("2026-10-09T22:03:00.000Z")
+    expect(localDateAndTimeToUtcIso("2026-01-09", "23:03", "America/New_York")).toBe("2026-01-10T04:03:00.000Z")
+  })
+
+  it("defaults to the display timezone", () => {
+    setDisplayTimeZone("Australia/Perth")
+    try {
+      expect(localDateAndTimeToUtcIso("2026-10-09", "08:00")).toBe("2026-10-09T00:00:00.000Z")
+    } finally {
+      setDisplayTimeZone("UTC")
+    }
+  })
+
+  it("uses the offset in force on the day across a spring-forward edge", () => {
+    expect(localDateAndTimeToUtcIso("2026-10-03", "12:00", "Australia/Sydney")).toBe("2026-10-03T02:00:00.000Z")
+    expect(localDateAndTimeToUtcIso("2026-10-05", "12:00", "Australia/Sydney")).toBe("2026-10-05T01:00:00.000Z")
+  })
+
+  it("resolves a time inside the spring-forward gap to a real instant that reads back after the gap", () => {
+    const iso = localDateAndTimeToUtcIso("2026-10-04", "02:30", "Australia/Sydney")
+    const back = instantToZonedYmdHm(iso, "Australia/Sydney")
+    expect(back.date).toBe("2026-10-04")
+    expect(["03:30", "01:30"]).toContain(back.time)
+  })
+
+  it("takes the first occurrence of a repeated autumn time", () => {
+    const iso = localDateAndTimeToUtcIso("2026-04-05", "02:30", "Australia/Sydney")
+    expect(["2026-04-04T15:30:00.000Z", "2026-04-04T16:30:00.000Z"]).toContain(iso)
+    expect(instantToZonedYmdHm(iso, "Australia/Sydney")).toEqual({ date: "2026-04-05", time: "02:30" })
+  })
+
+  it("rejects an invalid date or time", () => {
+    expect(() => localDateAndTimeToUtcIso("not-a-date", "12:00", "UTC")).toThrow()
+    expect(() => localDateAndTimeToUtcIso("2026-10-09", "25:00", "UTC")).toThrow()
+  })
+})
+
+describe("display of an instant on the instance wall clock", () => {
+  it("round-trips with entry", () => {
+    for (const tz of ["Australia/Sydney", "Europe/London", "America/Los_Angeles", "Asia/Kolkata"]) {
+      const iso = localDateAndTimeToUtcIso("2026-07-15", "07:05", tz)
+      expect(instantToZonedYmdHm(iso, tz)).toEqual({ date: "2026-07-15", time: "07:05" })
+    }
+  })
+
+  it("can move the calendar day relative to UTC", () => {
+    expect(instantToZonedYmdHm("2026-10-09T15:30:00.000Z", "Australia/Sydney")).toEqual({ date: "2026-10-10", time: "02:30" })
+  })
+
+  it("gives today in the zone, not the device", () => {
+    const now = Date.parse("2026-10-09T15:30:00Z")
+    expect(zonedTodayYmd(now, "Australia/Sydney")).toBe("2026-10-10")
+    expect(zonedTodayYmd(now, "America/Los_Angeles")).toBe("2026-10-09")
+  })
+})
+
+describe("deviceZoneDiffersFrom", () => {
+  it("compares the device offset with the zone's offset at that instant", () => {
+    const now = Date.parse("2026-10-09T12:00:00Z")
+    const deviceOffset = new Date(now).getTimezoneOffset()
+    expect(deviceZoneDiffersFrom("UTC", now)).toBe(deviceOffset !== 0)
+    expect(deviceZoneDiffersFrom("Pacific/Kiritimati", now)).toBe(deviceOffset !== -840)
+  })
+})
+
+describe("sqliteUtcToIso", () => {
+  it("reads a CURRENT_TIMESTAMP value as UTC, not in the device's zone", () => {
+    expect(sqliteUtcToIso("2026-10-09 12:30:05")).toBe("2026-10-09T12:30:05Z")
+    expect(new Date(sqliteUtcToIso("2026-10-09 12:30:05")).toISOString()).toBe("2026-10-09T12:30:05.000Z")
+  })
+
+  it("leaves an ISO instant alone", () => {
+    expect(sqliteUtcToIso("2026-10-09T12:30:05.000Z")).toBe("2026-10-09T12:30:05.000Z")
   })
 })

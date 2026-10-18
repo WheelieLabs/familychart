@@ -4,20 +4,7 @@ import { describe, expect, it } from "vitest"
 import {
   applyKeysetPage,
   daysAgo,
-  fmtAU,
 } from "@/lib/medication/medication-history"
-
-describe("fmtAU", () => {
-  it("formats a local afternoon timestamp as D Mon YYYY h:mm AM/PM", () => {
-    const iso = new Date(2024, 0, 5, 14, 5, 0).toISOString()
-    expect(fmtAU(iso)).toBe("5 Jan 2024 2:05 PM")
-  })
-
-  it("uses 12 for midnight and noon", () => {
-    expect(fmtAU(new Date(2024, 5, 15, 0, 0, 0).toISOString())).toBe("15 Jun 2024 12:00 AM")
-    expect(fmtAU(new Date(2024, 5, 15, 12, 0, 0).toISOString())).toBe("15 Jun 2024 12:00 PM")
-  })
-})
 
 describe("daysAgo", () => {
   it("subtracts whole calendar days from an ISO local date", () => {

@@ -2,28 +2,51 @@
 
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react"
-import { useParams } from "next/navigation"
-import AppHeader from "@/components/AppHeader"
+import AttachmentLink from "@/components/AttachmentViewer"
+import { Suspense, useState, useEffect, useMemo, useRef } from "react"
+import { useParams, useSearchParams, useRouter } from "next/navigation"
+import Link from "next/link"
+import AppHeader, { PersonHeader } from "@/components/AppHeader"
+import type { Crumb } from "@/lib/ui/breadcrumbs"
 import AppFooter from "@/components/AppFooter"
-import { FcTabBar, type FcTabItem } from "@/components/FcTabBar"
-import { PersonHeader } from "@/components/AppHeader"
+import { FcTabBar, type FcTabItem } from "@/components/ui/FcTabBar"
 import LineChart from "@/components/LineChart"
 import HydrationBarChart from "@/components/HydrationBarChart"
 import ConfirmModal, { confirmCopy, type ConfirmVariant } from "@/components/ConfirmModal"
-import { EntityRowDeleteButton, EntityRowEditButton } from "@/components/EntityRowActions"
+import HistoryCalendar from "@/components/history/HistoryCalendar"
+import {
+  AdministeredByBadge,
+  BpEditForm,
+  FeedKindChips,
+  FlagBadge,
+  MedEditForm,
+  MissedDoseCard,
+  ObsEditForm,
+  RangeFields,
+  RecordTable,
+  type BpDraft,
+  type MedDraft,
+  type ObsDraft,
+} from "@/components/history/history-parts"
+import Badge from "@/components/ui/Badge"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { ChipGroup } from "@/components/ui/Chip"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import EntityRowActions from "@/components/ui/EntityRowActions"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
 import type { ObservationGoal, ObservationTypeConfig, Person } from "@/lib/domain-types"
-import { addCalendarDaysToIsoYmd, localDateToIsoYmd } from "@/lib/datetime"
+import { addCalendarDaysToIsoYmd, instantToZonedYmdHm, localDateAndTimeToUtcIso, zonedTodayYmd } from "@/lib/datetime"
+import { formatDate, formatDateTime, formatRange, formatTime } from "@/lib/date-format"
 import { formatStaleThresholdHours, isStaleReading } from "@/lib/observation/observation-staleness"
 import { formatHydration } from "@/lib/format"
 import { dashboardScheduleHeaders } from "@/lib/dashboard/dashboard-client-context"
-import { mainContentTargetProps } from "@/lib/a11y"
 import type { MeasurementSystem } from "@/lib/settings/registry"
-import { groupBpRows } from "@/lib/blood-pressure-pairing"
-import { MEDICATION_DOSAGE_UNITS } from "@/lib/medication/medication-units"
+import type { MedicationAdministeredBy } from "@/lib/medication/medication-administered-by"
 import { OBSERVATION_UI_TYPES } from "@/lib/observation/observation-types"
 import {
-  fmtAU as fmtMedAU,
+  mergeMissedIntoRecords,
   useMedicationHistory,
   type MedRecord,
 } from "@/lib/medication/medication-history"
@@ -32,50 +55,33 @@ import {
   chartSeriesForObs,
   convertGoalValue,
   displayObsValue,
-  fmtAU as fmtObsAU,
   formatBpSingle,
   isPaginatedObsType,
-  observationHasChart,
   OBS_HISTORY_CHART_TYPES,
   useObservationHistory,
   type BpDetailRow,
   type ObsRecord,
   type ObsSummary,
 } from "@/lib/observation/observation-history"
-
-type MergedDateItem =
-  | { kind: "med"; entry: MedDateEntry }
-  | { kind: "obs"; entry: ObsDateEntry }
-  | {
-      kind: "bp_pair"
-      sys: ObsRecord
-      dia: ObsRecord
-      recorded_at: string
-      comments: string | null
-    }
-
-type MedDateEntry = MedRecord & { _type: "med" }
-type ObsDateEntry = ObsRecord & { _type: "obs" }
-type DateEntry = MedDateEntry | ObsDateEntry
-
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-
-function fmtTimeAU(iso: string): string {
-  const d = new Date(iso)
-  const h = d.getHours()
-  const hour = h % 12 || 12
-  return `${hour}:${d.getMinutes().toString().padStart(2,"0")} ${h >= 12 ? "PM" : "AM"}`
-}
-
-function fmtDateLabel(iso: string): string {
-  const d = new Date(iso)
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
-}
-
-function dateKey(iso: string): string {
-  const d = new Date(iso)
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
-}
+import { useHistoryFeed } from "@/lib/history/use-history-feed"
+import { saveLinkDelta } from "@/components/LinkedItemsEditor"
+import { DoseSymptomChip, SymptomDoseChip } from "@/components/LinkChips"
+import { EMPTY_LINK_DELTA, groupLinksBy, type LinkDelta } from "@/lib/symptoms/link-editing"
+import type { PersonLink } from "@/lib/symptoms/symptom-dose-link-types"
+import { useRecordSummaries } from "@/lib/history/use-record-summaries"
+import { parseSummaryRecord, summaryListUrl, summaryRecordUrl, type SummaryKind } from "@/lib/history/summary-selection"
+import type { SymptomEventSummary } from "@/lib/symptoms/symptom-history"
+import type { TestResultSummary } from "@/lib/test-results/test-result-history"
+import {
+  summariseSymptoms,
+  summariseTestResults,
+  symptomsForKey,
+  testResultsForKey,
+} from "@/lib/history/record-summaries"
+import { isWithinTimelineWindow } from "@/lib/medication/medication-timeline"
+import { feedChipKind, feedRowTimeText, medicationFlag, orderDayPanelRows, toFeedRows, type FeedRow, type FeedChipKind } from "@/lib/history/feed"
+import { formatSlotHhmm } from "@/lib/medication/dose-timing-display"
+import { monthBounds, shiftMonth, buildCalendarGrid, feedRowLocalYmd, symptomSpan } from "@/lib/history/calendar-grid"
 
 function daysAgo(n: number, fromYmd: string): string {
   return addCalendarDaysToIsoYmd(fromYmd, -n)
@@ -83,10 +89,10 @@ function daysAgo(n: number, fromYmd: string): string {
 
 /** Refreshes on tab focus/visibility so end-date defaults stay current across midnight. */
 function useRefreshingLocalToday(): string {
-  const [today, setToday] = useState(() => localDateToIsoYmd(new Date()))
+  const [today, setToday] = useState(() => zonedTodayYmd())
   useEffect(() => {
     const bump = () => {
-      const next = localDateToIsoYmd(new Date())
+      const next = zonedTodayYmd()
       setToday(prev => (prev === next ? prev : next))
     }
     const onVisibility = () => {
@@ -104,91 +110,123 @@ function useRefreshingLocalToday(): string {
 
 const DATE_PAGE_SIZE = 50
 
-const DOSAGE_UNITS = [...MEDICATION_DOSAGE_UNITS]
-
 const OBS_UNITS: Record<string, string[]> = {
   ...Object.fromEntries(OBSERVATION_UI_TYPES.map(t => [t.label, [...t.units]])),
   "Blood Pressure Systolic": ["mmHg"],
   "Blood Pressure Diastolic": ["mmHg"],
 }
 
-function mergeBpDateEntries(entries: DateEntry[]): MergedDateItem[] {
-  const meds = entries.filter((e): e is MedDateEntry => e._type === "med")
-  const bpObs = entries.filter(
-    (e): e is ObsDateEntry => e._type === "obs" && e.observation_type === "Blood Pressure"
-  )
-  const otherObs = entries.filter(
-    (e): e is ObsDateEntry => e._type === "obs" && e.observation_type !== "Blood Pressure"
-  )
-
-  const out: MergedDateItem[] = []
-
-  for (const g of groupBpRows(bpObs, "detail")) {
-    if (g.kind === "pair") {
-      out.push({ kind: "bp_pair", sys: g.sys, dia: g.dia, recorded_at: g.recorded_at, comments: g.comments })
-    } else {
-      out.push({ kind: "obs", entry: g.record })
-    }
-  }
-  for (const m of meds) out.push({ kind: "med", entry: m })
-  for (const o of otherObs) out.push({ kind: "obs", entry: o })
-
-  out.sort((a, b) => {
-    const ta =
-      a.kind === "bp_pair"
-        ? new Date(a.recorded_at).getTime()
-        : new Date(a.entry.recorded_at).getTime()
-    const tb =
-      b.kind === "bp_pair"
-        ? new Date(b.recorded_at).getTime()
-        : new Date(b.entry.recorded_at).getTime()
-    return tb - ta
-  })
-
-  return out
-}
-
-function mergedItemTime(m: MergedDateItem): string {
-  if (m.kind === "bp_pair") return m.recorded_at
-  return m.entry.recorded_at
-}
-
 function splitDateTime(iso: string): { date: string; time: string } {
-  const d = new Date(iso)
-  const y = d.getFullYear()
-  const mo = d.getMonth() + 1
-  const day = d.getDate()
-  return {
-    date: `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
-    time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
-  }
+  return instantToZonedYmdHm(iso)
 }
 
-type HistoryTab = "medication" | "observations" | "date"
+type HistoryTab = "activity" | "calendar" | "summaries"
 
 const HISTORY_TABS: FcTabItem<HistoryTab>[] = [
-  { value: "medication", label: "Medication" },
-  { value: "observations", label: "Observations" },
-  { value: "date", label: "Date" },
+  { value: "activity", label: "Activity" },
+  { value: "calendar", label: "Calendar" },
+  { value: "summaries", label: "Summaries" },
 ]
 
-export default function HistoryPage() {
+const SUMMARY_KIND_OPTIONS: { value: SummaryKind; label: string }[] = [
+  { value: "medication", label: "Medication" },
+  { value: "observation", label: "Observation" },
+  { value: "symptom", label: "Symptom" },
+  { value: "test_result", label: "Test Result" },
+]
+
+/** The plural a back link names: "‹ Medications". */
+const SUMMARY_KIND_PLURAL: Record<SummaryKind, string> = {
+  medication: "Medications",
+  observation: "Observations",
+  symptom: "Symptoms",
+  test_result: "Test results",
+}
+
+function summariseKeys(kind: SummaryKind, r: { symptoms: SymptomEventSummary[]; testResults: TestResultSummary[] }): string[] {
+  return (kind === "symptom" ? summariseSymptoms(r.symptoms) : summariseTestResults(r.testResults)).map(x => x.key)
+}
+
+/** The latest value shown on an observation summary card. */
+function latestValueText(
+  o: ObsSummary,
+  hydrationTodayMl: number | "error" | null,
+  measurementSystem: MeasurementSystem,
+): string {
+  if (o.observation_type === "Blood Pressure") return String(o.latest_value)
+  if (o.observation_type === "Hydration") {
+    if (hydrationTodayMl === null) return "…"
+    if (hydrationTodayMl === "error") return `${o.latest_value} ${o.latest_unit}`
+    return `${formatHydration(hydrationTodayMl)} today`
+  }
+  const n = typeof o.latest_value === "number" ? o.latest_value : parseFloat(String(o.latest_value))
+  if (!Number.isFinite(n)) return `${o.latest_value} ${o.latest_unit}`
+  const shown = displayObsValue(n, o.latest_unit, o.observation_type, measurementSystem)
+  return `${shown.value} ${shown.unit}`
+}
+
+function HistoryPageContent() {
   const params = useParams()
   const personId = params.personId as string
   const todayYmd = useRefreshingLocalToday()
   const prevTodayRef = useRef(todayYmd)
 
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const tabParam = searchParams.get("tab")
+  const tab: HistoryTab =
+    tabParam === "calendar" ? "calendar"
+    // "medication"/"observations" are the old (pre-Summaries-merge) tab param values — keep
+    // resolving them so previously-saved/bookmarked links still land on the right pip below.
+    : tabParam === "summaries" || tabParam === "medication" || tabParam === "observations" ? "summaries"
+    : "activity"
+  function selectTab(next: HistoryTab) {
+    openedInAppRef.current = false
+    router.push(next === "summaries" ? summaryListUrl(summaryKind) : `?tab=${next}`, { scroll: false })
+  }
+
+  const summaryParam = searchParams.get("summary")
+  const summaryKind: SummaryKind =
+    summaryParam === "symptom" || summaryParam === "test_result" ? summaryParam
+    : summaryParam === "observation" || tabParam === "observations" ? "observation" : "medication"
+  // The record opened from a Summaries list lives in the URL (null = the list itself), so system
+  // back, reload and shared links all land on the same view.
+  const recordParam = tab === "summaries" ? parseSummaryRecord(searchParams.get("record")) : null
+  // True when this page pushed the drill-down entry, so the on-screen back can step back through
+  // history like the system back; a deep link has no list entry behind it to return to.
+  const openedInAppRef = useRef(false)
+  const fallbackIssuedRef = useRef<string | null>(null)
+  const selectedRecordKey = summaryKind === "symptom" || summaryKind === "test_result" ? recordParam : null
+  function openRecord(kind: SummaryKind, record: string) {
+    openedInAppRef.current = true
+    router.push(summaryRecordUrl(kind, record), { scroll: false })
+  }
+  function closeRecord() {
+    if (openedInAppRef.current) {
+      openedInAppRef.current = false
+      router.back()
+    } else {
+      router.replace(summaryListUrl(summaryKind), { scroll: false })
+    }
+  }
+  // Pills change what the list shows, not where the user has been, so they replace the entry.
+  function selectSummaryKind(next: SummaryKind) {
+    openedInAppRef.current = false
+    router.replace(summaryListUrl(next), { scroll: false })
+  }
+
   const [person, setPerson]     = useState<Person | null>(null)
-  const [tab, setTab]           = useState<HistoryTab>("medication")
   const [canDelete, setCanDelete] = useState(false)
 
-  const med = useMedicationHistory({ personId, tab, todayYmd })
+  const med = useMedicationHistory({ personId, active: tab === "summaries" && summaryKind === "medication", todayYmd })
   const {
     summaries: medSummaries,
     summaryLoading: medSummaryLoading,
+    summaryLoaded: medSummaryLoaded,
     selectedMed,
     selectMed,
     records: medRecords,
+    missed: medMissed,
     recordsLoading: medRecordsLoading,
     cursor: medCursor,
     loadingMore: medLoadingMore,
@@ -199,12 +237,19 @@ export default function HistoryPage() {
     loadRecords: loadMedRecords,
     loadMoreRecords: loadMoreMedRecords,
   } = med
+  const medRows = useMemo(() => mergeMissedIntoRecords(medRecords, medMissed, medCursor), [medRecords, medMissed, medCursor])
 
-  const obs = useObservationHistory({ personId, tab, todayYmd })
+  const recordSummaries = useRecordSummaries({
+    personId,
+    enabled: tab === "summaries" && (summaryKind === "symptom" || summaryKind === "test_result"),
+  })
+
+  const obs = useObservationHistory({ personId, active: tab === "summaries" && summaryKind === "observation", todayYmd })
   const {
     summaries: obsSummaries,
     typeConfigs: obsTypeConfigs,
     summaryLoading: obsSummaryLoading,
+    summaryLoaded: obsSummaryLoaded,
     selectedObs,
     selectObs,
     records: obsRecords,
@@ -223,24 +268,73 @@ export default function HistoryPage() {
     loadChartData: loadObsChartData,
   } = obs
 
+  // Keep the hooks' selected record in step with the URL (open, back, forward, reload, deep link).
+  // A record that no longer exists falls back to its list once the summaries have loaded.
+  useEffect(() => {
+    if (tab !== "summaries") return
+    const fallback = () => {
+      const issued = `${summaryKind}:${recordParam}`
+      if (fallbackIssuedRef.current === issued) return
+      fallbackIssuedRef.current = issued
+      router.replace(summaryListUrl(summaryKind), { scroll: false })
+    }
+    if (summaryKind === "medication") {
+      if (!recordParam) { if (selectedMed) selectMed(null); return }
+      if (selectedMed && String(selectedMed.id) === recordParam) return
+      const found = medSummaries.find(m => String(m.id) === recordParam)
+      if (found) selectMed(found)
+      else if (medSummaryLoaded && !medSummaryLoading) fallback()
+    } else if (summaryKind === "observation") {
+      if (!recordParam) { if (selectedObs) selectObs(null); return }
+      if (selectedObs && selectedObs.observation_type === recordParam) return
+      const found = obsSummaries.find(o => o.observation_type === recordParam)
+      if (found) selectObs(found)
+      else if (obsSummaryLoaded && !obsSummaryLoading) fallback()
+    } else if (recordParam && recordSummaries.loaded && !recordSummaries.loading) {
+      const keys = summariseKeys(summaryKind, recordSummaries)
+      if (!keys.includes(recordParam)) fallback()
+    }
+  }, [tab, summaryKind, recordParam, selectedMed, selectMed, medSummaries, medSummaryLoaded, medSummaryLoading,
+      selectedObs, selectObs, obsSummaries, obsSummaryLoaded, obsSummaryLoading, recordSummaries, router])
+
   const [obsGoal, setObsGoal] = useState<ObservationGoal | null>(null)
   // null = loading/not fetched, "error" = fetch failed (fall back to summary value), number = today's total
   const [hydrationTodayMl, setHydrationTodayMl] = useState<number | "error" | null>(null)
   const [measurementSystem, setMeasurementSystem] = useState<MeasurementSystem>("metric")
 
-  // Date tab
-  const [dateFrom, setDateFrom] = useState(() => daysAgo(7, localDateToIsoYmd(new Date())))
-  const [dateTo, setDateTo]     = useState(() => localDateToIsoYmd(new Date()))
-  const [dateEntries, setDateEntries] = useState<DateEntry[]>([])
-  const [dateLoading, setDateLoading] = useState(false)
-  const [dateVisibleCount, setDateVisibleCount] = useState(DATE_PAGE_SIZE)
+  // Activity tab
+  const highlightId = searchParams.get("highlight")
+  // A deep-linked row may be well outside the default 7-day window — widen the initial
+  // fetch range so `?highlight=` can actually find it instead of silently no-oping.
+  const [feedFrom, setFeedFrom] = useState(() =>
+    highlightId ? daysAgo(3650, zonedTodayYmd()) : daysAgo(7, zonedTodayYmd())
+  )
+  const [feedTo, setFeedTo]     = useState(() => zonedTodayYmd())
+  const [feedVisibleCount, setFeedVisibleCount] = useState(DATE_PAGE_SIZE)
+  const [feedKindFilter, setFeedKindFilter] = useState<FeedChipKind | "all">("all")
+  const [highlightPulseId, setHighlightPulseId] = useState<string | null>(null)
 
+  const activityFeed = useHistoryFeed({ personId, from: feedFrom, to: feedTo, enabled: tab === "activity" })
+
+  // Calendar tab
+  const [calendarMonth, setCalendarMonth] = useState(() => zonedTodayYmd().slice(0, 7))
+  const [calendarSelectedDay, setCalendarSelectedDay] = useState<string | null>(null)
+  const [calendarKindFilter, setCalendarKindFilter] = useState<FeedChipKind | "all">("all")
+  const calendarBounds = useMemo(() => monthBounds(calendarMonth), [calendarMonth])
+  const calendarFeed = useHistoryFeed({
+    personId, from: calendarBounds.from, to: calendarBounds.to, enabled: tab === "calendar", symptomOverlap: true,
+  })
+
+  const [personLinks, setPersonLinks] = useState<PersonLink[]>([])
+  const linksByDose = useMemo(() => groupLinksBy(personLinks, "dose"), [personLinks])
+  const linksBySymptom = useMemo(() => groupLinksBy(personLinks, "symptom"), [personLinks])
+  const [medLinkDelta, setMedLinkDelta] = useState<LinkDelta>(EMPTY_LINK_DELTA)
   const [editingMedId, setEditingMedId] = useState<number | null>(null)
-  const [medDraft, setMedDraft] = useState<{ date: string; time: string; dosage: string; dosage_unit: string; comments: string } | null>(null)
+  const [medDraft, setMedDraft] = useState<MedDraft | null>(null)
   const [editingObsId, setEditingObsId] = useState<number | null>(null)
-  const [obsDraft, setObsDraft] = useState<{ date: string; time: string; value: string; unit: string; comments: string; observation_type: string } | null>(null)
+  const [obsDraft, setObsDraft] = useState<ObsDraft | null>(null)
   const [editingBpSession, setEditingBpSession] = useState<string | null>(null)
-  const [bpDraft, setBpDraft] = useState<{ date: string; time: string; systolic: string; diastolic: string; comments: string; sysId: number; diaId: number | null } | null>(null)
+  const [bpDraft, setBpDraft] = useState<BpDraft | null>(null)
   const [prnClearedNoticeOpen, setPrnClearedNoticeOpen] = useState(false)
 
   const [confirmDlg, setConfirmDlg] = useState<null | {
@@ -256,7 +350,7 @@ export default function HistoryPage() {
   useEffect(() => {
     const prev = prevTodayRef.current
     if (todayYmd !== prev) {
-      setDateTo(t => (t === prev ? todayYmd : t))
+      setFeedTo(t => (t === prev ? todayYmd : t))
       prevTodayRef.current = todayYmd
     }
   }, [todayYmd])
@@ -297,37 +391,55 @@ export default function HistoryPage() {
       .catch(() => setObsGoal(null))
   }, [selectedObs, personId])
 
-  // Date tab entries
-  const loadDateEntries = useCallback(async () => {
-    if (tab !== "date") return
-    setDateLoading(true)
-    try {
-      const [recs, obsRows] = await Promise.all([
-        fetch(`/api/records?person_id=${personId}&from=${dateFrom}&to=${dateTo}`, {
-          headers: dashboardScheduleHeaders(),
-        }).then(r => r.json()),
-        fetch(`/api/observations?person_id=${personId}&from=${dateFrom}&to=${dateTo}`, {
-          headers: dashboardScheduleHeaders(),
-        }).then(r => r.json()),
-      ])
-      const merged: DateEntry[] = [
-        ...(recs as MedRecord[]).map(r => ({ ...r, _type: "med" as const })),
-        ...(obsRows as ObsRecord[]).map(o => ({ ...o, _type: "obs" as const })),
-      ].sort((a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime())
-      setDateEntries(merged)
-    } finally { setDateLoading(false) }
-  }, [personId, tab, dateFrom, dateTo])
+  useEffect(() => { setFeedVisibleCount(DATE_PAGE_SIZE) }, [personId, feedFrom, feedTo])
 
-  useEffect(() => { loadDateEntries() }, [loadDateEntries])
-
-  useEffect(() => { setDateVisibleCount(DATE_PAGE_SIZE) }, [personId, tab, dateFrom, dateTo])
-
-  const mergedDateEntries = useMemo(
-    () => (tab === "date" ? mergeBpDateEntries(dateEntries) : []),
-    [tab, dateEntries]
+  const filteredFeedRows = useMemo(
+    () => (feedKindFilter === "all" ? activityFeed.rows : activityFeed.rows.filter(r => feedChipKind(r.kind) === feedKindFilter)),
+    [activityFeed.rows, feedKindFilter]
   )
 
-  const visibleDateEntries = mergedDateEntries.slice(0, dateVisibleCount)
+  const filteredCalendarRows = useMemo(
+    () => (calendarKindFilter === "all" ? calendarFeed.rows : calendarFeed.rows.filter(r => feedChipKind(r.kind) === calendarKindFilter)),
+    [calendarFeed.rows, calendarKindFilter]
+  )
+  const calendarGrid = useMemo(
+    () => buildCalendarGrid(calendarMonth, filteredCalendarRows, zonedTodayYmd()),
+    [calendarMonth, filteredCalendarRows]
+  )
+  // A symptom is listed on every day its line covers, not only the day it started.
+  const calendarDayRows = useMemo(
+    () => {
+      if (!calendarSelectedDay) return []
+      const today = zonedTodayYmd()
+      // Symptoms lead the day and test results trail it, as in the Activity feed.
+      return orderDayPanelRows(filteredCalendarRows.filter(r => {
+        if (r.kind !== "symptom") return feedRowLocalYmd(r) === calendarSelectedDay
+        const { start, end } = symptomSpan(r.symptom, today)
+        return calendarSelectedDay >= start && calendarSelectedDay <= end
+      }))
+    },
+    [filteredCalendarRows, calendarSelectedDay]
+  )
+
+  // Deep-link/anchor: `?highlight=<feedRowId>` scrolls to and briefly highlights that Activity row.
+  // The widened `feedFrom` above only guarantees the row is fetched — it can still be past the
+  // current client-side page (`feedVisibleCount`), so bump that first and wait a render before
+  // querying the DOM.
+  useEffect(() => {
+    if (tab !== "activity" || !highlightId || activityFeed.loading) return
+    const idx = filteredFeedRows.findIndex(r => r.id === highlightId)
+    if (idx === -1) return
+    if (idx >= feedVisibleCount) {
+      setFeedVisibleCount(idx + 1)
+      return
+    }
+    const el = document.querySelector(`[data-feed-row-id="${CSS.escape(highlightId)}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior: "smooth", block: "center" })
+    setHighlightPulseId(highlightId)
+    const t = setTimeout(() => setHighlightPulseId(null), 2500)
+    return () => clearTimeout(t)
+  }, [tab, highlightId, activityFeed.loading, filteredFeedRows, feedVisibleCount])
 
   const obsConfigByLower = useMemo(() => {
     const m = new Map<string, ObservationTypeConfig>()
@@ -342,6 +454,7 @@ export default function HistoryPage() {
       ...confirmCopy.deleteMedicationRecord,
       onConfirm: async () => {
         await med.deleteRecord(id)
+        reloadFeeds()
         setConfirmDlg(null)
       },
     })
@@ -352,36 +465,73 @@ export default function HistoryPage() {
       ...confirmCopy.deleteObservation,
       onConfirm: async () => {
         await obs.deleteRecord(id)
+        reloadFeeds()
         setConfirmDlg(null)
       },
     })
   }
 
-  function deleteDateEntry(type: "med" | "obs", id: number) {
-    const copy = type === "med" ? confirmCopy.deleteMedicationRecord : confirmCopy.deleteObservation
+  function deleteTestResult(id: number) {
     setConfirmDlg({
-      ...copy,
+      ...confirmCopy.deleteTestResult,
       onConfirm: async () => {
-        if (type === "med") await fetch(`/api/records?id=${id}`, { method: "DELETE" })
-        else await fetch(`/api/observations?id=${id}`, { method: "DELETE" })
-        loadDateEntries()
+        await fetch(`/api/test-events?id=${id}`, { method: "DELETE" })
+        reloadFeeds()
         setConfirmDlg(null)
       },
     })
+  }
+
+  function deleteSymptomEvent(id: number) {
+    setConfirmDlg({
+      ...confirmCopy.deleteSymptomEvent,
+      onConfirm: async () => {
+        await fetch(`/api/symptom-events?id=${id}`, { method: "DELETE" })
+        reloadFeeds()
+        setConfirmDlg(null)
+      },
+    })
+  }
+
+  function reloadFeeds() {
+    void Promise.all([activityFeed.reload(), calendarFeed.reload(), recordSummaries.reload(), loadPersonLinks()])
+  }
+
+  function loadPersonLinks() {
+    return fetch(`/api/symptom-dose-links?person_id=${personId}`, { cache: "no-store" })
+      .then(r => (r.ok ? (r.json() as Promise<PersonLink[]>) : []))
+      .then(setPersonLinks)
+      .catch(() => undefined)
+  }
+
+  // Links are small and shown on rows in every tab, so they load once with the page.
+  useEffect(() => {
+    void loadPersonLinks()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadPersonLinks only closes over personId
+  }, [personId])
+
+  /** Stand-in time for the edit draft's day; the picker only needs the local day. */
+  function draftDoseIso(d: { date: string }): string {
+    try { return localDateAndTimeToUtcIso(d.date, "12:00") } catch { return new Date().toISOString() }
   }
 
   function startEditMed(r: MedRecord) {
     const { date, time } = splitDateTime(r.recorded_at)
     setEditingMedId(r.id)
-    setMedDraft({ date, time, dosage: r.dosage != null ? String(r.dosage) : "", dosage_unit: r.dosage_unit ?? "Tabs", comments: r.comments ?? "" })
+    setMedLinkDelta(EMPTY_LINK_DELTA)
+    setMedDraft({
+      date, time, dosage: r.dosage != null ? String(r.dosage) : "", dosage_unit: r.dosage_unit ?? "Tabs",
+      comments: r.comments ?? "", administered_by: r.administered_by ?? "me",
+    })
   }
 
   async function saveMedRecord() {
     if (!editingMedId || !medDraft) return
     const { clearedPrnPushRequests } = await med.saveRecord(editingMedId, medDraft)
     if (clearedPrnPushRequests >= 1) setPrnClearedNoticeOpen(true)
-    setEditingMedId(null); setMedDraft(null)
-    loadDateEntries()
+    await saveLinkDelta(personId, { recordId: editingMedId }, medLinkDelta)
+    setEditingMedId(null); setMedDraft(null); setMedLinkDelta(EMPTY_LINK_DELTA)
+    reloadFeeds()
   }
 
   function startEditObs(r: ObsRecord) {
@@ -394,7 +544,7 @@ export default function HistoryPage() {
     if (!editingObsId || !obsDraft) return
     await obs.saveRecord(editingObsId, obsDraft)
     setEditingObsId(null); setObsDraft(null)
-    loadDateEntries()
+    reloadFeeds()
   }
 
   function startEditBp(pair: Extract<BpDetailRow, { kind: "pair" }>) {
@@ -414,7 +564,7 @@ export default function HistoryPage() {
     if (!bpDraft) return
     await obs.saveBpPair(bpDraft)
     setEditingBpSession(null); setBpDraft(null)
-    loadDateEntries()
+    reloadFeeds()
   }
 
   function deleteBpPair(sysId: number | null, diaId: number | null) {
@@ -422,552 +572,618 @@ export default function HistoryPage() {
       ...confirmCopy.deleteBloodPressureReading,
       onConfirm: async () => {
         await obs.deleteBpPair(sysId, diaId)
-        loadDateEntries()
+        reloadFeeds()
         setConfirmDlg(null)
       },
     })
   }
 
-  if (!person) return (
-    <div className="flex flex-col flex-1">
-      <div className="flex-1 bg-fc-blue flex items-center justify-center">
-        <div className="text-white">Loading…</div>
-      </div>
+  /** The edit and delete controls at the end of a row, when this person may change records. */
+  const rowActions = (name: string, onEdit: () => void, onDelete: () => void) =>
+    canDelete ? <EntityRowActions name={name} onEdit={onEdit} onDelete={onDelete} /> : undefined
+
+  function renderFeedRow(row: FeedRow) {
+    const rowId = row.id
+    const highlighted = highlightPulseId === row.id
+
+    if (row.kind === "medication") {
+      const r = row.medication
+      if (editingMedId === r.id && medDraft) {
+        return (
+          <li key={rowId}>
+            <MedEditForm
+              draft={medDraft}
+              onChange={patch => setMedDraft(d => ({ ...d!, ...patch }))}
+              onCancel={() => { setEditingMedId(null); setMedDraft(null) }}
+              onSave={saveMedRecord}
+              personId={personId}
+              recordId={r.id}
+              recordedAtIso={draftDoseIso(medDraft)}
+              onLinkChange={setMedLinkDelta}
+            />
+          </li>
+        )
+      }
+      return (
+        <ListCard
+          key={rowId}
+          rowId={rowId}
+          highlighted={highlighted}
+          icon="💊"
+          title={r.medication_name}
+          meta={[
+            // An attached dose says which dose it was for; the badge (if any) says by how much it was off.
+            r.timing ? `Taken ${formatTime(r.recorded_at)}` : formatTime(r.recorded_at),
+            r.timing ? `for the ${formatSlotHhmm(r.timing.slotHhmm)} dose` : null,
+            r.dosage != null ? `${r.dosage} ${r.dosage_unit}` : null,
+          ]}
+          note={r.comments}
+          extras={
+            <>
+              <FlagBadge flag={row.flag} />
+              <AdministeredByBadge administeredBy={r.administered_by} />
+              <DoseSymptomChip links={linksByDose.get(r.id) ?? []} />
+              {isWithinTimelineWindow(r.recorded_at, Date.now()) && (
+                <Link href={`/${personId}?timeline=${encodeURIComponent(row.id)}`} className="fc-card__link">
+                  View on timeline
+                </Link>
+              )}
+            </>
+          }
+          trailing={rowActions(r.medication_name, () => startEditMed(r), () => deleteMedRecord(r.id))}
+        />
+      )
+    }
+
+    if (row.kind === "observation") {
+      if (row.observation.kind === "pair") {
+        const g = row.observation
+        if (editingBpSession === g.session_id && bpDraft) {
+          return (
+            <li key={rowId}>
+              <BpEditForm
+                draft={bpDraft}
+                onChange={patch => setBpDraft(d => ({ ...d!, ...patch }))}
+                onCancel={() => { setEditingBpSession(null); setBpDraft(null) }}
+                onSave={saveBpPair}
+              />
+            </li>
+          )
+        }
+        return (
+          <ListCard
+            key={rowId}
+            rowId={rowId}
+            highlighted={highlighted}
+            icon="📏"
+            title="Blood Pressure"
+            meta={[formatTime(g.recorded_at), `${g.sys.value}/${g.dia.value} mmHg`]}
+            note={g.comments}
+            extras={<FlagBadge flag={row.flag} />}
+            trailing={rowActions("Blood Pressure", () => startEditBp(g), () => deleteBpPair(g.sys.id, g.dia.id))}
+          />
+        )
+      }
+
+      const r = row.observation.record
+      if (editingObsId === r.id && obsDraft) {
+        return (
+          <li key={rowId}>
+            <ObsEditForm
+              draft={obsDraft}
+              units={OBS_UNITS[obsDraft.observation_type]}
+              onChange={patch => setObsDraft(d => ({ ...d!, ...patch }))}
+              onCancel={() => { setEditingObsId(null); setObsDraft(null) }}
+              onSave={saveObsRecord}
+            />
+          </li>
+        )
+      }
+      return (
+        <ListCard
+          key={rowId}
+          rowId={rowId}
+          highlighted={highlighted}
+          icon="📏"
+          title={r.observation_type}
+          meta={[formatTime(r.recorded_at), `${r.value_label ? `${r.value_label}: ` : ""}${r.value} ${r.unit}`]}
+          note={r.comments}
+          extras={<FlagBadge flag={row.flag} />}
+          trailing={rowActions(r.observation_type, () => startEditObs(r), () => deleteObsRecord(r.id))}
+        />
+      )
+    }
+
+    if (row.kind === "test_result") {
+      const r = row.testResult
+      return (
+        <ListCard
+          key={rowId}
+          rowId={rowId}
+          highlighted={highlighted}
+          icon="🧪"
+          title={r.name}
+          meta={[r.test_type]}
+          note={r.notes}
+          extras={
+            <>
+              <FlagBadge flag={row.flag} />
+              {r.values.length > 0 && (
+                <ul className="fc-card__values">
+                  {r.values.map(v => (
+                    <li key={v.metric_name}>
+                      {v.metric_name}: {v.value_type === "numeric" ? `${v.limit_qualifier ? `${v.limit_qualifier} ` : ""}${v.numeric_value} ${v.unit ?? ""}`.trim() : v.qualitative_value}
+                      {v.flag && <span className="fc-card__flag"> — {v.flag}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {r.attachment_url && <AttachmentLink url={r.attachment_url} />}
+            </>
+          }
+          trailing={rowActions(r.name, () => router.push(`/${personId}/record-test-result?edit=${r.id}`), () => deleteTestResult(r.id))}
+        />
+      )
+    }
+
+    if (row.kind === "dose_missed") {
+      const r = row.doseMissed
+      return <MissedDoseCard key={rowId} rowId={rowId} highlighted={highlighted} missed={r} timeText={formatTime(r.recorded_at)} />
+    }
+
+    if (row.kind === "symptom") {
+      const r = row.symptom
+      // A symptom is recorded for a date: no time of day is ever shown (null for date-only kinds).
+      const symptomTime = feedRowTimeText(row, formatTime)
+      return (
+        <ListCard
+          key={rowId}
+          rowId={rowId}
+          highlighted={highlighted}
+          icon="🤒"
+          title={r.label}
+          meta={[symptomTime, r.end_date ? formatRange(r.start_date, r.end_date) : `From ${formatDate(r.start_date)}`]}
+          note={r.notes}
+          extras={
+            <>
+              <FlagBadge flag={row.flag} />
+              {r.is_resolved && <Badge tone="neutral">Resolved</Badge>}
+              <SymptomDoseChip links={linksBySymptom.get(r.id) ?? []} />
+            </>
+          }
+          trailing={rowActions(r.label, () => router.push(`/${personId}/record-symptom?edit=${r.id}`), () => deleteSymptomEvent(r.id))}
+        />
+      )
+    }
+
+    return null
+  }
+
+  /** Rows grouped under a heading for each day, newest first. */
+  function renderFeedList(rows: FeedRow[], visibleCount: number) {
+    const groups: { day: string; rows: FeedRow[] }[] = []
+    for (const row of rows.slice(0, visibleCount)) {
+      const day = instantToZonedYmdHm(row.recorded_at).date
+      const last = groups[groups.length - 1]
+      if (last && last.day === day) last.rows.push(row)
+      else groups.push({ day, rows: [row] })
+    }
+    return groups.map(g => (
+      <section key={g.day} aria-label={formatDate(g.day)} className="fc-history">
+        <h2 className="fc-day-heading">{formatDate(g.day)}</h2>
+        <CardList>{g.rows.map(renderFeedRow)}</CardList>
+      </section>
+    ))
+  }
+
+  const loadMore = (onClick: () => void, pending: boolean, label = "Load more") => (
+    <div>
+      <Button variant="secondary" onClick={onClick} pending={pending} pendingLabel="Loading…">{label}</Button>
     </div>
+  )
+
+  /** The table of one observation type's records, with each row's edit form in place of the row. */
+  function renderObsTable(records: ObsRecord[], withUnitColumn: boolean, id?: string, caption?: string) {
+    return (
+      <RecordTable
+        id={id}
+        caption={caption ?? `${selectedObs?.observation_type ?? "Observation"} records`}
+        hasActions={canDelete}
+        columns={withUnitColumn ? ["Date/Time", "Value", "Unit", "Comments"] : ["Date/Time", "Value", "Comments"]}
+        rows={records.map(r => ({
+          key: String(r.id),
+          cells: withUnitColumn
+            ? [formatDateTime(r.recorded_at), r.value, r.unit, r.comments ?? ""]
+            : [formatDateTime(r.recorded_at), `${r.value} ${r.unit}`, r.comments ?? ""],
+          nowrap: withUnitColumn ? [true, false, false, false] : [true, true, false],
+          note: withUnitColumn ? 3 : 2,
+          actions: rowActions(r.observation_type, () => startEditObs(r), () => deleteObsRecord(r.id)),
+          editing: editingObsId === r.id && obsDraft ? (
+            <ObsEditForm
+              draft={obsDraft}
+              units={OBS_UNITS[obsDraft.observation_type]}
+              onChange={patch => setObsDraft(d => ({ ...d!, ...patch }))}
+              onCancel={() => { setEditingObsId(null); setObsDraft(null) }}
+              onSave={saveObsRecord}
+            />
+          ) : undefined,
+        }))}
+      />
+    )
+  }
+
+  const paginationFooter = selectedObs && isPaginatedObsType(selectedObs.observation_type) && (
+    <>
+      {obsCursor && loadMore(loadMoreObsRecords, obsLoadingMore)}
+      {!obsCursor && obsRecords.length > 0 && <p className="fc-history__end">End of range</p>}
+    </>
+  )
+
+  if (!person) return <RecordLoadingShell />
+
+  // The record open on Summaries, once it has loaded; until then the trail stops at History.
+  const drilledName = (() => {
+    if (tab !== "summaries" || !recordParam) return null
+    if (summaryKind === "medication") return selectedMed?.name ?? null
+    if (summaryKind === "observation") return selectedObs?.observation_type ?? null
+    const found = (summaryKind === "symptom"
+      ? summariseSymptoms(recordSummaries.symptoms)
+      : summariseTestResults(recordSummaries.testResults)
+    ).find(x => x.key === recordParam)
+    return found?.label ?? null
+  })()
+
+  // Written out rather than built with `personTrail`: `closeRecord` reads a ref, which the lint rule
+  // refuses to see passed into a function call during render.
+  const trail: Crumb[] = [
+    { label: person.name, href: `/${personId}` },
+    ...(drilledName
+      ? [{ label: SUMMARY_KIND_PLURAL[summaryKind], onClick: closeRecord }, { label: drilledName }]
+      : [{ label: "History" }]),
+  ]
+
+  const detailHeading = (name: string) => (
+    <>
+      <h2 className="fc-section-title fc-surface-title">{name}</h2>
+    </>
   )
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <AppHeader title="History" />
-      <PersonHeader name={person.name} photoUrl={person.photo_url} color={person.color} backHref={`/${personId}`} />
 
-      <FcTabBar tabs={HISTORY_TABS} active={tab} onSelect={setTab} />
-
-      <main
-        {...mainContentTargetProps}
-        className={
-          "flex-1 min-h-0 bg-fc-blue px-3 py-2 flex flex-col " +
-          (tab === "observations" && selectedObs
-            ? "overflow-y-auto lg:overflow-hidden"
-            : "overflow-y-auto fc-scroll")
-        }
+      <PageContainer
+        header={<PersonHeader name={person.name} photoUrl={person.photo_url} color={person.color} />}
+        trail={trail}
+        tabs={<FcTabBar tabs={HISTORY_TABS} active={tab} onSelect={selectTab} />}
       >
 
-        {/* ── MEDICATION TAB ── */}
+        {tab === "summaries" && !recordParam && (
+          <ChipGroup legend="Record type" options={SUMMARY_KIND_OPTIONS} value={summaryKind} onChange={selectSummaryKind} />
+        )}
 
-        {tab === "medication" && !selectedMed && (
+        {/* ── MEDICATION SUMMARY ── */}
+
+        {tab === "summaries" && !!recordParam && ((summaryKind === "medication" && !selectedMed) || (summaryKind === "observation" && !selectedObs)) && (
+          <p className="fc-admin-note">Loading…</p>
+        )}
+
+        {tab === "summaries" && summaryKind === "medication" && !selectedMed && !recordParam && (
           <>
-            {medSummaryLoading && <div className="text-white text-center py-8">Loading…</div>}
+            {medSummaryLoading && <p className="fc-admin-note">Loading…</p>}
             {!medSummaryLoading && medSummaries.length === 0 && (
-              <p className="text-white text-center py-8">No medications recorded yet.</p>
+              <EmptyState icon={EMPTY_STATE_ICONS.noMedications} heading="No medications recorded yet">
+                Record a dose and it will appear here.
+              </EmptyState>
             )}
             {!medSummaryLoading && medSummaries.length > 0 && (
-              <ul className="flex flex-col gap-2">
+              <CardList>
                 {medSummaries.map(m => (
-                  <li key={m.id}>
-                    <button onClick={() => selectMed(m)}
-                      className="w-full bg-white/10 hover:bg-white/20 active:bg-white/30 rounded-xl px-4 py-3 text-left flex justify-between items-center gap-2 transition-colors">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white font-bold text-base">{m.name}</div>
-                        <div className="text-white text-sm mt-0.5">Last recorded: {fmtMedAU(m.last_recorded)}</div>
-                        <div className="text-white text-sm">{m.total_doses} dose{m.total_doses === 1 ? "" : "s"} recorded</div>
-                      </div>
-                      <span className="text-white text-2xl leading-none shrink-0">›</span>
-                    </button>
-                  </li>
+                  <ListCard
+                    key={m.id}
+                    icon="💊"
+                    title={m.name}
+                    href={summaryRecordUrl("medication", String(m.id))}
+                    onOpen={() => { openedInAppRef.current = true }}
+                    meta={[`Last recorded ${formatDateTime(m.last_recorded)}`, `${m.total_doses} dose${m.total_doses === 1 ? "" : "s"} recorded`]}
+                  />
                 ))}
-              </ul>
+              </CardList>
             )}
           </>
         )}
 
-        {tab === "medication" && selectedMed && (
+        {tab === "summaries" && summaryKind === "medication" && selectedMed && (
           <>
-            <button onClick={() => selectMed(null)}
-              className="flex items-center gap-1 text-white hover:text-white font-semibold mb-3 transition-colors">
-              <span className="text-xl leading-none">‹</span>
-              <span>{selectedMed.name}</span>
-            </button>
+            {detailHeading(selectedMed.name)}
+            <RangeFields from={medFrom} to={medTo} onFrom={setMedFrom} onTo={setMedTo} onApply={loadMedRecords} />
 
-            <div className="flex gap-2 items-center mb-3">
-              <input type="date" value={medFrom} onChange={e => setMedFrom(e.target.value)}
-                className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1 text-gray-800" />
-              <span className="text-white text-xs">→</span>
-              <input type="date" value={medTo} onChange={e => setMedTo(e.target.value)}
-                className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1 text-gray-800" />
-              <button onClick={loadMedRecords}
-                className="bg-fc-blue-dark text-white text-xs px-3 py-1 rounded font-bold">Go</button>
-            </div>
-
-            {medRecordsLoading && <div className="text-white text-center py-8">Loading…</div>}
+            {medRecordsLoading && <p className="fc-admin-note">Loading…</p>}
 
             {!medRecordsLoading && (
               <>
-                <p className="text-white text-xs mb-2">
+                <p className="fc-history__count">
                   {medRecords.length} record{medRecords.length === 1 ? "" : "s"} in selected period
                 </p>
-                {medRecords.length === 0
-                  ? <p className="text-white text-center py-8">No records in this period.</p>
-                  : <ul className="flex flex-col gap-2">
-                      {medRecords.map(r => {
+                {medRows.length === 0
+                  ? (
+                    <EmptyState icon={EMPTY_STATE_ICONS.noRecords} heading="No records in this period">
+                      Try a wider date range.
+                    </EmptyState>
+                  )
+                  : (
+                    <CardList>
+                      {medRows.map(row => {
+                        if (row.kind === "missed") {
+                          return (
+                            <MissedDoseCard
+                              key={row.missed.id}
+                              missed={row.missed}
+                              timeText={formatDateTime(row.missed.recorded_at)}
+                            />
+                          )
+                        }
+                        const r = row.record
                         if (editingMedId === r.id && medDraft) return (
-                          <li key={r.id} className="bg-white/10 rounded-xl px-4 py-3 flex flex-col gap-2">
-                            <div className="flex gap-2">
-                              <input type="date" value={medDraft.date} onChange={e => setMedDraft(d => ({ ...d!, date: e.target.value }))}
-                                className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                              <input type="time" value={medDraft.time} onChange={e => setMedDraft(d => ({ ...d!, time: e.target.value }))}
-                                className="w-24 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                            </div>
-                            <div className="flex gap-2">
-                              <input type="number" value={medDraft.dosage} min="0" step="0.1" placeholder="Dosage"
-                                onChange={e => setMedDraft(d => ({ ...d!, dosage: e.target.value }))}
-                                className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                              <select value={medDraft.dosage_unit} onChange={e => setMedDraft(d => ({ ...d!, dosage_unit: e.target.value }))}
-                                className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800">
-                                {DOSAGE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                              </select>
-                            </div>
-                            <input type="text" value={medDraft.comments} placeholder="Comments"
-                              onChange={e => setMedDraft(d => ({ ...d!, comments: e.target.value }))}
-                              className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                            <div className="flex gap-2 justify-end">
-                              <button onClick={() => { setEditingMedId(null); setMedDraft(null) }}
-                                className="text-white text-xs px-3 py-1.5 rounded border border-white/20 hover:bg-white/10">Cancel</button>
-                              <button onClick={saveMedRecord}
-                                className="bg-fc-blue-dark text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-fc-blue-mid">Save</button>
-                            </div>
+                          <li key={r.id}>
+                            <MedEditForm
+                              draft={medDraft}
+                              onChange={patch => setMedDraft(d => ({ ...d!, ...patch }))}
+                              onCancel={() => { setEditingMedId(null); setMedDraft(null) }}
+                              onSave={saveMedRecord}
+                              personId={personId}
+                              recordId={r.id}
+                              recordedAtIso={draftDoseIso(medDraft)}
+                              onLinkChange={setMedLinkDelta}
+                            />
                           </li>
                         )
                         return (
-                          <li key={r.id} className="bg-white/10 rounded-xl px-4 py-3">
-                            <div className="flex justify-between items-start gap-2">
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                                  <span className="text-white text-sm">{fmtMedAU(r.recorded_at)}</span>
-                                  {r.scheduled_time != null && r.scheduled_time !== "" && (
-                                    <span className="text-white text-xs">
-                                      Scheduled: {r.scheduled_time}
-                                      {r.scheduled_late === true && (
-                                        <span className="ml-2 inline-block rounded-md border border-amber-400/60 bg-amber-500/20 px-1.5 py-0.5 text-amber-100 font-semibold">
-                                          Late (over 30 min after slot)
-                                        </span>
-                                      )}
-                                    </span>
-                                  )}
-                                </div>
-                                {r.dosage != null && (
-                                  <div className="text-white text-sm font-semibold mt-0.5">
-                                    {r.dosage} {r.dosage_unit}
-                                  </div>
-                                )}
-                              </div>
-                              {canDelete && (
-                                <div className="flex gap-3 items-center shrink-0">
-                                  <EntityRowEditButton onClick={() => startEditMed(r)} title="Edit record" />
-                                  <EntityRowDeleteButton onClick={() => deleteMedRecord(r.id)} title="Delete record" />
-                                </div>
-                              )}
-                            </div>
-                            {r.comments && (
-                              <div className="text-white text-sm mt-1 italic">{r.comments}</div>
-                            )}
-                          </li>
+                          <ListCard
+                            key={r.id}
+                            icon="💊"
+                            title={formatDateTime(r.recorded_at)}
+                            meta={[
+                              r.dosage != null ? `${r.dosage} ${r.dosage_unit}` : null,
+                              r.timing ? `for the ${formatSlotHhmm(r.timing.slotHhmm)} dose` : null,
+                            ]}
+                            note={r.comments}
+                            extras={
+                              <>
+                                <FlagBadge flag={medicationFlag(r)} />
+                                <AdministeredByBadge administeredBy={r.administered_by} />
+                                <DoseSymptomChip links={linksByDose.get(r.id) ?? []} />
+                              </>
+                            }
+                            trailing={rowActions(selectedMed.name, () => startEditMed(r), () => deleteMedRecord(r.id))}
+                          />
                         )
                       })}
-                    </ul>
+                    </CardList>
+                  )
                 }
-                {medCursor && (
-                  <button onClick={loadMoreMedRecords} disabled={medLoadingMore}
-                    className="mt-2 w-full text-xs text-white hover:text-white border border-white/20 hover:border-white/40 rounded px-3 py-1.5 transition-colors disabled:opacity-50">
-                    {medLoadingMore ? "Loading…" : "Load more"}
-                  </button>
-                )}
-                {!medCursor && medRecords.length > 0 && (
-                  <p className="mt-2 text-center text-xs text-white">end of range</p>
-                )}
+                {medCursor && loadMore(loadMoreMedRecords, medLoadingMore)}
+                {!medCursor && medRecords.length > 0 && <p className="fc-history__end">End of range</p>}
               </>
             )}
           </>
         )}
 
-        {/* ── OBSERVATIONS TAB ── */}
+        {/* ── SYMPTOM / TEST RESULT SUMMARIES ── */}
 
-        {tab === "observations" && !selectedObs && (
+        {tab === "summaries" && (summaryKind === "symptom" || summaryKind === "test_result") && (() => {
+          const isSymptom = summaryKind === "symptom"
+          const summaries = isSymptom
+            ? summariseSymptoms(recordSummaries.symptoms)
+            : summariseTestResults(recordSummaries.testResults)
+          const selected = summaries.find(x => x.key === selectedRecordKey) ?? null
+          const noun = isSymptom ? "symptom" : "test result"
+
+          if (recordSummaries.loading && summaries.length === 0) {
+            return <p className="fc-admin-note">Loading…</p>
+          }
+          if (!selected && recordParam) {
+            return <p className="fc-admin-note">Loading…</p>
+          }
+          if (!selected) {
+            return summaries.length === 0 ? (
+              <EmptyState
+                icon={isSymptom ? EMPTY_STATE_ICONS.noSymptoms : EMPTY_STATE_ICONS.noTestResults}
+                heading={`No ${noun}s recorded yet`}
+              >
+                {isSymptom ? "Record a symptom and it will appear here." : "Record a test result and it will appear here."}
+              </EmptyState>
+            ) : (
+              <CardList>
+                {summaries.map(x => (
+                  <ListCard
+                    key={x.key}
+                    icon={isSymptom ? "🤒" : "🧪"}
+                    title={x.label}
+                    href={summaryRecordUrl(summaryKind, x.key)}
+                    onOpen={() => { openedInAppRef.current = true }}
+                    meta={[
+                      `${isSymptom ? "Last recorded" : "Last tested"} ${formatDate(x.lastDate)}`,
+                      isSymptom ? `${x.count} time${x.count === 1 ? "" : "s"} recorded` : `${x.count} result${x.count === 1 ? "" : "s"} recorded`,
+                    ]}
+                  />
+                ))}
+              </CardList>
+            )
+          }
+
+          const rows = isSymptom
+            ? toFeedRows([], [], [], symptomsForKey(recordSummaries.symptoms, selected.key))
+            : toFeedRows([], [], testResultsForKey(recordSummaries.testResults, selected.key))
+          return (
+            <>
+              {detailHeading(selected.label)}
+              <p className="fc-history__count">
+                {rows.length} record{rows.length === 1 ? "" : "s"}
+              </p>
+              {renderFeedList(rows, rows.length)}
+            </>
+          )
+        })()}
+
+        {/* ── OBSERVATION SUMMARY ── */}
+
+        {tab === "summaries" && summaryKind === "observation" && !selectedObs && !recordParam && (
           <>
-            {obsSummaryLoading && <div className="text-white text-center py-8">Loading…</div>}
+            {obsSummaryLoading && <p className="fc-admin-note">Loading…</p>}
             {!obsSummaryLoading && obsSummaries.length === 0 && (
-              <p className="text-white text-center py-8">No observations recorded yet.</p>
+              <EmptyState icon={EMPTY_STATE_ICONS.noObservations} heading="No observations recorded yet">
+                Record an observation and it will appear here.
+              </EmptyState>
             )}
             {!obsSummaryLoading && obsSummaries.length > 0 && (
-              <ul className="flex flex-col gap-2">
+              <CardList>
                 {obsSummaries.map(o => {
                   const cfg = obsConfigByLower.get(o.observation_type.trim().toLowerCase())
                   const thresh = cfg?.stale_after_hours ?? null
                   const stale = isStaleReading(o.last_recorded, thresh)
                   return (
-                  <li key={o.observation_type}>
-                    <button onClick={() => selectObs(o)}
-                      type="button"
-                      className={
-                        "w-full rounded-xl px-4 py-3 text-left flex justify-between items-center gap-2 transition-colors " +
-                        (stale
-                          ? "ring-2 ring-amber-400/70 bg-amber-500/15 hover:bg-amber-500/22 active:bg-amber-500/28"
-                          : "bg-white/10 hover:bg-white/20 active:bg-white/30")
-                      }>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white font-bold text-base">{o.observation_type}</div>
-                        <div className="text-white text-2xl font-bold mt-0.5">
-                          {o.observation_type === "Blood Pressure"
-                            ? o.latest_value
-                            : o.observation_type === "Hydration"
-                              ? hydrationTodayMl === null
-                                ? "…"
-                                : hydrationTodayMl === "error"
-                                  ? <>{o.latest_value} {o.latest_unit}</>
-                                  : `${formatHydration(hydrationTodayMl)} today`
-                              : (() => {
-                                  const n = typeof o.latest_value === "number"
-                                    ? o.latest_value
-                                    : parseFloat(String(o.latest_value))
-                                  if (!Number.isFinite(n)) return <>{o.latest_value} {o.latest_unit}</>
-                                  const shown = displayObsValue(n, o.latest_unit, o.observation_type, measurementSystem)
-                                  return <>{shown.value} {shown.unit}</>
-                                })()}
-                        </div>
-                        <div className="text-white text-sm mt-0.5">
-                          🕐 Last recorded: {fmtObsAU(o.last_recorded)}
-                        </div>
-                        {stale && thresh != null && (
-                          <div className="text-amber-100 text-xs font-semibold mt-1 leading-snug">
-                            Stale — older than suggested {formatStaleThresholdHours(thresh)} between readings.
-                          </div>
-                        )}
-                        <div className="text-white text-sm">
-                          {o.total_count} observation{o.total_count === 1 ? "" : "s"} recorded
-                        </div>
-                      </div>
-                      <span className="text-white text-2xl leading-none shrink-0">›</span>
-                    </button>
-                  </li>
+                    <ListCard
+                      key={o.observation_type}
+                      icon="📏"
+                      title={o.observation_type}
+                      href={summaryRecordUrl("observation", o.observation_type)}
+                      onOpen={() => { openedInAppRef.current = true }}
+                      meta={[
+                        `Last recorded ${formatDateTime(o.last_recorded)}`,
+                        `${o.total_count} observation${o.total_count === 1 ? "" : "s"} recorded`,
+                        stale && thresh != null ? `Stale: older than the suggested ${formatStaleThresholdHours(thresh)} between readings` : null,
+                      ]}
+                      extras={
+                        <>
+                          <span className="fc-card__big">{latestValueText(o, hydrationTodayMl, measurementSystem)}</span>
+                          {stale && <Badge tone="warning">Stale</Badge>}
+                        </>
+                      }
+                    />
                   )
                 })}
-              </ul>
+              </CardList>
             )}
           </>
         )}
 
-        {tab === "observations" && selectedObs && (() => {
-          const hasObsChart = observationHasChart(selectedObs.observation_type)
+        {tab === "summaries" && summaryKind === "observation" && selectedObs && (() => {
+          const selCfg = obsConfigByLower.get(selectedObs.observation_type.trim().toLowerCase())
+          const staleHours = selCfg?.stale_after_hours ?? null
+          const showStale = staleHours != null && staleHours > 0 && isStaleReading(selectedObs.last_recorded, staleHours)
 
-          const periodControls = (
+          const header = (
             <>
-              <div className="flex gap-2">
-                {[7, 30, 90].map(days => (
-                  <button key={days} type="button" onClick={() => applyObsPreset(days)}
-                    className="flex-1 text-xs text-white border border-white/30 hover:bg-white/10 rounded px-2 py-1 font-semibold transition-colors">
-                    {days}d
-                  </button>
+              {detailHeading(selectedObs.observation_type)}
+              {showStale && (
+                <Banner kind="warning" lead="Stale reading">
+                  The latest value is older than this type&apos;s suggested refresh window ({formatStaleThresholdHours(staleHours!)}).
+                  Recorded {formatDateTime(selectedObs.last_recorded)}.
+                </Banner>
+              )}
+              <RangeFields
+                from={obsFrom}
+                to={obsTo}
+                onFrom={setObsFrom}
+                onTo={setObsTo}
+                onApply={() => { loadObsRecords(); loadObsChartData() }}
+                extra={[7, 30, 90].map(days => (
+                  <Button key={days} variant="secondary" onClick={() => applyObsPreset(days)}>Last {days} days</Button>
                 ))}
-              </div>
-              <div className="flex gap-2 items-center">
-                <input type="date" value={obsFrom} onChange={e => setObsFrom(e.target.value)}
-                  className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1 text-gray-800" />
-                <span className="text-white text-xs">→</span>
-                <input type="date" value={obsTo} onChange={e => setObsTo(e.target.value)}
-                  className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1 text-gray-800" />
-                <button onClick={() => { loadObsRecords(); loadObsChartData() }}
-                  className="bg-fc-blue-dark text-white text-xs px-3 py-1 rounded font-bold">Go</button>
-              </div>
-            </>
-          )
-
-          const navHeader = (
-            <>
-              <button type="button" onClick={() => selectObs(null)}
-                className="flex items-center gap-1 text-white hover:text-white font-semibold transition-colors">
-                <span className="text-xl leading-none">‹</span>
-                <span>{selectedObs.observation_type}</span>
-              </button>
-
-              {(() => {
-                const selCfg = obsConfigByLower.get(selectedObs.observation_type.trim().toLowerCase())
-                const h = selCfg?.stale_after_hours ?? null
-                if (h == null || h <= 0 || !isStaleReading(selectedObs.last_recorded, h)) return null
-                return (
-                  <div className="rounded-lg border border-amber-400/65 bg-amber-500/10 px-3 py-2 text-sm text-amber-100 leading-snug">
-                    <span className="font-bold">🕐 Stale reading</span>
-                    {" "}
-                    — latest value is older than this type&apos;s suggested refresh window ({formatStaleThresholdHours(h)}).
-                    {" "}
-                    <span className="text-white">Recorded {fmtObsAU(selectedObs.last_recorded)}.</span>
-                  </div>
-                )
-              })()}
+              />
             </>
           )
 
           return (
-          <div className="flex flex-col flex-1 min-h-0 gap-3">
-            {!hasObsChart && (
-              <div className="shrink-0 flex flex-col gap-3">
-                {navHeader}
-                {periodControls}
-              </div>
-            )}
+            <>
+              {header}
 
-            {obsRecordsLoading && <div className="shrink-0 text-white text-center py-8">Loading…</div>}
+              {obsRecordsLoading && <p className="fc-admin-note">Loading…</p>}
 
-            {selectedObs.observation_type === "Hydration" && (
-              <div className="flex flex-col gap-4 lg:grid lg:grid-cols-5 lg:grid-rows-[minmax(0,1fr)] lg:gap-4 lg:flex-1 lg:min-h-0">
-                <div className="flex flex-col gap-2 lg:col-span-3 min-w-0 min-h-0 shrink-0 lg:min-h-0
-                                 sticky top-0 z-10 bg-fc-blue pb-2 lg:static lg:bg-transparent lg:pb-0">
-                  {navHeader}
-                  {periodControls}
+              {selectedObs.observation_type === "Hydration" && (
+                <>
                   {obsChartLoading
-                    ? (
-                      <div className="bg-white/10 rounded-xl p-3">
-                        <div className="aspect-[20/7] flex items-center justify-center text-white text-sm">
-                          Loading…
-                        </div>
-                      </div>
-                    )
+                    ? <p className="fc-admin-note">Loading…</p>
                     : (
                       <>
-                        <div className="bg-white/10 rounded-xl p-3">
+                        <div className="fc-chart-card">
                           <HydrationBarChart
                             data={obsChartData.map(r => ({ date: r.recorded_at, value: r.value, unit: r.unit }))}
                             goalMl={obsGoal?.goal_type === "daily_min" ? obsGoal.target_value : undefined}
                             describedById={obsRecords.length > 0 ? "hydration-chart-data-table" : undefined}
                           />
                         </div>
-                        <p className="text-white text-xs">
+                        <p className="fc-history__count">
                           {obsChartData.length} record{obsChartData.length === 1 ? "" : "s"} in selected period
                         </p>
                       </>
                     )
                   }
-                </div>
-                {!obsRecordsLoading && obsRecords.length > 0 && (
-                  <div className="lg:col-span-2 min-h-0 min-w-0 overflow-x-auto fc-scroll lg:overflow-y-auto">
-                    <table id="hydration-chart-data-table" className="w-full text-sm">
-                      <caption className="sr-only">Hydration records for the chart</caption>
-                      <thead>
-                        <tr className="text-white text-xs border-b border-white/10">
-                          <th className="text-left pb-1 pr-2 font-normal">Date/Time</th>
-                          <th className="text-left pb-1 pr-2 font-normal">Value</th>
-                          <th className="text-left pb-1 font-normal">Comments</th>
-                          {canDelete && <th className="pb-1 min-w-[9rem]"></th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {obsRecords.map(r => {
-                          if (editingObsId === r.id && obsDraft) return (
-                            <tr key={r.id} className="border-t border-white/10">
-                              <td colSpan={99} className="py-2">
-                                <div className="flex flex-col gap-1.5">
-                                  <div className="flex gap-2">
-                                    <input type="date" value={obsDraft.date} onChange={e => setObsDraft(d => ({ ...d!, date: e.target.value }))}
-                                      className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                    <input type="time" value={obsDraft.time} onChange={e => setObsDraft(d => ({ ...d!, time: e.target.value }))}
-                                      className="w-24 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <input type="number" value={obsDraft.value} step="any" placeholder="Value"
-                                      onChange={e => setObsDraft(d => ({ ...d!, value: e.target.value }))}
-                                      className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                    <input type="text" value={obsDraft.unit} onChange={e => setObsDraft(d => ({ ...d!, unit: e.target.value }))}
-                                      className="w-20 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  </div>
-                                  <input type="text" value={obsDraft.comments} placeholder="Comments"
-                                    onChange={e => setObsDraft(d => ({ ...d!, comments: e.target.value }))}
-                                    className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  <div className="flex gap-2 justify-end">
-                                    <button onClick={() => { setEditingObsId(null); setObsDraft(null) }}
-                                      className="text-white text-xs px-3 py-1.5 rounded border border-white/20 hover:bg-white/10">Cancel</button>
-                                    <button onClick={saveObsRecord}
-                                      className="bg-fc-blue-dark text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-fc-blue-mid">Save</button>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )
-                          return (
-                            <tr key={r.id} className="border-t border-white/10">
-                              <td className="py-2 pr-2 text-white text-xs whitespace-nowrap">{fmtObsAU(r.recorded_at)}</td>
-                              <td className="py-2 pr-2 text-white whitespace-nowrap">{r.value} {r.unit}</td>
-                              <td className="py-2 text-white italic text-sm">{r.comments ?? ""}</td>
-                              {canDelete && (
-                                <td className="py-2 text-center">
-                                  <div className="flex gap-2 justify-center">
-                                    <EntityRowEditButton onClick={() => startEditObs(r)} title="Edit" />
-                                    <EntityRowDeleteButton onClick={() => deleteObsRecord(r.id)} title="Delete" />
-                                  </div>
-                                </td>
-                              )}
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                    {isPaginatedObsType(selectedObs.observation_type) && obsCursor && (
-                      <button onClick={loadMoreObsRecords} disabled={obsLoadingMore}
-                        className="mt-2 w-full text-xs text-white hover:text-white border border-white/20 hover:border-white/40 rounded px-3 py-1.5 transition-colors disabled:opacity-50">
-                        {obsLoadingMore ? "Loading…" : "Load more"}
-                      </button>
-                    )}
-                    {isPaginatedObsType(selectedObs.observation_type) && !obsCursor && obsRecords.length > 0 && (
-                      <p className="mt-2 text-center text-xs text-white">end of range</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                  {!obsRecordsLoading && obsRecords.length > 0 && (
+                    <>
+                      {renderObsTable(obsRecords, false, "hydration-chart-data-table", "Hydration records for the chart")}
+                      {paginationFooter}
+                    </>
+                  )}
+                </>
+              )}
 
-            {OBS_HISTORY_CHART_TYPES.has(selectedObs.observation_type) && (
-              <div className="flex flex-col gap-4 lg:grid lg:grid-cols-5 lg:grid-rows-[minmax(0,1fr)] lg:gap-4 lg:flex-1 lg:min-h-0">
-                <div className="flex flex-col gap-2 lg:col-span-3 min-w-0 min-h-0 shrink-0 lg:min-h-0
-                                 sticky top-0 z-10 bg-fc-blue pb-2 lg:static lg:bg-transparent lg:pb-0">
-                  {navHeader}
-                  {periodControls}
+              {OBS_HISTORY_CHART_TYPES.has(selectedObs.observation_type) && (
+                <>
                   {obsChartLoading
-                    ? (
-                      <div className="bg-white/10 rounded-xl p-3">
-                        <div className="aspect-[8/3] flex items-center justify-center text-white text-sm">
-                          Loading…
-                        </div>
-                      </div>
-                    )
+                    ? <p className="fc-admin-note">Loading…</p>
                     : (
                       <>
                         {obsChartData.length < 2
-                          ? <p className="text-white text-center py-4 text-sm lg:text-left">
-                              Not enough data to display a chart — need at least 2 observations.
-                            </p>
-                          : <div className="bg-white/10 rounded-xl p-3">
+                          ? <p className="fc-section-copy fc-surface-copy">Not enough data to display a chart — need at least 2 observations.</p>
+                          : (
+                            <div className="fc-chart-card">
                               {(() => {
                                 const series = chartSeriesForObs(obsChartData, selectedObs.observation_type, measurementSystem)
                                 return (
-                              <LineChart
-                                data={series.data}
-                                unit={series.unit}
-                                label={selectedObs.observation_type}
-                                goalMin={obsGoal?.goal_type === "range" ? convertGoalValue(obsGoal.target_value, obsGoal.unit, selectedObs.observation_type, series.unit) : undefined}
-                                goalMax={obsGoal?.goal_type === "range" ? convertGoalValue(obsGoal.target_max ?? undefined, obsGoal.unit, selectedObs.observation_type, series.unit) : undefined}
-                                goalTarget={obsGoal?.goal_type === "trend" ? convertGoalValue(obsGoal.target_value, obsGoal.unit, selectedObs.observation_type, series.unit) : undefined}
-                                goalDate={obsGoal?.target_date ?? undefined}
-                                describedById={obsRecords.length > 0 ? "obs-line-chart-data-table" : undefined}
-                              />
+                                  <LineChart
+                                    data={series.data}
+                                    unit={series.unit}
+                                    label={selectedObs.observation_type}
+                                    goalMin={obsGoal?.goal_type === "range" ? convertGoalValue(obsGoal.target_value, obsGoal.unit, selectedObs.observation_type, series.unit) : undefined}
+                                    goalMax={obsGoal?.goal_type === "range" ? convertGoalValue(obsGoal.target_max ?? undefined, obsGoal.unit, selectedObs.observation_type, series.unit) : undefined}
+                                    goalTarget={obsGoal?.goal_type === "trend" ? convertGoalValue(obsGoal.target_value, obsGoal.unit, selectedObs.observation_type, series.unit) : undefined}
+                                    goalDate={obsGoal?.target_date ?? undefined}
+                                    describedById={obsRecords.length > 0 ? "obs-line-chart-data-table" : undefined}
+                                  />
                                 )
                               })()}
                             </div>
+                          )
                         }
-                        <p className="text-white text-xs">
+                        <p className="fc-history__count">
                           {obsChartData.length} observation{obsChartData.length === 1 ? "" : "s"} in selected period
                         </p>
                       </>
                     )
                   }
-                </div>
-                {!obsRecordsLoading && obsRecords.length > 0 && (
-                  <div className="lg:col-span-2 min-h-0 min-w-0 overflow-x-auto fc-scroll lg:overflow-y-auto">
-                    <table id="obs-line-chart-data-table" className="w-full text-sm">
-                      <caption className="sr-only">{selectedObs.observation_type} records for the chart</caption>
-                      <thead>
-                        <tr className="text-white text-xs border-b border-white/10">
-                          <th className="text-left pb-1 pr-2 font-normal">Date/Time</th>
-                          <th className="text-left pb-1 pr-2 font-normal">Value</th>
-                          <th className="text-left pb-1 font-normal">Comments</th>
-                          {canDelete && <th className="pb-1 min-w-[9rem]"></th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {obsRecords.map(r => {
-                          if (editingObsId === r.id && obsDraft) return (
-                            <tr key={r.id} className="border-t border-white/10">
-                              <td colSpan={99} className="py-2">
-                                <div className="flex flex-col gap-1.5">
-                                  <div className="flex gap-2">
-                                    <input type="date" value={obsDraft.date} onChange={e => setObsDraft(d => ({ ...d!, date: e.target.value }))}
-                                      className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                    <input type="time" value={obsDraft.time} onChange={e => setObsDraft(d => ({ ...d!, time: e.target.value }))}
-                                      className="w-24 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <input type="number" value={obsDraft.value} step="any" placeholder="Value"
-                                      onChange={e => setObsDraft(d => ({ ...d!, value: e.target.value }))}
-                                      className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                    {OBS_UNITS[obsDraft.observation_type] ? (
-                                      <select value={obsDraft.unit} onChange={e => setObsDraft(d => ({ ...d!, unit: e.target.value }))}
-                                        className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800">
-                                        {OBS_UNITS[obsDraft.observation_type].map(u => <option key={u} value={u}>{u}</option>)}
-                                      </select>
-                                    ) : (
-                                      <input type="text" value={obsDraft.unit} onChange={e => setObsDraft(d => ({ ...d!, unit: e.target.value }))}
-                                        className="w-20 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                    )}
-                                  </div>
-                                  <input type="text" value={obsDraft.comments} placeholder="Comments"
-                                    onChange={e => setObsDraft(d => ({ ...d!, comments: e.target.value }))}
-                                    className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  <div className="flex gap-2 justify-end">
-                                    <button onClick={() => { setEditingObsId(null); setObsDraft(null) }}
-                                      className="text-white text-xs px-3 py-1.5 rounded border border-white/20 hover:bg-white/10">Cancel</button>
-                                    <button onClick={saveObsRecord}
-                                      className="bg-fc-blue-dark text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-fc-blue-mid">Save</button>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )
-                          return (
-                            <tr key={r.id} className="border-t border-white/10">
-                              <td className="py-2 pr-2 text-white text-xs whitespace-nowrap">{fmtObsAU(r.recorded_at)}</td>
-                              <td className="py-2 pr-2 text-white whitespace-nowrap">{r.value} {r.unit}</td>
-                              <td className="py-2 text-white italic text-sm">{r.comments ?? ""}</td>
-                              {canDelete && (
-                                <td className="py-2 text-center">
-                                  <div className="flex gap-2 justify-center">
-                                    <EntityRowEditButton onClick={() => startEditObs(r)} title="Edit" />
-                                    <EntityRowDeleteButton onClick={() => deleteObsRecord(r.id)} title="Delete" />
-                                  </div>
-                                </td>
-                              )}
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                    {isPaginatedObsType(selectedObs.observation_type) && obsCursor && (
-                      <button onClick={loadMoreObsRecords} disabled={obsLoadingMore}
-                        className="mt-2 w-full text-xs text-white hover:text-white border border-white/20 hover:border-white/40 rounded px-3 py-1.5 transition-colors disabled:opacity-50">
-                        {obsLoadingMore ? "Loading…" : "Load more"}
-                      </button>
-                    )}
-                    {isPaginatedObsType(selectedObs.observation_type) && !obsCursor && obsRecords.length > 0 && (
-                      <p className="mt-2 text-center text-xs text-white">end of range</p>
-                    )}
-                  </div>
-                )}
-              </div>
+                  {!obsRecordsLoading && obsRecords.length > 0 && (
+                    <>
+                      {renderObsTable(obsRecords, false, "obs-line-chart-data-table", `${selectedObs.observation_type} records for the chart`)}
+                      {paginationFooter}
+                    </>
+                  )}
+                </>
+              )}
 
-            )}
-
-            {/* ── Blood Pressure: dual-line chart + grouped table ── */}
-            {!obsRecordsLoading && selectedObs.observation_type === "Blood Pressure" && (() => {
-              const bpRows = buildBpTableRows(obsRecords)
-              const pairedAsc = bpRows
-                .filter((r): r is Extract<BpDetailRow, { kind: "pair" }> => r.kind === "pair")
-                .reverse()
-              const sysSeries = pairedAsc.map(p => ({ date: p.recorded_at, value: p.sys.value }))
-              const diaSeries = pairedAsc.map(p => ({ date: p.recorded_at, value: p.dia.value }))
-              return (
-                <div className="flex flex-col gap-4 lg:grid lg:grid-cols-5 lg:grid-rows-[minmax(0,1fr)] lg:gap-4 lg:flex-1 lg:min-h-0">
-                  <div className="flex flex-col gap-2 lg:col-span-3 min-w-0 min-h-0 shrink-0 lg:min-h-0
-                                   sticky top-0 z-10 bg-fc-blue pb-2 lg:static lg:bg-transparent lg:pb-0">
-                    {navHeader}
-                    {periodControls}
+              {/* ── Blood Pressure: dual-line chart + grouped table ── */}
+              {!obsRecordsLoading && selectedObs.observation_type === "Blood Pressure" && (() => {
+                const bpRows = buildBpTableRows(obsRecords)
+                const pairedAsc = bpRows
+                  .filter((r): r is Extract<BpDetailRow, { kind: "pair" }> => r.kind === "pair")
+                  .reverse()
+                const sysSeries = pairedAsc.map(p => ({ date: p.recorded_at, value: p.sys.value }))
+                const diaSeries = pairedAsc.map(p => ({ date: p.recorded_at, value: p.dia.value }))
+                return (
+                  <>
                     {pairedAsc.length >= 2 ? (
-                      <div className="bg-white/10 rounded-xl p-3">
+                      <div className="fc-chart-card">
                         <LineChart
                           data={sysSeries}
                           secondaryData={diaSeries}
@@ -981,507 +1197,142 @@ export default function HistoryPage() {
                         />
                       </div>
                     ) : (
-                      <p className="text-white text-center py-4 text-sm lg:text-left">
+                      <p className="fc-section-copy fc-surface-copy">
                         Not enough paired readings for a chart — need at least two complete systolic/diastolic pairs.
                       </p>
                     )}
-                    <p className="text-white text-xs">
+                    <p className="fc-history__count">
                       {bpRows.length} reading{bpRows.length === 1 ? "" : "s"} in selected period
                     </p>
-                  </div>
-                  {bpRows.length === 0 ? (
-                    <div className="lg:col-span-2 min-h-0 min-w-0">
-                      <p className="text-white text-center py-8 lg:py-4 lg:text-left">No readings in this period.</p>
-                    </div>
-                  ) : (
-                    <div className="lg:col-span-2 min-h-0 min-w-0 overflow-x-auto fc-scroll lg:overflow-y-auto">
-                      <table id="bp-chart-data-table" className="w-full text-sm">
-                        <caption className="sr-only">Blood pressure records for the chart</caption>
-                        <thead>
-                          <tr className="text-white text-xs border-b border-white/10">
-                            <th className="text-left pb-1 pr-2 font-normal">Date/Time</th>
-                            <th className="text-left pb-1 pr-2 font-normal">Value</th>
-                            <th className="text-left pb-1 font-normal">Comments</th>
-                            {canDelete && <th className="pb-1 min-w-[9rem]"></th>}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {bpRows.map(row => {
-                            if (row.kind === "pair") {
-                              if (editingBpSession === row.session_id && bpDraft) {
-                                return (
-                                  <tr key={`bp-pair-${row.session_id}`} className="border-t border-white/10">
-                                    <td colSpan={99} className="py-2">
-                                      <div className="flex flex-col gap-1.5 py-1">
-                                        <div className="flex gap-2">
-                                          <input type="date" value={bpDraft.date} onChange={e => setBpDraft(d => ({ ...d!, date: e.target.value }))}
-                                            className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                          <input type="time" value={bpDraft.time} onChange={e => setBpDraft(d => ({ ...d!, time: e.target.value }))}
-                                            className="w-24 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                        </div>
-                                        <div className="flex gap-2 items-center">
-                                          <div className="flex flex-col gap-0.5 flex-1">
-                                            <span className="text-white text-sm">Systolic</span>
-                                            <input type="number" value={bpDraft.systolic} step="1" min="0"
-                                              onChange={e => setBpDraft(d => ({ ...d!, systolic: e.target.value }))}
-                                              className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                          </div>
-                                          <span className="text-white font-bold self-end mb-2">/</span>
-                                          <div className="flex flex-col gap-0.5 flex-1">
-                                            <span className="text-white text-sm">Diastolic</span>
-                                            <input type="number" value={bpDraft.diastolic} step="1" min="0"
-                                              onChange={e => setBpDraft(d => ({ ...d!, diastolic: e.target.value }))}
-                                              className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                          </div>
-                                          <span className="text-white text-xs self-end mb-2">mmHg</span>
-                                        </div>
-                                        <input type="text" value={bpDraft.comments} placeholder="Comments"
-                                          onChange={e => setBpDraft(d => ({ ...d!, comments: e.target.value }))}
-                                          className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                        <div className="flex gap-2 justify-end">
-                                          <button type="button" onClick={() => { setEditingBpSession(null); setBpDraft(null) }}
-                                            className="text-white text-xs px-3 py-1.5 rounded border border-white/20 hover:bg-white/10">Cancel</button>
-                                          <button type="button" onClick={saveBpPair}
-                                            className="bg-fc-blue-dark text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-fc-blue-mid">Save</button>
-                                        </div>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )
-                              }
-                              return (
-                                <tr key={`bp-pair-${row.session_id}`} className="border-t border-white/10">
-                                  <td className="py-2 pr-2 text-white text-xs whitespace-nowrap">{fmtObsAU(row.recorded_at)}</td>
-                                  <td className="py-2 pr-2 text-white whitespace-nowrap font-semibold">
-                                    {row.sys.value}/{row.dia.value} mmHg
-                                  </td>
-                                  <td className="py-2 text-white italic text-sm">{row.comments ?? ""}</td>
-                                  {canDelete && (
-                                    <td className="py-2 text-center">
-                                      <div className="flex gap-2 justify-center">
-                                        <EntityRowEditButton onClick={() => startEditBp(row)} title="Edit" />
-                                        <EntityRowDeleteButton
-                                          onClick={() => deleteBpPair(row.sys.id, row.dia.id)}
-                                          title="Delete"
-                                        />
-                                      </div>
-                                    </td>
-                                  )}
-                                </tr>
-                              )
+                    {bpRows.length === 0 ? (
+                      <EmptyState icon={EMPTY_STATE_ICONS.noRecords} heading="No readings in this period">
+                        Try a wider date range.
+                      </EmptyState>
+                    ) : (
+                      <RecordTable
+                        id="bp-chart-data-table"
+                        caption="Blood pressure records for the chart"
+                        hasActions={canDelete}
+                        columns={["Date/Time", "Value", "Comments"]}
+                        rows={bpRows.map(row => {
+                          if (row.kind === "pair") {
+                            return {
+                              key: `bp-pair-${row.session_id}`,
+                              cells: [formatDateTime(row.recorded_at), `${row.sys.value}/${row.dia.value} mmHg`, row.comments ?? ""],
+                              nowrap: [true, true, false],
+                              note: 2,
+                              actions: rowActions("Blood Pressure", () => startEditBp(row), () => deleteBpPair(row.sys.id, row.dia.id)),
+                              editing: editingBpSession === row.session_id && bpDraft ? (
+                                <BpEditForm
+                                  draft={bpDraft}
+                                  onChange={patch => setBpDraft(d => ({ ...d!, ...patch }))}
+                                  onCancel={() => { setEditingBpSession(null); setBpDraft(null) }}
+                                  onSave={saveBpPair}
+                                />
+                              ) : undefined,
                             }
-                            const r = row.record
-                            if (editingObsId === r.id && obsDraft) return (
-                              <tr key={`bp-single-${r.id}`} className="border-t border-white/10">
-                                <td colSpan={99} className="py-2">
-                                  <div className="flex flex-col gap-1.5">
-                                    <div className="flex gap-2">
-                                      <input type="date" value={obsDraft.date} onChange={e => setObsDraft(d => ({ ...d!, date: e.target.value }))}
-                                        className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                      <input type="time" value={obsDraft.time} onChange={e => setObsDraft(d => ({ ...d!, time: e.target.value }))}
-                                        className="w-24 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <input type="number" value={obsDraft.value} step="any" placeholder="Value"
-                                        onChange={e => setObsDraft(d => ({ ...d!, value: e.target.value }))}
-                                        className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                      <select value={obsDraft.unit} onChange={e => setObsDraft(d => ({ ...d!, unit: e.target.value }))}
-                                        className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800">
-                                        {(OBS_UNITS["Blood Pressure"] ?? ["mmHg"]).map(u => (
-                                          <option key={u} value={u}>{u}</option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <input type="text" value={obsDraft.comments} placeholder="Comments"
-                                      onChange={e => setObsDraft(d => ({ ...d!, comments: e.target.value }))}
-                                      className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                    <div className="flex gap-2 justify-end">
-                                      <button type="button" onClick={() => { setEditingObsId(null); setObsDraft(null) }}
-                                        className="text-white text-xs px-3 py-1.5 rounded border border-white/20 hover:bg-white/10">Cancel</button>
-                                      <button type="button" onClick={saveObsRecord}
-                                        className="bg-fc-blue-dark text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-fc-blue-mid">Save</button>
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                            return (
-                              <tr key={`bp-single-${r.id}`} className="border-t border-white/10">
-                                <td className="py-2 pr-2 text-white text-xs whitespace-nowrap">{fmtObsAU(r.recorded_at)}</td>
-                                <td className="py-2 pr-2 text-white whitespace-nowrap">{formatBpSingle(r)}</td>
-                                <td className="py-2 text-white italic text-sm">{r.comments ?? ""}</td>
-                                {canDelete && (
-                                  <td className="py-2 text-center">
-                                    <div className="flex gap-2 justify-center">
-                                      <EntityRowEditButton onClick={() => startEditObs(r)} title="Edit" />
-                                      <EntityRowDeleteButton onClick={() => deleteObsRecord(r.id)} title="Delete" />
-                                    </div>
-                                  </td>
-                                )}
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
+                          }
+                          const r = row.record
+                          return {
+                            key: `bp-single-${r.id}`,
+                            cells: [formatDateTime(r.recorded_at), formatBpSingle(r), r.comments ?? ""],
+                            nowrap: [true, true, false],
+                            note: 2,
+                            actions: rowActions("Blood Pressure", () => startEditObs(r), () => deleteObsRecord(r.id)),
+                            editing: editingObsId === r.id && obsDraft ? (
+                              <ObsEditForm
+                                draft={obsDraft}
+                                units={OBS_UNITS["Blood Pressure"] ?? ["mmHg"]}
+                                onChange={patch => setObsDraft(d => ({ ...d!, ...patch }))}
+                                onCancel={() => { setEditingObsId(null); setObsDraft(null) }}
+                                onSave={saveObsRecord}
+                              />
+                            ) : undefined,
+                          }
+                        })}
+                      />
+                    )}
+                  </>
+                )
+              })()}
 
-            {!obsRecordsLoading && !OBS_HISTORY_CHART_TYPES.has(selectedObs.observation_type) && selectedObs.observation_type !== "Blood Pressure" && selectedObs.observation_type !== "Hydration" && (
-              <div className="flex flex-col flex-1 min-h-0 gap-2">
-                <p className="shrink-0 text-white text-xs mb-2">
-                  {obsRecords.length} observation{obsRecords.length === 1 ? "" : "s"} loaded
-                </p>
-                {obsRecords.length === 0
-                  ? <p className="text-white text-center py-8">No observations in this period.</p>
-                  : <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto fc-scroll lg:overflow-y-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-white text-xs border-b border-white/10">
-                            <th className="text-left pb-1 pr-2 font-normal">Date/Time</th>
-                            <th className="text-left pb-1 pr-2 font-normal">Value</th>
-                            <th className="text-left pb-1 pr-2 font-normal">Unit</th>
-                            <th className="text-left pb-1 font-normal">Comments</th>
-                            {canDelete && <th className="pb-1 min-w-[9rem]"></th>}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {obsRecords.map(r => {
-                            if (editingObsId === r.id && obsDraft) return (
-                              <tr key={r.id} className="border-t border-white/10">
-                                <td colSpan={99} className="py-2">
-                                  <div className="flex flex-col gap-1.5">
-                                    <div className="flex gap-2">
-                                      <input type="date" value={obsDraft.date} onChange={e => setObsDraft(d => ({ ...d!, date: e.target.value }))}
-                                        className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                      <input type="time" value={obsDraft.time} onChange={e => setObsDraft(d => ({ ...d!, time: e.target.value }))}
-                                        className="w-24 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <input type="number" value={obsDraft.value} step="any" placeholder="Value"
-                                        onChange={e => setObsDraft(d => ({ ...d!, value: e.target.value }))}
-                                        className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                      {OBS_UNITS[obsDraft.observation_type] ? (
-                                        <select value={obsDraft.unit} onChange={e => setObsDraft(d => ({ ...d!, unit: e.target.value }))}
-                                          className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800">
-                                          {OBS_UNITS[obsDraft.observation_type].map(u => <option key={u} value={u}>{u}</option>)}
-                                        </select>
-                                      ) : (
-                                        <input type="text" value={obsDraft.unit} onChange={e => setObsDraft(d => ({ ...d!, unit: e.target.value }))}
-                                          className="w-20 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                      )}
-                                    </div>
-                                    <input type="text" value={obsDraft.comments} placeholder="Comments"
-                                      onChange={e => setObsDraft(d => ({ ...d!, comments: e.target.value }))}
-                                      className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                    <div className="flex gap-2 justify-end">
-                                      <button onClick={() => { setEditingObsId(null); setObsDraft(null) }}
-                                        className="text-white text-xs px-3 py-1.5 rounded border border-white/20 hover:bg-white/10">Cancel</button>
-                                      <button onClick={saveObsRecord}
-                                        className="bg-fc-blue-dark text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-fc-blue-mid">Save</button>
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                            return (
-                              <tr key={r.id} className="border-t border-white/10">
-                                <td className="py-2 pr-2 text-white text-xs whitespace-nowrap">{fmtObsAU(r.recorded_at)}</td>
-                                <td className="py-2 pr-2 text-white">{r.value}</td>
-                                <td className="py-2 pr-2 text-white">{r.unit}</td>
-                                <td className="py-2 text-white italic text-sm">{r.comments ?? ""}</td>
-                                {canDelete && (
-                                  <td className="py-2 text-center">
-                                    <div className="flex gap-2 justify-center">
-                                      <EntityRowEditButton onClick={() => startEditObs(r)} title="Edit" />
-                                      <EntityRowDeleteButton onClick={() => deleteObsRecord(r.id)} title="Delete" />
-                                    </div>
-                                  </td>
-                                )}
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                      {isPaginatedObsType(selectedObs.observation_type) && obsCursor && (
-                        <button onClick={loadMoreObsRecords} disabled={obsLoadingMore}
-                          className="mt-2 w-full text-xs text-white hover:text-white border border-white/20 hover:border-white/40 rounded px-3 py-1.5 transition-colors disabled:opacity-50">
-                          {obsLoadingMore ? "Loading…" : "Load more"}
-                        </button>
-                      )}
-                      {isPaginatedObsType(selectedObs.observation_type) && !obsCursor && obsRecords.length > 0 && (
-                        <p className="mt-2 text-center text-xs text-white">end of range</p>
-                      )}
-                    </div>
-                }
-              </div>
-            )}
-          </div>
+              {!obsRecordsLoading && !OBS_HISTORY_CHART_TYPES.has(selectedObs.observation_type) && selectedObs.observation_type !== "Blood Pressure" && selectedObs.observation_type !== "Hydration" && (
+                <>
+                  <p className="fc-history__count">
+                    {obsRecords.length} observation{obsRecords.length === 1 ? "" : "s"} loaded
+                  </p>
+                  {obsRecords.length === 0
+                    ? (
+                      <EmptyState icon={EMPTY_STATE_ICONS.noRecords} heading="No observations in this period">
+                        Try a wider date range.
+                      </EmptyState>
+                    )
+                    : (
+                      <>
+                        {renderObsTable(obsRecords, true)}
+                        {paginationFooter}
+                      </>
+                    )
+                  }
+                </>
+              )}
+            </>
           )
         })()}
 
-        {/* ── DATE TAB ── */}
+        {/* ── ACTIVITY TAB ── */}
 
-        {tab === "date" && (
+        {tab === "activity" && (
           <>
-            <div className="flex gap-2 items-center mb-3">
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1 text-gray-800" />
-              <span className="text-white text-xs">→</span>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1 text-gray-800" />
-              <button onClick={loadDateEntries}
-                className="bg-fc-blue-dark text-white text-xs px-3 py-1 rounded font-bold">Go</button>
-            </div>
+            <RangeFields from={feedFrom} to={feedTo} onFrom={setFeedFrom} onTo={setFeedTo} />
+            <FeedKindChips value={feedKindFilter} onChange={setFeedKindFilter} />
 
-            {dateLoading && <div className="text-white text-center py-8">Loading…</div>}
+            {activityFeed.loading && <p className="fc-admin-note">Loading…</p>}
 
-            {!dateLoading && (
+            {!activityFeed.loading && (
               <>
-                <p className="text-white text-xs mb-2">
-                  {mergedDateEntries.length} entr{mergedDateEntries.length === 1 ? "y" : "ies"} in selected period
+                <p className="fc-history__count">
+                  {filteredFeedRows.length} entr{filteredFeedRows.length === 1 ? "y" : "ies"} in selected period
                 </p>
-                {mergedDateEntries.length === 0
-                  ? <p className="text-white text-center py-8">No records in this period.</p>
-                  : <ul className="flex flex-col gap-1">
-                      {visibleDateEntries.map((entry, i) => {
-                        const prev = visibleDateEntries[i - 1]
-                        const t = mergedItemTime(entry)
-                        const prevT = prev ? mergedItemTime(prev) : t
-                        const showSep = i === 0 || dateKey(t) !== dateKey(prevT)
-                        const listKey =
-                          entry.kind === "bp_pair" ? `bp-${entry.sys.id}-${entry.dia.id}`
-                            : entry.kind === "med" ? `med-${entry.entry.id}`
-                            : `obs-${entry.entry.id}`
-
-                        const bpEditForm =
-                          entry.kind === "bp_pair" &&
-                          entry.sys.session_id &&
-                          editingBpSession === entry.sys.session_id &&
-                          bpDraft ? (
-                          <div className="bg-white/10 rounded-xl px-3 py-3 flex flex-col gap-2">
-                            <div className="flex gap-2">
-                              <input type="date" value={bpDraft.date} onChange={e => setBpDraft(d => ({ ...d!, date: e.target.value }))}
-                                className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                              <input type="time" value={bpDraft.time} onChange={e => setBpDraft(d => ({ ...d!, time: e.target.value }))}
-                                className="w-24 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                            </div>
-                            <div className="flex gap-2 items-center">
-                              <div className="flex flex-col gap-0.5 flex-1">
-                                <span className="text-white text-sm">Systolic</span>
-                                <input type="number" value={bpDraft.systolic} step="1" min="0"
-                                  onChange={e => setBpDraft(d => ({ ...d!, systolic: e.target.value }))}
-                                  className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                              </div>
-                              <span className="text-white font-bold mt-6">/</span>
-                              <div className="flex flex-col gap-0.5 flex-1">
-                                <span className="text-white text-sm">Diastolic</span>
-                                <input type="number" value={bpDraft.diastolic} step="1" min="0"
-                                  onChange={e => setBpDraft(d => ({ ...d!, diastolic: e.target.value }))}
-                                  className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                              </div>
-                              <span className="text-white text-xs mt-6 shrink-0">mmHg</span>
-                            </div>
-                            <input type="text" value={bpDraft.comments} placeholder="Comments"
-                              onChange={e => setBpDraft(d => ({ ...d!, comments: e.target.value }))}
-                              className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                            <div className="flex gap-2 justify-end">
-                              <button type="button" onClick={() => { setEditingBpSession(null); setBpDraft(null) }}
-                                className="text-white text-xs px-3 py-1.5 rounded border border-white/20 hover:bg-white/10">Cancel</button>
-                              <button type="button" onClick={saveBpPair}
-                                className="bg-fc-blue-dark text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-fc-blue-mid">Save</button>
-                            </div>
-                          </div>
-                        ) : null
-
-                        return (
-                          <li key={listKey}>
-                            {showSep && (
-                              <div className="flex items-center gap-2 my-2">
-                                <div className="flex-1 h-px bg-white/20"></div>
-                                <span className="text-white text-xs whitespace-nowrap">
-                                  {fmtDateLabel(t)}
-                                </span>
-                                <div className="flex-1 h-px bg-white/20"></div>
-                              </div>
-                            )}
-                            {entry.kind === "med" && editingMedId === entry.entry.id && medDraft ? (
-                              <div className="bg-white/10 rounded-xl px-3 py-3 flex flex-col gap-2">
-                                <div className="flex gap-2">
-                                  <input type="date" value={medDraft.date} onChange={e => setMedDraft(d => ({ ...d!, date: e.target.value }))}
-                                    className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  <input type="time" value={medDraft.time} onChange={e => setMedDraft(d => ({ ...d!, time: e.target.value }))}
-                                    className="w-24 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                </div>
-                                <div className="flex gap-2">
-                                  <input type="number" value={medDraft.dosage} min="0" step="0.1" placeholder="Dosage"
-                                    onChange={e => setMedDraft(d => ({ ...d!, dosage: e.target.value }))}
-                                    className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  <select value={medDraft.dosage_unit} onChange={e => setMedDraft(d => ({ ...d!, dosage_unit: e.target.value }))}
-                                    className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800">
-                                    {DOSAGE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                                  </select>
-                                </div>
-                                <input type="text" value={medDraft.comments} placeholder="Comments"
-                                  onChange={e => setMedDraft(d => ({ ...d!, comments: e.target.value }))}
-                                  className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                <div className="flex gap-2 justify-end">
-                                  <button type="button" onClick={() => { setEditingMedId(null); setMedDraft(null) }}
-                                    className="text-white text-xs px-3 py-1.5 rounded border border-white/20 hover:bg-white/10">Cancel</button>
-                                  <button type="button" onClick={saveMedRecord}
-                                    className="bg-fc-blue-dark text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-fc-blue-mid">Save</button>
-                                </div>
-                              </div>
-                            ) : entry.kind === "obs" && editingObsId === entry.entry.id && obsDraft ? (
-                              <div className="bg-white/10 rounded-xl px-3 py-3 flex flex-col gap-2">
-                                <div className="flex gap-2">
-                                  <input type="date" value={obsDraft.date} onChange={e => setObsDraft(d => ({ ...d!, date: e.target.value }))}
-                                    className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  <input type="time" value={obsDraft.time} onChange={e => setObsDraft(d => ({ ...d!, time: e.target.value }))}
-                                    className="w-24 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                </div>
-                                <div className="flex gap-2">
-                                  <input type="number" value={obsDraft.value} step="any" placeholder="Value"
-                                    onChange={e => setObsDraft(d => ({ ...d!, value: e.target.value }))}
-                                    className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  {OBS_UNITS[obsDraft.observation_type] ? (
-                                    <select value={obsDraft.unit} onChange={e => setObsDraft(d => ({ ...d!, unit: e.target.value }))}
-                                      className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800">
-                                      {OBS_UNITS[obsDraft.observation_type].map(u => <option key={u} value={u}>{u}</option>)}
-                                    </select>
-                                  ) : (
-                                    <input type="text" value={obsDraft.unit} onChange={e => setObsDraft(d => ({ ...d!, unit: e.target.value }))}
-                                      className="w-20 text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                  )}
-                                </div>
-                                <input type="text" value={obsDraft.comments} placeholder="Comments"
-                                  onChange={e => setObsDraft(d => ({ ...d!, comments: e.target.value }))}
-                                  className="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-800" />
-                                <div className="flex gap-2 justify-end">
-                                  <button type="button" onClick={() => { setEditingObsId(null); setObsDraft(null) }}
-                                    className="text-white text-xs px-3 py-1.5 rounded border border-white/20 hover:bg-white/10">Cancel</button>
-                                  <button type="button" onClick={saveObsRecord}
-                                    className="bg-fc-blue-dark text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-fc-blue-mid">Save</button>
-                                </div>
-                              </div>
-                            ) : bpEditForm ? (
-                              bpEditForm
-                            ) : (
-                              <div className="bg-white/10 rounded-xl px-3 py-3 flex gap-3 items-start">
-                                <span className="text-xl shrink-0 mt-0.5">
-                                  {entry.kind === "med" ? "💊" : "📏"}
-                                </span>
-                                <div className="flex-1 min-w-0">
-                                  {entry.kind === "med" ? (
-                                    <>
-                                      <div className="flex justify-between items-start gap-2">
-                                        <span className="text-white font-bold text-base">{entry.entry.medication_name}</span>
-                                        <span className="text-white text-xs whitespace-nowrap shrink-0">{fmtTimeAU(entry.entry.recorded_at)}</span>
-                                      </div>
-                                      {entry.entry.dosage != null && (
-                                        <div className="text-white text-sm mt-0.5">{entry.entry.dosage} {entry.entry.dosage_unit}</div>
-                                      )}
-                                      {entry.entry.comments && (
-                                        <div className="text-white text-sm mt-1 italic">{entry.entry.comments}</div>
-                                      )}
-                                    </>
-                                  ) : entry.kind === "bp_pair" ? (
-                                    <>
-                                      <div className="flex justify-between items-start gap-2">
-                                        <span className="text-white font-bold text-base">Blood Pressure</span>
-                                        <span className="text-white text-xs whitespace-nowrap shrink-0">{fmtTimeAU(entry.recorded_at)}</span>
-                                      </div>
-                                      <div className="text-white text-sm mt-0.5 font-semibold">
-                                        {entry.sys.value}/{entry.dia.value} mmHg
-                                      </div>
-                                      {entry.comments && (
-                                        <div className="text-white text-sm mt-1 italic">{entry.comments}</div>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <>
-                                      <div className="flex justify-between items-start gap-2">
-                                        <span className="text-white font-bold text-base">{entry.entry.observation_type}</span>
-                                        <span className="text-white text-xs whitespace-nowrap shrink-0">{fmtTimeAU(entry.entry.recorded_at)}</span>
-                                      </div>
-                                      <div className="text-white text-sm mt-0.5 font-semibold">
-                                        {(entry.entry as ObsRecord).value_label
-                                          ? `${(entry.entry as ObsRecord).value_label}: `
-                                          : ""}
-                                        {entry.entry.value} {entry.entry.unit}
-                                      </div>
-                                      {entry.entry.comments && (
-                                        <div className="text-white text-sm mt-1 italic">{entry.entry.comments}</div>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
-                                {canDelete && (
-                                  <div className="flex gap-2 items-center shrink-0">
-                                    {entry.kind === "bp_pair" ? (
-                                      <>
-                                        <EntityRowEditButton
-                                          onClick={() =>
-                                            startEditBp({
-                                              kind: "pair",
-                                              session_id: entry.sys.session_id!,
-                                              sys: entry.sys,
-                                              dia: entry.dia,
-                                              recorded_at: entry.recorded_at,
-                                              comments: entry.comments,
-                                            })
-                                          }
-                                          title="Edit"
-                                        />
-                                        <EntityRowDeleteButton
-                                          onClick={() => deleteBpPair(entry.sys.id, entry.dia.id)}
-                                          title="Delete"
-                                        />
-                                      </>
-                                    ) : (
-                                      <>
-                                        <EntityRowEditButton
-                                          onClick={() =>
-                                            entry.kind === "med"
-                                              ? startEditMed(entry.entry as MedRecord)
-                                              : startEditObs(entry.entry as ObsRecord)
-                                          }
-                                          title="Edit"
-                                        />
-                                        <EntityRowDeleteButton
-                                          onClick={() => deleteDateEntry(entry.kind, entry.entry.id)}
-                                          title="Delete"
-                                        />
-                                      </>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </li>
-                        )
-                      })}
-                    </ul>
+                {filteredFeedRows.length === 0
+                  ? (
+                    <EmptyState icon={EMPTY_STATE_ICONS.noRecords} heading="No records in this period">
+                      Try a wider date range, or record something new.
+                    </EmptyState>
+                  )
+                  : renderFeedList(filteredFeedRows, feedVisibleCount)
                 }
-                {mergedDateEntries.length > dateVisibleCount && (
-                  <button
-                    onClick={() => setDateVisibleCount(c => c + DATE_PAGE_SIZE)}
-                    className="mt-2 w-full text-xs text-white hover:text-white border border-white/20 hover:border-white/40 rounded px-3 py-1.5 transition-colors"
-                  >
-                    Load more ({mergedDateEntries.length - dateVisibleCount} older)
-                  </button>
+                {filteredFeedRows.length > feedVisibleCount && loadMore(
+                  () => setFeedVisibleCount(c => c + DATE_PAGE_SIZE),
+                  false,
+                  `Load more (${filteredFeedRows.length - feedVisibleCount} older)`,
                 )}
-                {mergedDateEntries.length > 0 && mergedDateEntries.length <= dateVisibleCount && (
-                  <p className="mt-2 text-center text-xs text-white">end of range</p>
+                {filteredFeedRows.length > 0 && filteredFeedRows.length <= feedVisibleCount && (
+                  <p className="fc-history__end">End of range</p>
                 )}
               </>
             )}
           </>
         )}
 
-      </main>
+        {/* ── CALENDAR TAB ── */}
+
+        {tab === "calendar" && (
+          <HistoryCalendar
+            month={calendarMonth}
+            onShiftMonth={delta => { setCalendarMonth(m => shiftMonth(m, delta)); setCalendarSelectedDay(null) }}
+            kindFilter={calendarKindFilter}
+            onKindFilter={v => { setCalendarKindFilter(v); setCalendarSelectedDay(null) }}
+            loading={calendarFeed.loading}
+            grid={calendarGrid}
+            selectedDay={calendarSelectedDay}
+            onSelectDay={setCalendarSelectedDay}
+            dayRows={calendarDayRows}
+            renderRow={renderFeedRow}
+          />
+        )}
+      </PageContainer>
+
       {confirmDlg && (
         <ConfirmModal
           open
@@ -1504,5 +1355,25 @@ export default function HistoryPage() {
       />
       <AppFooter />
     </div>
+  )
+}
+
+function RecordLoadingShell() {
+  return (
+    <div className="flex flex-col flex-1">
+      <AppHeader title="History" />
+      <PageContainer>
+        <p className="fc-admin-note">Loading…</p>
+      </PageContainer>
+      <AppFooter />
+    </div>
+  )
+}
+
+export default function HistoryPage() {
+  return (
+    <Suspense fallback={<div className="flex flex-col flex-1 min-h-0 fc-surface-app" />}>
+      <HistoryPageContent />
+    </Suspense>
   )
 }

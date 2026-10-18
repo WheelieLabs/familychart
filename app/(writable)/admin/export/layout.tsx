@@ -4,6 +4,9 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { isAdmin } from "@/lib/permissions"
 import type { AppSession } from "@/lib/session"
+import type { Metadata } from "next"
+
+export const metadata: Metadata = { title: "Data Export & Restore" }
 
 export default async function AdminExportLayout({ children }: { children: React.ReactNode }) {
   const session = await auth() as AppSession | null

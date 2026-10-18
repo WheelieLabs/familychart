@@ -67,17 +67,3 @@ export function resolveEffectiveIanaTz(
   if (row && isValidIanaTz(row)) return row
   return resolveInstanceTimezone(db)
 }
-
-/** Offset for history slot matching: row/instance IANA at record time, else client offset. */
-export function resolveSlotMatchOffsetMinutes(
-  recordedAtMs: number,
-  scheduleTz: string | null | undefined,
-  clientOffsetMinutes: number,
-  db: Database.Database,
-): number {
-  const iana = resolveEffectiveIanaTz(scheduleTz, db)
-  if (iana) {
-    return tzLocalYmdAndOffset(recordedAtMs, iana).offsetMinutes
-  }
-  return clientOffsetMinutes
-}

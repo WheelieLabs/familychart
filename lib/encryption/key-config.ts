@@ -35,7 +35,7 @@ export async function resolveKeyConfigPassphrase(config: KeyConfig): Promise<str
   }
 
   if (config.source === "env") {
-    const key = process.env.FC_DB_KEY?.trim() || process.env.DB_ENCRYPTION_KEY?.trim()
+    const key = process.env.FC_DB_KEY?.trim()
     if (!key) throw new Error("env key config requires FC_DB_KEY")
     return key
   }

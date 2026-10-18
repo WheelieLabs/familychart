@@ -2,15 +2,17 @@
 
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import Modal from "@/components/Modal"
+import Button from "@/components/ui/Button"
 
 export type ConfirmVariant = "danger" | "warning" | "primary"
 
-const confirmButtonClass: Record<ConfirmVariant, string> = {
-  danger: "bg-red-600 hover:bg-red-700 text-white disabled:opacity-50",
-  warning: "bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50",
-  primary: "bg-fc-blue hover:bg-fc-blue-mid text-white disabled:opacity-50",
+/** Danger and warning confirmations use the destructive button; a plain acknowledgement is primary. */
+const confirmVariant: Record<ConfirmVariant, "primary" | "destructive"> = {
+  danger: "destructive",
+  warning: "destructive",
+  primary: "primary",
 }
 
 export const confirmCopy = {
@@ -35,11 +37,25 @@ export const confirmCopy = {
       "This removes the paired systolic and diastolic values recorded together from history. It cannot be undone.",
     confirmLabel: "Delete",
   },
+  deleteTestResult: {
+    variant: "danger" as const,
+    title: "Delete this test result?",
+    message:
+      "This removes the test event, its structured values, and its attached report from history. It cannot be undone.",
+    confirmLabel: "Delete",
+  },
+  deleteSymptomEvent: {
+    variant: "danger" as const,
+    title: "Delete this symptom record?",
+    message:
+      "This removes the symptom entry from history, including its resolved/active state. It cannot be undone.",
+    confirmLabel: "Delete",
+  },
   removePersonFromList: {
     variant: "warning" as const,
     title: "Remove this person?",
     message:
-      "They will no longer appear in your family list. Medication dose logs and observations already stored for them remain in the database.",
+      "They'll no longer appear in your family list. Their records stay stored and can be exported or deleted permanently from Data Export & Restore.",
     confirmLabel: "Remove",
   },
   removeMedicationFromPersonSchedule: {
@@ -184,7 +200,6 @@ export default function ConfirmModal({
   onCancel: () => void
 }) {
   const [running, setRunning] = useState(false)
-  const confirmRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!open) setRunning(false)
@@ -206,37 +221,31 @@ export default function ConfirmModal({
       title={title}
       panelClassName="bg-fc-panel rounded-2xl w-full max-w-sm p-5 flex flex-col gap-4 shadow-lg"
       backdropClassName={`fixed inset-0 ${backdropZClassName} flex items-center justify-center bg-black/60 p-4`}
-      titleClassName="font-bold text-gray-800 text-lg"
+      titleClassName="font-bold text-text-primary text-lg"
       closeOnEscape={closeOnEscape}
       backdropDismiss={backdropDismiss}
-      initialFocusRef={confirmRef}
     >
-      <div className="text-gray-700 text-sm leading-relaxed">{message}</div>
+      <div className="text-text-primary text-sm leading-relaxed">{message}</div>
       {detail != null && detail !== "" && (
-        <div className="text-gray-600 text-sm leading-relaxed border-t border-gray-200/80 pt-3">
+        <div className="text-text-secondary text-sm leading-relaxed border-t border-gray-300 pt-3">
           {detail}
         </div>
       )}
       <div className="flex gap-3 pt-1">
         {showCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={running}
-            className="flex-1 border border-gray-400 rounded-xl py-3 text-gray-700 font-bold disabled:opacity-50"
-          >
+          <Button variant="secondary" fullWidth onClick={() => { if (!running) onCancel() }}>
             {cancelLabel}
-          </button>
+          </Button>
         )}
-        <button
-          ref={confirmRef}
-          type="button"
+        <Button
+          variant={confirmVariant[variant]}
+          fullWidth
+          pending={running}
+          pendingLabel="Working…"
           onClick={() => void handleConfirm()}
-          disabled={running}
-          className={`${showCancel ? "flex-1" : "w-full"} font-bold rounded-xl py-3 transition-colors ${confirmButtonClass[variant]}`}
         >
-          {running ? "…" : confirmLabel}
-        </button>
+          {confirmLabel}
+        </Button>
       </div>
     </Modal>
   )

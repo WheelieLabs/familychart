@@ -41,7 +41,7 @@ export function useFocusTrap(
     return () => {
       returnTo?.focus?.()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial focus when active toggles only
   }, [active])
 
   useEffect(() => {
@@ -50,7 +50,7 @@ export function useFocusTrap(
     return () => {
       trapStack = trapStack.filter(id => id !== stackId)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- register in focus-trap stack when active toggles only
   }, [active])
 
   useEffect(() => {
@@ -80,7 +80,7 @@ export function useFocusTrap(
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Tab/Escape trap when active toggles only
   }, [active])
 }
 
@@ -135,6 +135,7 @@ export default function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        data-surface="light"
         onClick={e => e.stopPropagation()}
         className={panelClassName}
       >

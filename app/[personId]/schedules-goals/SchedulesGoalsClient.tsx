@@ -4,22 +4,34 @@
 
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import { PersonHeader } from "@/components/AppHeader"
-import { FcTabBar, type FcTabItem } from "@/components/FcTabBar"
+import { personTrail } from "@/lib/ui/breadcrumbs"
+import Badge from "@/components/ui/Badge"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { Input, Select } from "@/components/ui/controls"
+import DateEcho from "@/components/ui/DateEcho"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import EntityRowActions from "@/components/ui/EntityRowActions"
+import { FcTabBar, type FcTabItem } from "@/components/ui/FcTabBar"
+import FormField, { FieldGroup, FieldRow } from "@/components/ui/FormField"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
+import Panel from "@/components/ui/Panel"
 import MedicationSchedulesContent from "@/components/MedicationSchedulesContent"
 import ObservationRemindersContent from "@/components/ObservationRemindersContent"
 import ConfirmModal from "@/components/ConfirmModal"
-import { EntityRowEditButton, EntityRowDeleteButton } from "@/components/EntityRowActions"
+import { formatDate } from "@/lib/date-format"
 import { formatHydration } from "@/lib/format"
 import type { MeasurementSystem } from "@/lib/settings/registry"
 import { defaultUnitForObservationType } from "@/lib/observation/observation-types"
+import { isGoalEligible } from "@/lib/observation/goal-eligibility"
 import {
   roundDisplayObservationValue,
   toDisplayObservation,
 } from "@/lib/observation/observation-unit-conversion"
 import type { ObservationGoal, ObservationTypeConfig } from "@/lib/domain-types"
-import { mainContentTargetProps } from "@/lib/a11y"
 
 type SchedulesTab = "medications" | "observations" | "goals"
 
@@ -28,13 +40,6 @@ const TABS: readonly FcTabItem<SchedulesTab>[] = [
   { value: "observations", label: "Observations" },
   { value: "goals", label: "Goals" },
 ]
-
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-
-function fmtDate(iso: string): string {
-  const d = new Date(iso)
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
-}
 
 interface ObsSummaryMin {
   observation_type: string
@@ -59,7 +64,7 @@ function goalDisplayText(goal: ObservationGoal, measurementSystem: MeasurementSy
     case "trend": {
       const shown = toDisplayObservation(goal.target_value, goal.unit, goal.observation_type, measurementSystem)
       let text = `Reach ${roundDisplayObservationValue(shown.value, shown.unit)} ${shown.unit}`
-      if (goal.target_date) text += ` by ${fmtDate(goal.target_date)}`
+      if (goal.target_date) text += ` by ${formatDate(goal.target_date)}`
       return text
     }
     default: {
@@ -112,22 +117,22 @@ export default function SchedulesGoalsClient({
   }, [searchParams])
 
   return (
-    <>
-      <PersonHeader name={name} photoUrl={photoUrl} color={color} backHref={`/${personId}`} />
-      <FcTabBar tabs={TABS} active={tab} onSelect={setTab} />
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {tab === "medications" && <MedicationSchedulesContent personId={String(personId)} />}
-        {tab === "observations" && <ObservationRemindersContent personId={String(personId)} />}
-        {tab === "goals" && (
-          <GoalsTab
-            personId={personId}
-            name={name}
-            canWrite={canWrite}
-            showPacingProfileNote={showPacingProfileNote}
-          />
-        )}
-      </div>
-    </>
+    <PageContainer
+      header={<PersonHeader name={name} photoUrl={photoUrl} color={color} />}
+      trail={personTrail(personId, name, { label: "Schedules & Goals" })}
+      tabs={<FcTabBar tabs={TABS} active={tab} onSelect={setTab} />}
+    >
+      {tab === "medications" && <MedicationSchedulesContent personId={String(personId)} />}
+      {tab === "observations" && <ObservationRemindersContent personId={String(personId)} />}
+      {tab === "goals" && (
+        <GoalsTab
+          personId={personId}
+          name={name}
+          canWrite={canWrite}
+          showPacingProfileNote={showPacingProfileNote}
+        />
+      )}
+    </PageContainer>
   )
 }
 
@@ -210,7 +215,7 @@ function GoalsTab({
 
   useEffect(() => {
     load()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when personId changes only
   }, [personId])
 
   // Eligible types to display
@@ -219,6 +224,7 @@ function GoalsTab({
     return configs
       .filter(cfg => {
         if (cfg.is_active === 0) return false
+        if (!isGoalEligible(cfg.observation_type)) return false
         if (cfg.observation_type === "Hydration") return true
         return cfg.typical_unit != null && summaryTypes.has(cfg.observation_type)
       })
@@ -238,7 +244,7 @@ function GoalsTab({
         const trendG = goals.find(g => g.observation_type === t && g.goal_type === "trend") ?? null
         rows.push({ observationType: t, goalType: "range", goal: rangeG })
         rows.push({ observationType: t, goalType: "trend", goal: trendG })
-      } else {
+      } else if (isGoalEligible(t, "range")) {
         const g = goals.find(g => g.observation_type === t && g.goal_type === "range") ?? null
         rows.push({ observationType: t, goalType: "range", goal: g })
       }
@@ -349,228 +355,180 @@ function GoalsTab({
   const cfg = (type: string) => configs.find(c => c.observation_type === type)
 
   if (loading) {
-    return (
-      <div className="flex-1 bg-fc-blue flex items-center justify-center">
-        <div className="text-white text-lg">Loading…</div>
-      </div>
-    )
+    return <p className="fc-admin-note">Loading…</p>
   }
 
   if (eligibleTypes.length === 0) {
     return (
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue overflow-y-auto fc-scroll">
-        <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-          <p className="text-sm text-gray-600">
-            No goal-eligible observation types found. Record at least one observation to see goal options here. Hydration goals are always available.
-          </p>
-        </div>
-      </main>
+      <EmptyState icon={EMPTY_STATE_ICONS.noRecords} heading="No goals to set yet">
+        Record an observation to see goal options. Hydration goals are always available.
+      </EmptyState>
     )
   }
 
   return (
     <>
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue overflow-y-auto fc-scroll">
-        <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-          <p className="text-sm text-gray-600 leading-relaxed">
-            Set health goals for {name}. Goals appear as reference lines on history charts.
-          </p>
+      <p className="fc-section-copy fc-surface-copy">
+        Set health goals for {name}. Goals appear as reference lines on history charts.
+      </p>
 
-          {error && <p className="text-red-600 text-sm font-medium">{error}</p>}
+      {error && <Banner kind="error" announced>{error}</Banner>}
 
-          {goalRows.map((row, i) => {
-            const typeLabel =
-              row.goalType === "daily_min" ? row.observationType
-              : row.goalType === "range" ? `${row.observationType} — Range`
-              : `${row.observationType} — Target`
+      <CardList>
+        {goalRows.map(row => {
+          const typeLabel =
+            row.goalType === "daily_min" ? row.observationType
+            : row.goalType === "range" ? `${row.observationType} — Range`
+            : `${row.observationType} — Target`
 
-            const isEditing =
-              editForm !== null &&
-              editForm.observationType === row.observationType &&
-              editForm.goalType === row.goalType
+          const isEditing =
+            editForm !== null &&
+            editForm.observationType === row.observationType &&
+            editForm.goalType === row.goalType
 
-            const typeCfg = cfg(row.observationType)
-            const unit =
-              defaultUnitForObservationType(row.observationType, measurementSystem)
-              || typeCfg?.typical_unit
-              || ""
+          const typeCfg = cfg(row.observationType)
+          const unit =
+            defaultUnitForObservationType(row.observationType, measurementSystem)
+            || typeCfg?.typical_unit
+            || ""
 
-            const latestVal = latestObs[row.observationType]
-            const trendDirectional =
-              row.goalType === "trend" && editForm && isEditing && latestVal
-                ? parseFloat(editForm.trendTarget) < latestVal.value
-                  ? "Aiming to lose"
-                  : parseFloat(editForm.trendTarget) > latestVal.value
-                    ? "Aiming to gain"
-                    : "Maintaining"
-                : null
+          const latestVal = latestObs[row.observationType]
+          const trendDirectional =
+            row.goalType === "trend" && editForm && isEditing && latestVal
+              ? parseFloat(editForm.trendTarget) < latestVal.value
+                ? "Aiming to lose"
+                : parseFloat(editForm.trendTarget) > latestVal.value
+                  ? "Aiming to gain"
+                  : "Maintaining"
+              : null
 
-            return (
-              <div
-                key={`${row.observationType}-${row.goalType}`}
-                className={`flex flex-col gap-3 ${i > 0 ? "pt-4 border-t border-gray-300" : ""}`}
-              >
-                <div className="flex flex-wrap items-center gap-2 min-h-[2.5rem]">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-gray-800 text-sm leading-tight">{typeLabel}</div>
-                    {row.goal && !isEditing && (
-                      <div className="text-gray-600 text-xs mt-0.5">{goalDisplayText(row.goal, measurementSystem)}</div>
-                    )}
+          return (
+            <Fragment key={`${row.observationType}-${row.goalType}`}>
+              <ListCard
+                icon="🎯"
+                title={typeLabel}
+                meta={[row.goal ? goalDisplayText(row.goal, measurementSystem) : null]}
+                extras={
+                  <>
+                    {!row.goal && <Badge tone="neutral">No goal set</Badge>}
                     {showPacingProfileNote &&
                       row.observationType === "Hydration" &&
                       row.goalType === "daily_min" &&
-                      row.goal &&
-                      !isEditing && (
-                        <p className="text-xs text-gray-600 mt-1">
+                      row.goal && (
+                        <span>
                           Pacing reminders are configurable in{" "}
-                          <Link href="/profile" className="text-fc-blue underline font-medium">
-                            Profile → Settings
-                          </Link>
-                          .
-                        </p>
+                          <Link href="/profile" className="fc-card__link">Profile › Settings</Link>.
+                        </span>
                       )}
-                    {!row.goal && !isEditing && (
-                      <div className="text-gray-500 text-xs mt-0.5">No goal set</div>
-                    )}
-                  </div>
-                  {canWrite && !isEditing && (
-                    <div className="flex items-center gap-2 shrink-0">
-                      {row.goal ? (
-                        <>
-                          <EntityRowEditButton onClick={() => startEdit(row)}>Edit</EntityRowEditButton>
-                          <EntityRowDeleteButton
-                            onClick={() => setDeleteTarget({
-                              observationType: row.observationType,
-                              goalType: row.goalType,
-                              label: typeLabel,
-                            })}
-                          >
-                            Delete
-                          </EntityRowDeleteButton>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => startEdit(row)}
-                          className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-bold text-gray-800
-                                     hover:bg-gray-50 transition-colors"
-                        >
-                          + Add
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                  </>
+                }
+                trailing={
+                  canWrite && !isEditing
+                    ? row.goal
+                      ? (
+                        <EntityRowActions
+                          name={typeLabel}
+                          onEdit={() => startEdit(row)}
+                          deleteLabel="Remove"
+                          onDelete={() => setDeleteTarget({
+                            observationType: row.observationType,
+                            goalType: row.goalType,
+                            label: typeLabel,
+                          })}
+                        />
+                      )
+                      : <Button variant="secondary" aria-label={`Add goal for ${typeLabel}`} onClick={() => startEdit(row)}>+ Add</Button>
+                    : undefined
+                }
+              />
 
-                {isEditing && editForm && (
-                  <div className="flex flex-col gap-3 bg-white/60 rounded-xl p-3 border border-gray-200">
+              {isEditing && editForm && (
+                <li>
+                  <Panel>
                     {row.goalType === "daily_min" && (
-                      <div className="flex flex-col gap-2">
-                        <label className="font-bold text-gray-800 text-sm">Daily hydration goal</label>
-                        <div className="flex gap-2">
-                          <input
+                      <FormField label="Daily hydration goal">
+                        <FieldRow>
+                          <Input
                             type="number"
                             step="1"
                             min="0"
                             placeholder="e.g. 2000"
                             value={editForm.amountMl}
                             onChange={e => setEditForm(f => f ? { ...f, amountMl: e.target.value } : f)}
-                            className="w-28 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
                           />
-                          <select
+                          <Select
+                            aria-label="Unit"
                             value={editForm.amountUnit}
                             onChange={e => setEditForm(f => f ? { ...f, amountUnit: e.target.value as "mL" | "L" } : f)}
-                            className="bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
                           >
                             <option value="mL">mL</option>
                             <option value="L">L</option>
-                          </select>
-                        </div>
-                      </div>
+                          </Select>
+                        </FieldRow>
+                      </FormField>
                     )}
 
                     {row.goalType === "range" && (
-                      <div className="flex flex-col gap-2">
-                        <label className="font-bold text-gray-800 text-sm">Target range for {row.observationType}</label>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <input
-                            type="number"
-                            step="any"
-                            placeholder="Min"
-                            value={editForm.rangeMin}
-                            onChange={e => setEditForm(f => f ? { ...f, rangeMin: e.target.value } : f)}
-                            className="w-24 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
-                          />
-                          <span className="text-gray-600 text-sm">to</span>
-                          <input
-                            type="number"
-                            step="any"
-                            placeholder="Max"
-                            value={editForm.rangeMax}
-                            onChange={e => setEditForm(f => f ? { ...f, rangeMax: e.target.value } : f)}
-                            className="w-24 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
-                          />
-                          {unit && <span className="text-gray-600 text-sm">{unit}</span>}
+                      <FieldGroup label={`Target range for ${row.observationType}`} hint={unit ? `In ${unit}.` : undefined}>
+                        <div className="fc-form-pair">
+                          <FormField label="Minimum">
+                            <Input
+                              type="number"
+                              step="any"
+                              value={editForm.rangeMin}
+                              onChange={e => setEditForm(f => f ? { ...f, rangeMin: e.target.value } : f)}
+                            />
+                          </FormField>
+                          <FormField label="Maximum">
+                            <Input
+                              type="number"
+                              step="any"
+                              value={editForm.rangeMax}
+                              onChange={e => setEditForm(f => f ? { ...f, rangeMax: e.target.value } : f)}
+                            />
+                          </FormField>
                         </div>
-                      </div>
+                      </FieldGroup>
                     )}
 
                     {row.goalType === "trend" && (
-                      <div className="flex flex-col gap-2">
-                        <label className="font-bold text-gray-800 text-sm">{row.observationType} goal</label>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <input
+                      <>
+                        <FormField
+                          label={`${row.observationType} goal`}
+                          hint={[
+                            unit ? `In ${unit}.` : "",
+                            trendDirectional ? `${trendDirectional} from current ${latestVal!.value} ${latestVal!.unit}.` : "",
+                          ].filter(Boolean).join(" ") || undefined}
+                        >
+                          <Input
                             type="number"
                             step="any"
-                            placeholder="Target"
                             value={editForm.trendTarget}
                             onChange={e => setEditForm(f => f ? { ...f, trendTarget: e.target.value } : f)}
-                            className="w-24 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
                           />
-                          {unit && <span className="text-gray-600 text-sm">{unit}</span>}
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-sm text-gray-700">Target date (optional)</label>
-                          <input
+                        </FormField>
+                        <FormField label="Target date" optional>
+                          <Input
                             type="date"
                             value={editForm.trendDate}
                             onChange={e => setEditForm(f => f ? { ...f, trendDate: e.target.value } : f)}
-                            className="w-40 bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm"
                           />
-                        </div>
-                        {trendDirectional && (
-                          <p className="text-xs text-gray-600">
-                            {trendDirectional} from current {latestVal!.value} {latestVal!.unit}
-                          </p>
-                        )}
-                      </div>
+                          <DateEcho date={editForm.trendDate} />
+                        </FormField>
+                      </>
                     )}
 
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        type="button"
-                        onClick={() => { setEditForm(null); setError("") }}
-                        className="text-gray-600 text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        disabled={saving}
-                        onClick={handleSave}
-                        className="bg-fc-blue text-white font-bold px-4 py-1.5 rounded-lg text-sm hover:bg-fc-blue-mid
-                                   disabled:opacity-50 transition-colors"
-                      >
-                        {saving ? "Saving…" : "Save"}
-                      </button>
+                    <div className="fc-form-actions">
+                      <Button variant="secondary" onClick={() => { setEditForm(null); setError("") }}>Cancel</Button>
+                      <Button onClick={handleSave} pending={saving}>Save</Button>
                     </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </main>
+                  </Panel>
+                </li>
+              )}
+            </Fragment>
+          )
+        })}
+      </CardList>
 
       {deleteTarget && (
         <ConfirmModal

@@ -2,6 +2,7 @@
 
 "use client"
 
+import { formatDate, formatDateShort } from "@/lib/date-format"
 import { useCallback, useRef, useState, type MouseEvent } from "react"
 import { CHART_SVG_FONT_MD, CHART_SVG_FONT_SM } from "@/lib/chart-svg-typography"
 
@@ -34,19 +35,11 @@ interface LineChartProps {
   describedById?: string
 }
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-
 const MS_PER_DAY = 86400000
 
+/** `9 Oct` on a short span; `9 Oct 2026` once it runs past about two months. */
 function fmtChartDate(iso: string, spanMs: number): string {
-  const d = new Date(iso)
-  const day = d.getDate()
-  const mon = MONTHS[d.getMonth()]
-  if (spanMs > 60 * MS_PER_DAY) {
-    const y = d.getFullYear()
-    return `${day} ${mon} '${String(y).slice(-2)}`
-  }
-  return `${day} ${mon}`
+  return spanMs > 60 * MS_PER_DAY ? formatDate(iso) : formatDateShort(iso, { now: iso })
 }
 
 function fmtVal(v: number): string {
@@ -114,14 +107,14 @@ export default function LineChart({
   if (dual) {
     if (data.length < 2 || secondaryData!.length < 2) {
       return (
-        <p className="text-white/70 text-center py-4 text-sm">
+        <p className="text-text-on-brand-muted text-center py-4 text-sm">
           Not enough data to display a chart — need at least 2 paired readings.
         </p>
       )
     }
   } else if (data.length < 2) {
     return (
-      <p className="text-white/70 text-center py-4 text-sm">
+      <p className="text-text-on-brand-muted text-center py-4 text-sm">
         Not enough data to display a chart — need at least 2 observations.
       </p>
     )
@@ -205,7 +198,7 @@ export default function LineChart({
             role="tooltip"
           >
             {tooltip.lines.map((line, i) => (
-              <div key={line} className={i === 0 ? "font-semibold text-white" : "text-white/90"}>
+              <div key={line} className={i === 0 ? "font-semibold text-white" : "text-white"}>
                 {line}
               </div>
             ))}
@@ -424,13 +417,13 @@ export default function LineChart({
         <div className="mt-1 flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm text-white">
           {goalMin !== undefined && goalMax !== undefined && (
             <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block h-px w-5 shrink-0 border-t border-dashed border-white/60" />
+              <span className="inline-block h-px w-5 shrink-0 border-t border-dashed border-white" />
               {goalLabel ?? `Target range: ${fmtVal(goalMin)}–${fmtVal(goalMax)} ${unit}`}
             </span>
           )}
           {goalTarget !== undefined && goalMin === undefined && (
             <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block h-px w-5 shrink-0 border-t border-white/60" />
+              <span className="inline-block h-px w-5 shrink-0 border-t border-white" />
               {(() => {
                 let lbl = goalLabel ?? `Goal: ${fmtVal(goalTarget)} ${unit}`
                 if (goalDate) lbl += ` by ${fmtChartDate(goalDate, Number.POSITIVE_INFINITY)}`

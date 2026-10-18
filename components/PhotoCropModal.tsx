@@ -5,6 +5,8 @@
 import { useState } from "react"
 import Cropper, { type Area, type Point } from "react-easy-crop"
 import Modal from "@/components/Modal"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
 import { cropAndCompressImage, UPLOAD_MAX_BYTES, type CompressOptions } from "@/lib/photo-pipeline"
 
 interface PhotoCropModalProps extends CompressOptions {
@@ -76,7 +78,7 @@ export default function PhotoCropModal({
     <Modal open={open} onClose={handleCancel} title="Crop photo">
       {image != null && imageSrc != null && (
         <>
-          <div className="relative w-full aspect-square bg-black/80 rounded-xl overflow-hidden">
+          <div className="relative w-full aspect-square bg-black rounded-xl overflow-hidden">
             <Cropper
               image={imageSrc}
               crop={crop}
@@ -88,17 +90,11 @@ export default function PhotoCropModal({
             />
           </div>
 
-          {error && <p className="text-red-600 text-sm">{error}</p>}
+          {error && <Banner kind="error">{error}</Banner>}
 
-          <div className="flex gap-3">
-            <button type="button" onClick={handleCancel} disabled={preparing}
-              className="flex-1 border border-gray-400 rounded-xl py-3 text-gray-700 font-bold disabled:opacity-50">
-              Cancel
-            </button>
-            <button type="button" onClick={handleUsePhoto} disabled={preparing || !croppedAreaPixels}
-              className="flex-1 bg-fc-blue text-white font-bold rounded-xl py-3 disabled:opacity-50">
-              {preparing ? "Preparing…" : "Use Photo"}
-            </button>
+          <div className="fc-form-actions">
+            <Button variant="secondary" onClick={handleCancel}>Cancel</Button>
+            <Button onClick={handleUsePhoto} pending={preparing} pendingLabel="Preparing…">Use Photo</Button>
           </div>
         </>
       )}

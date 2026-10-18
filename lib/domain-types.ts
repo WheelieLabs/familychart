@@ -98,6 +98,49 @@ export interface ObservationTypeConfig {
   is_active: number
 }
 
+export type LimitQualifier = "<" | "<=" | ">" | ">="
+
+export interface TestMetricConfig {
+  id: number
+  metric_name: string
+  unit: string | null
+  sort_order: number
+  /** 1 = available for new recordings; 0 = catalogue only / hidden from pickers */
+  is_active: number
+  /** Search/report-matching aliases (parsed from the stored JSON array). */
+  aliases: string[]
+  /** Label for telling similar metrics apart (not navigation); null for rows predating the label. */
+  panel: string | null
+  value_type: "numeric" | "qualitative"
+}
+
+export interface TestEvent {
+  id: number
+  person_id: number
+  test_type: string
+  name: string
+  date: string
+  ordered_by: string | null
+  notes: string | null
+  attachment_url: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface TestResultValue {
+  id: number
+  test_event_id: number
+  metric_name: string
+  value_type: "numeric" | "qualitative"
+  numeric_value: number | null
+  qualitative_value: string | null
+  unit: string | null
+  reference_range: string | null
+  flag: string | null
+  /** `<`, `<=`, `>` or `>=` when the report prints only a bound ("< 20" is 20 with `<`). */
+  limit_qualifier: LimitQualifier | null
+}
+
 export interface PushEndpoint {
   id: number
   user_uid: string
@@ -163,6 +206,8 @@ export interface PersonMedication {
   schedule_end_date: string | null
   schedule_slots: string | null
   schedule_tz: string | null
+  /** Epoch ms the schedule was created (creation boundary); null for older rows. */
+  schedule_created_at_ms?: number | null
 }
 
 export interface ObservationGoal {

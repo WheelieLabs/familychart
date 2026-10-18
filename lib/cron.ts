@@ -6,12 +6,16 @@ import type Database from "better-sqlite3-multiple-ciphers"
 import { getDb } from "./db"
 import { evaluateAlertReadiness, type AlertReadiness } from "./alert-readiness"
 import { deliverReminder } from "./cron/cron-reminder-delivery"
-import { buildHydrationPayload, buildObservationPayload, buildOverduePayload, buildPrnPayload, buildScheduledPayload } from "./cron/cron-notification-payloads"
+import { buildDoseExpectationPayload, buildHydrationPayload, buildObservationPayload, buildOverduePayload, buildPrnPayload, buildScheduledPayload } from "./cron/cron-notification-payloads"
 import { createHydrationEvaluator } from "./hydration/hydration-evaluate"
 import { setHydrationLastNudgeAt } from "./hydration/hydration-config"
+import { isFreshForPush } from "./schedule/dose-expectation"
+import { settleSlots } from "./schedule/slot-outcomes"
 import { resolveInstanceTimezone } from "./instance-timezone"
 import { pollEntraRevalidation } from "./auth/auth-revalidation"
 import { prunePushSubscriptionsForUserUids } from "./push/push-subscriptions"
+import { notifyAdminsOfEntraRevalidationGap } from "./push/entra-revalidation-gap-push"
+import { emailAdminsOfEntraRevalidationGap } from "./push/entra-revalidation-gap-email"
 import type { Person } from "./domain-types"
 
 type CronResult = { sent: number; errors: string[] }
@@ -61,6 +65,31 @@ async function runScheduledReminders(db: Database.Database, facts: AlertReadines
       personId: slot.personId,
       notifyField: slot.status === "due" ? "notify_prescribed" : "notify_overdue",
       payload,
+    })
+    result = mergeResults(result, r)
+  }
+
+  return result
+}
+
+/**
+ * Asks once per expectation-day whether a dose expected away from home was given. It replaces the
+ * normal reminder for that slot (left out of the normal slots in alert readiness), so it follows the scheduled-reminder
+ * preference. A "Not yet" snooze brings the in-app prompt back but does not push again.
+ */
+async function runDoseExpectationReminders(db: Database.Database, facts: AlertReadiness): Promise<CronResult> {
+  let result: CronResult = { sent: 0, errors: [] }
+  if (!resolveInstanceTimezone(db)) return result
+
+  const nowMs = Date.now()
+  for (const pending of facts.pendingDoseExpectations) {
+    if (!isFreshForPush(pending.slotMs, nowMs)) continue
+    const r = await deliverReminder(db, {
+      refKey: `dose-expectation:${pending.expectationId}:${pending.ymd}`,
+      personId: pending.personId,
+      notifyField: "notify_prescribed",
+      skipIfAlreadySent: true,
+      payload: buildDoseExpectationPayload(pending.personId, pending.medicationId, pending.personName, pending.medicationName),
     })
     result = mergeResults(result, r)
   }
@@ -148,29 +177,54 @@ async function runHydrationReminders(db: Database.Database): Promise<CronResult>
   return result
 }
 
-function cleanupScheduleSuppressions(db: Database.Database): void {
-  const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-  db.prepare("DELETE FROM schedule_reminder_suppressions WHERE local_ymd < ?").run(cutoff)
-}
-
 export async function runCronJobs(): Promise<CronResult> {
   const db = getDb()
-  cleanupScheduleSuppressions(db)
+  // Close out slots whose next slot has started or whose Calendar day has ended (no alert, no push).
+  try {
+    settleSlots(db, { nowMs: Date.now() })
+  } catch (err) {
+    logger.error("[cron] settle slots failed:", err)
+  }
   const people = db.prepare(`SELECT * FROM people WHERE is_active = 1`).all() as Person[]
   const facts = evaluateAlertReadiness(db, people, Date.now())
-  const r1 = await runPrnReminders(db, facts)
-  const r2 = await runScheduledReminders(db, facts)
-  const r3 = await runObservationReminders(db, facts)
-  const r4 = await runHydrationReminders(db)
-  // Entra revalidation: 5th job, self-gated to run hourly (no-ops on the other 5-min ticks).
-  const r5 = await pollEntraRevalidation(db)
+  const jobErrors: string[] = []
+  // One job failing must not stop the others in the same tick.
+  const guard = async <T extends CronResult>(name: string, job: () => Promise<T>): Promise<CronResult> => {
+    try {
+      return await job()
+    } catch (err) {
+      logger.error(`[cron] job ${name} failed:`, err)
+      jobErrors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`)
+      return { sent: 0, errors: [] }
+    }
+  }
+  const r1 = await guard("prn", () => runPrnReminders(db, facts))
+  const r2 = await guard("scheduled", () => runScheduledReminders(db, facts))
+  const r3 = await guard("observations", () => runObservationReminders(db, facts))
+  const r4 = await guard("hydration", () => runHydrationReminders(db))
+  // Entra revalidation: self-gated to run hourly (no-ops on the other 5-min ticks).
+  let r5: { errors: string[]; revokedExternalIds: string[] } = { errors: [], revokedExternalIds: [] }
+  try {
+    r5 = await pollEntraRevalidation(db)
+  } catch (err) {
+    logger.error("[cron] job entra-revalidation failed:", err)
+    jobErrors.push(`entra-revalidation: ${err instanceof Error ? err.message : String(err)}`)
+  }
   // Graph-detected account disable — drop push subscriptions for those OIDs.
   if (r5.revokedExternalIds.length > 0) {
     prunePushSubscriptionsForUserUids(db, r5.revokedExternalIds)
   }
+  const r6 = await guard("dose-expectation", () => runDoseExpectationReminders(db, facts))
+  // Weekly Admin nudge while Entra access is going unchecked (self-deduped per ISO week).
+  const r7 = await guard("entra-gap-push", () => notifyAdminsOfEntraRevalidationGap(db, Date.now()))
+  // Email fallback for Admins the push does not reach; logs its own failures and never throws.
+  await guard("entra-gap-email", async () => {
+    await emailAdminsOfEntraRevalidationGap(db, Date.now())
+    return { sent: 0, errors: [] }
+  })
   const result = {
-    sent: r1.sent + r2.sent + r3.sent + r4.sent,
-    errors: [...r1.errors, ...r2.errors, ...r3.errors, ...r4.errors, ...r5.errors],
+    sent: r1.sent + r2.sent + r3.sent + r4.sent + r6.sent + r7.sent,
+    errors: [...r1.errors, ...r2.errors, ...r3.errors, ...r4.errors, ...r5.errors, ...r6.errors, ...r7.errors, ...jobErrors],
   }
   if (result.errors.length > 0) {
     logger.error("cron_job_errors", { sent: result.sent, error_count: result.errors.length, errors: result.errors })

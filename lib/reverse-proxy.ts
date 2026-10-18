@@ -3,18 +3,14 @@
 /**
  * Reverse-proxy deployment mode.
  *
- * `BEHIND_REVERSE_PROXY` drives NextAuth host trust, session cookie Secure flag, and
- * whether X-Forwarded-For is used for auth rate limiting. `TRUST_PROXY_DEPTH` (default 1)
- * applies only when behind a proxy — see lib/client-ip.ts.
- *
- * Legacy: when `BEHIND_REVERSE_PROXY` is unset, `NEXTAUTH_USE_SECURE_COOKIES=false`
- * implies behind-proxy mode for one release cycle.
+ * `BEHIND_REVERSE_PROXY` drives NextAuth host trust and whether X-Forwarded-For is used
+ * for auth rate limiting. `TRUST_PROXY_DEPTH` (default 1) applies only when behind a
+ * proxy — see lib/client-ip.ts.
  */
 export function isBehindReverseProxy(): boolean {
   const explicit = process.env.BEHIND_REVERSE_PROXY?.trim().toLowerCase()
   if (explicit === "true" || explicit === "1") return true
   if (explicit === "false" || explicit === "0") return false
-  if (process.env.NEXTAUTH_USE_SECURE_COOKIES === "false") return true
   return false
 }
 

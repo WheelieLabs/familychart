@@ -2,6 +2,7 @@
 
 "use client"
 
+import { formatDateShort } from "@/lib/date-format"
 import { CHART_SVG_FONT_MD, CHART_SVG_FONT_SM } from "@/lib/chart-svg-typography"
 
 import { formatHydration } from "@/lib/format"
@@ -15,15 +16,12 @@ interface HydrationBarChartProps {
   describedById?: string
 }
 
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-
 function localDateKey(iso: string): string {
   return localDateToIsoYmd(new Date(iso))
 }
 
 function fmtDateLabel(key: string): string {
-  const [, m, d] = key.split("-").map(Number)
-  return `${d} ${MONTHS[m - 1]}`
+  return formatDateShort(key, { now: key })
 }
 
 export default function HydrationBarChart({ data, goalMl, describedById }: HydrationBarChartProps) {
@@ -37,7 +35,7 @@ export default function HydrationBarChart({ data, goalMl, describedById }: Hydra
 
   if (days.length === 0) {
     return (
-      <p className="text-white/70 text-center py-4 text-sm">
+      <p className="text-text-on-brand-muted text-center py-4 text-sm">
         No hydration records in selected period.
       </p>
     )
@@ -156,7 +154,7 @@ export default function HydrationBarChart({ data, goalMl, describedById }: Hydra
             Goal reached ({formatHydration(goalMl)})
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-px w-5 shrink-0 border-t border-dashed border-white/60" />
+            <span className="inline-block h-px w-5 shrink-0 border-t border-dashed border-white" />
             Daily goal
           </span>
         </div>

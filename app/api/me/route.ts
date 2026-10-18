@@ -7,7 +7,7 @@ import { getDb } from "@/lib/db"
 import { getObservationGoal } from "@/lib/observation/observation-goals"
 import { localUserNeedsMfaEnrollment, isMfaRequiredPolicyActive } from "@/lib/account/account-local-reauth"
 import { parseLocalAccountUid } from "@/lib/account/account-uid"
-import { getUserRole } from "@/lib/permissions"
+import { canReport, getUserRole } from "@/lib/permissions"
 import { resolveSetting } from "@/lib/settings/resolver"
 import { SETTING_SECURITY_PASSWORD_MIN_LENGTH } from "@/lib/settings/registry"
 import { resolveMeasurementSystem } from "@/lib/measurement-system"
@@ -81,6 +81,10 @@ export async function GET() {
     measurementSystem,
     instanceTimezone,
     linkedPerson: linkedPerson ?? null,
+    // Client gates for the Reports menu. The menu itself waits for the Reports page.
+    // householdReports is Household Reports only; personalLinkPersonId is what admits Self-report.
+    householdReports: canReport(groups),
+    personalLinkPersonId: linkedPerson?.id ?? null,
     hydrationGoalMl,
   })
 }

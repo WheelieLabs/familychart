@@ -6,6 +6,9 @@ import { redirect } from "next/navigation"
 import { getDb } from "@/lib/db"
 import { canWriteForPerson } from "@/lib/permissions"
 import type { AppSession } from "@/lib/session"
+import type { Metadata } from "next"
+
+export const metadata: Metadata = { title: "Record Medication" }
 
 interface Props {
   children: React.ReactNode

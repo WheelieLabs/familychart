@@ -2,16 +2,31 @@
 
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
-import Toggle from "@/components/Toggle"
 import ConfirmModal from "@/components/ConfirmModal"
 import Modal from "@/components/Modal"
-import { EntityRowEditButton } from "@/components/EntityRowActions"
-import { mainContentTargetProps } from "@/lib/a11y"
-import { accountInviteDisplayStatus, type AccountInviteDisplayStatus } from "@/lib/invite"
+import Badge, { type BadgeTone } from "@/components/ui/Badge"
+import Banner, { type BannerKind } from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { Input, Select, Toggle } from "@/components/ui/controls"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import EntityRowActions from "@/components/ui/EntityRowActions"
+import FormField from "@/components/ui/FormField"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
+import { formatDate } from "@/lib/date-format"
+import { sqliteUtcToIso } from "@/lib/datetime"
+import { accountStatus, isSignInManagedLocally, type AccountChip } from "@/lib/account/invite-status"
+import { focusFirstInvalid } from "@/lib/ui/form-errors"
+import { administrationTrail } from "@/lib/ui/breadcrumbs"
+import { accountListCopy, HOUSEHOLD_ROLE_OPTIONS } from "@/lib/account/account-role-labels"
+import { isNoneRole } from "@/lib/account/none-role"
+import { LAST_LOCAL_ADMIN_ERROR } from "@/lib/account/last-local-admin"
+import { ACCOUNT_STILL_LINKED_ERROR, OWN_ACCOUNT_ADMIN_ERROR } from "@/lib/account/account-removal-messages"
+import RemoveAccountDialog from "@/components/RemoveAccountDialog"
 import type { Person } from "@/lib/domain-types"
 
 interface AccountRow {
@@ -26,6 +41,8 @@ interface AccountRow {
   invite_revoked_at: string | null
   mfa_enrolled: number
   created_at: string
+  last_local_admin?: number
+  has_personal_link?: number
 }
 
 interface EditForm {
@@ -36,42 +53,16 @@ interface EditForm {
 
 type InviteView = "fields" | "person" | "link" | "create" | "none"
 
-const ROLES = [
-  { value: "admin", label: "Admin" },
-  { value: "manage", label: "Manager" },
-  { value: "write", label: "Read/Write" },
-  { value: "read",  label: "Read Only" },
-]
-
-const ROLE_LABELS: Record<string, string> = {
-  admin: "Admin",
-  manage: "Manager",
-  write: "Read/Write",
-  read:  "Read Only",
-}
-
-const STATUS_LABELS: Record<AccountInviteDisplayStatus, string> = {
-  active: "Active",
-  invited: "Invited",
-  expired: "Expired",
-  revoked: "Revoked",
-}
-
-const STATUS_BADGE_CLASS: Record<AccountInviteDisplayStatus, string> = {
-  active: "bg-green-100 text-green-800",
-  invited: "bg-amber-100 text-amber-800",
-  expired: "bg-gray-200 text-gray-700",
-  revoked: "bg-red-100 text-red-800",
+const STATUS_CHIP: Record<AccountChip, { label: string; tone: BadgeTone }> = {
+  disabled: { label: "Disabled", tone: "neutral" },
+  active: { label: "Active", tone: "success" },
+  invited: { label: "Invited", tone: "warning" },
+  expired: { label: "Expired", tone: "neutral" },
+  revoked: { label: "Revoked", tone: "error" },
 }
 
 function emptyInvite() {
   return { email: "", role: "read", personId: "", personName: "" }
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-AU", {
-    day: "2-digit", month: "short", year: "numeric",
-  })
 }
 
 export default function AccountsAdminClient({
@@ -91,21 +82,36 @@ export default function AccountsAdminClient({
   const [editForm, setEditForm] = useState<EditForm>({ role: "read", can_report: 0, is_active: 1 })
   const [saving, setSaving] = useState(false)
   const [saveErr, setSaveErr] = useState("")
-  const [notice, setNotice] = useState("")
+  const [notice, setNotice] = useState<{ kind: BannerKind; text: string } | null>(null)
+  const [fieldErr, setFieldErr] = useState<{ email?: string; person?: string; name?: string }>({})
+  const inviteBodyRef = useRef<HTMLDivElement>(null)
+  const [errorTick, setErrorTick] = useState(0)
   const [clearingMfa, setClearingMfa] = useState(false)
   const [mfaClearDlg, setMfaClearDlg] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<AccountRow | null>(null)
+  const [removeTarget, setRemoveTarget] = useState<AccountRow | null>(null)
+  const [myEmail, setMyEmail] = useState("")
   const [rowBusyId, setRowBusyId] = useState<number | null>(null)
+
+  // After a failed step, move focus to the first invalid field and announce it.
+  useEffect(() => {
+    if (errorTick > 0 && inviteBodyRef.current) focusFirstInvalid(inviteBodyRef.current)
+  }, [errorTick])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [accountsRes, peopleRes] = await Promise.all([
+      const [accountsRes, peopleRes, meRes] = await Promise.all([
         fetch("/api/accounts/invites"),
         fetch("/api/people"),
+        fetch("/api/me"),
       ])
       if (accountsRes.ok) setAccounts(await accountsRes.json())
       if (peopleRes.ok) setPeople(await peopleRes.json())
+      if (meRes.ok) {
+        const me = await meRes.json() as { email?: string }
+        setMyEmail(typeof me.email === "string" ? me.email : "")
+      }
     } finally {
       setLoading(false)
     }
@@ -119,6 +125,7 @@ export default function AccountsAdminClient({
     setInvite(emptyInvite())
     setInviteView("fields")
     setSaveErr("")
+    setFieldErr({})
     setInviteOpen(true)
   }
 
@@ -140,13 +147,14 @@ export default function AccountsAdminClient({
 
   async function submitInvite(personAction: "link" | "create" | "none") {
     const email = invite.email.trim()
-    if (!email) { setSaveErr("Email is required."); return }
+    if (!email) { setFieldErr({ email: "Enter an email address." }); setInviteView("fields"); setErrorTick(t => t + 1); return }
     if (personAction === "link" && !invite.personId) {
-      setSaveErr("Pick a Person to link."); return
+      setFieldErr({ person: "Pick a Person to link." }); setErrorTick(t => t + 1); return
     }
     if (personAction === "create" && !invite.personName.trim()) {
-      setSaveErr("Person name is required."); return
+      setFieldErr({ name: "Enter the Person's name." }); setErrorTick(t => t + 1); return
     }
+    setFieldErr({})
     setSaving(true)
     setSaveErr("")
     try {
@@ -168,9 +176,9 @@ export default function AccountsAdminClient({
       }
       closeInvite()
       if (typeof j.emailError === "string" && j.emailError) {
-        setNotice(`Invite created, but the email did not send: ${j.emailError} Use Resend to try again.`)
+        setNotice({ kind: "warning", text: `Invite created, but the email did not send: ${j.emailError} Use Resend to try again.` })
       } else {
-        setNotice("")
+        setNotice(null)
       }
       await load()
     } catch {
@@ -185,11 +193,9 @@ export default function AccountsAdminClient({
     setSaving(true)
     setSaveErr("")
     try {
-      const body: Record<string, unknown> = {
-        can_report: editForm.can_report,
-        is_active: editForm.is_active,
-      }
+      const body: Record<string, unknown> = { can_report: editForm.can_report }
       if (editing.auth_method !== "entra") body.role = editForm.role
+      if (isSignInManagedLocally(editing.auth_method)) body.is_active = editForm.is_active
       const res = await fetch(`/api/accounts/${editing.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -237,17 +243,17 @@ export default function AccountsAdminClient({
   async function handleRevoke() {
     if (!revokeTarget) return
     setRowBusyId(revokeTarget.id)
-    setNotice("")
+    setNotice(null)
     try {
       const res = await fetch(`/api/accounts/invites/${revokeTarget.id}/revoke`, { method: "POST" })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        setNotice(typeof j.error === "string" ? j.error : "Revoke failed.")
+        setNotice({ kind: "error", text: typeof j.error === "string" ? j.error : "Revoke failed." })
         return
       }
       await load()
     } catch {
-      setNotice("Revoke failed.")
+      setNotice({ kind: "error", text: "Revoke failed." })
     } finally {
       setRevokeTarget(null)
       setRowBusyId(null)
@@ -256,18 +262,18 @@ export default function AccountsAdminClient({
 
   async function handleResend(account: AccountRow) {
     setRowBusyId(account.id)
-    setNotice("")
+    setNotice(null)
     try {
       const res = await fetch(`/api/accounts/invites/${account.id}/resend`, { method: "POST" })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        setNotice(typeof j.error === "string" ? j.error : "Resend failed.")
+        setNotice({ kind: "error", text: typeof j.error === "string" ? j.error : "Resend failed." })
         return
       }
-      setNotice(`Invite resent to ${account.email}.`)
+      setNotice({ kind: "success", text: `Invite resent to ${account.email}.` })
       await load()
     } catch {
-      setNotice("Resend failed.")
+      setNotice({ kind: "error", text: "Resend failed." })
     } finally {
       setRowBusyId(null)
     }
@@ -280,97 +286,109 @@ export default function AccountsAdminClient({
     : inviteView === "create" ? "Create a new Person"
     : "Account only"
 
+  const sendLabel = saving ? "Sending…" : "Send invite"
+
   return (
     <div className="flex flex-col flex-1">
       <AppHeader title="Accounts" />
 
-      <main {...mainContentTargetProps} className="fc-surface-admin fc-scroll p-3 flex flex-col gap-3">
-
-        <div className="rounded-xl bg-fc-panel px-4 py-3 text-sm text-gray-800 leading-relaxed">
-          Invite someone by email. They set their own password from the invite link.
-          An Account lets them sign in; a Person is who FamilyChart tracks medication and health for.
-        </div>
+      <PageContainer area="admin" trail={administrationTrail({ label: "Accounts" })}>
+        <Banner kind="info">
+          Invite someone by email. They set their own password from the invite link. An Account lets them sign in; a Person is who FamilyChart tracks medication and health for.
+        </Banner>
 
         {!emailConfigured && (
-          <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 leading-relaxed">
-            Outbound email is not configured, so invites cannot be sent.
-            Configure SMTP under{" "}
-            <Link href="/admin/system-settings" className="underline font-medium">System Settings</Link>.
-          </div>
+          <Banner kind="warning">
+            <>
+              Outbound email is not configured, so invites cannot be sent. Configure SMTP under{" "}
+              <Link href="/admin/system-settings">System Settings</Link>.
+            </>
+          </Banner>
         )}
 
-        {notice && (
-          <div className="rounded-xl bg-white/10 px-4 py-3 text-sm text-white leading-relaxed" role="status">
-            {notice}
-          </div>
-        )}
+        {notice && <Banner kind={notice.kind} announced>{notice.text}</Banner>}
 
-        {loading && <p className="text-white text-center py-8">Loading…</p>}
+        {loading && <p className="fc-admin-note">Loading…</p>}
 
         {!loading && accounts.length === 0 && (
-          <p className="text-white text-center py-8">No accounts yet.</p>
+          <EmptyState icon={EMPTY_STATE_ICONS.noAccounts} heading="No accounts yet">
+            Send an invite to let someone sign in.
+          </EmptyState>
         )}
 
-        {!loading && accounts.map(a => {
-          const status = accountInviteDisplayStatus(a)
-          const busy = rowBusyId === a.id
-          return (
-            <div key={a.id} className="rounded-xl px-4 py-3 flex items-center gap-3 bg-white/10">
-              <div className="flex-1 min-w-0">
-                <div className="text-white font-bold truncate">{a.email}</div>
-                <div className="text-white text-xs mt-0.5 flex gap-x-3 gap-y-1 flex-wrap items-center">
-                  <span className={`rounded px-1.5 py-0.5 font-bold ${STATUS_BADGE_CLASS[status]}`}>
-                    {STATUS_LABELS[status]}
-                  </span>
-                  {a.auth_method === "entra"
-                    ? <span>Role from Entra</span>
-                    : <span>Role: {ROLE_LABELS[a.role] ?? a.role}</span>}
-                  <span>{a.can_report ? "Can access reports" : "Cannot access reports"}</span>
-                  <span>{a.is_active ? "Can sign in" : "Sign-in disabled"}</span>
-                  {a.auth_method === "local" && (
-                    <span>{a.mfa_enrolled ? "MFA on" : "MFA pending"}</span>
-                  )}
-                  <span>Created {formatDate(a.created_at)}</span>
-                </div>
-              </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                {status === "invited" && (
-                  <button
-                    type="button"
-                    onClick={() => setRevokeTarget(a)}
-                    disabled={busy}
-                    className="inline-flex items-center justify-center min-h-[44px] px-2 rounded-lg
-                               text-red-300 hover:text-red-100 hover:bg-red-500/15 text-sm disabled:opacity-50"
-                  >
-                    Revoke
-                  </button>
-                )}
-                {status !== "active" && (
-                  <button
-                    type="button"
-                    onClick={() => void handleResend(a)}
-                    disabled={busy || !emailConfigured}
-                    className="inline-flex items-center justify-center min-h-[44px] px-2 rounded-lg
-                               text-white hover:bg-white/10 text-sm disabled:opacity-50"
-                  >
-                    {busy ? "Working…" : "Resend"}
-                  </button>
-                )}
-                <EntityRowEditButton onClick={() => openEdit(a)} disabled={busy} />
-              </div>
-            </div>
-          )
-        })}
+        {!loading && accounts.length > 0 && (
+          <CardList>
+            {accounts.map(a => {
+              const { invite, chip, disabled } = accountStatus(a)
+              const listCopy = accountListCopy(a)
+              const busy = rowBusyId === a.id
+              return (
+                <ListCard
+                  key={a.id}
+                  title={a.email}
+                  meta={[
+                    listCopy.role,
+                    listCopy.reports,
+                    a.auth_method === "local" && (a.mfa_enrolled ? "MFA on" : "MFA pending"),
+                    `Created ${formatDate(sqliteUtcToIso(a.created_at))}`,
+                  ]}
+                  inactive={disabled}
+                  extras={<Badge tone={STATUS_CHIP[chip].tone}>{STATUS_CHIP[chip].label}</Badge>}
+                  trailing={
+                    <div className="fc-account-actions">
+                      {invite === "invited" && (
+                        <Button variant="destructive" size="compact" onClick={() => setRevokeTarget(a)} pending={busy} pendingLabel="Working…" aria-label={`Revoke invite for ${a.email}`}>
+                          Revoke
+                        </Button>
+                      )}
+                      {invite !== "active" && (
+                        emailConfigured ? (
+                          <Button variant="secondary" size="compact" onClick={() => void handleResend(a)} pending={busy} pendingLabel="Working…" aria-label={`Resend invite to ${a.email}`}>
+                            Resend
+                          </Button>
+                        ) : (
+                          <Button variant="secondary" size="compact" disabled disabledReason="Email is not configured." aria-label={`Resend invite to ${a.email}`}>
+                            Resend
+                          </Button>
+                        )
+                      )}
+                      <EntityRowActions name={a.email} onEdit={() => openEdit(a)} />
+                      {(() => {
+                        const reason = a.email.toLowerCase() === myEmail.toLowerCase() && myEmail
+                          ? OWN_ACCOUNT_ADMIN_ERROR
+                          : a.last_local_admin
+                            ? LAST_LOCAL_ADMIN_ERROR
+                            : a.has_personal_link
+                              ? ACCOUNT_STILL_LINKED_ERROR
+                              : null
+                        return reason
+                          ? (
+                            <Button variant="destructive" size="compact" disabled disabledReason={reason} aria-label={`Remove ${a.email}`}>
+                              Remove
+                            </Button>
+                          )
+                          : (
+                            <Button variant="destructive" size="compact" onClick={() => setRemoveTarget(a)} aria-label={`Remove ${a.email}`}>
+                              Remove
+                            </Button>
+                          )
+                      })()}
+                    </div>
+                  }
+                />
+              )
+            })}
+          </CardList>
+        )}
 
-        <button
-          type="button"
-          onClick={openInvite}
-          disabled={!emailConfigured}
-          className="bg-white hover:bg-gray-100 active:bg-gray-200 rounded-xl py-4 text-fc-blue font-bold text-center transition-colors disabled:opacity-50"
-        >
-          + Send invite
-        </button>
-      </main>
+        {emailConfigured ? (
+          <Button fullWidth onClick={openInvite}>+ Send invite</Button>
+        ) : (
+          <Button fullWidth disabled disabledReason="Outbound email is not configured, so invites cannot be sent.">
+            + Send invite
+          </Button>
+        )}
+      </PageContainer>
 
       <ConfirmModal
         open={mfaClearDlg}
@@ -398,278 +416,222 @@ export default function AccountsAdminClient({
         title={inviteTitle}
         panelClassName="bg-fc-panel rounded-2xl w-full max-w-md p-5 flex flex-col gap-4 max-h-[90vh] overflow-y-auto"
       >
-        {inviteView === "fields" && (
-          <>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-1">Email</label>
-              <input
-                type="email"
-                value={invite.email}
-                onChange={e => setInvite(f => ({ ...f, email: e.target.value }))}
-                autoFocus
-                autoComplete="off"
-                className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-1">Role</label>
-              <select
-                value={invite.role}
-                onChange={e => setInvite(f => ({ ...f, role: e.target.value }))}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800 bg-white"
+        <div ref={inviteBodyRef} className="fc-form">
+          {inviteView === "fields" && (
+            <>
+              <FormField label="Email" error={fieldErr.email}>
+                <Input
+                  type="email"
+                  value={invite.email}
+                  onChange={e => setInvite(f => ({ ...f, email: e.target.value }))}
+                  autoFocus
+                  autoComplete="off"
+                />
+              </FormField>
+              <FormField
+                label="Role"
+                hint={
+                  [
+                    isNoneRole(invite.role) ? "Access is the Personal-link only." : "",
+                    entraActive ? "If they sign in with Microsoft, their access level comes from Entra group membership instead." : "",
+                  ].filter(Boolean).join(" ") || undefined
+                }
               >
-                {ROLES.map(r => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
-              </select>
-              {entraActive && (
-                <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                  If they sign in with Microsoft, their access level comes from Entra group membership instead.
-                </p>
-              )}
-            </div>
-            {saveErr && <p className="text-red-600 text-sm">{saveErr}</p>}
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={closeInvite}
-                className="flex-1 border border-gray-400 rounded-xl py-3 text-gray-700 font-bold"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => { setSaveErr(""); setInviteView("person") }}
-                disabled={!invite.email.trim()}
-                className="flex-1 bg-fc-blue text-white font-bold rounded-xl py-3 disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          </>
-        )}
-
-        {inviteView === "person" && (
-          <>
-            <p className="text-sm text-gray-800 leading-relaxed font-bold">
-              This invite creates an Account for {invite.email.trim() || "the invitee"}. Do they also need a Person record?
-            </p>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              An <strong>Account</strong> lets someone sign in. A <strong>Person</strong> is an entry FamilyChart tracks medication/health for — give someone a Person record if you want to log doses or observations for them.
-            </p>
-            <button
-              type="button"
-              onClick={() => { setSaveErr(""); setInviteView("link") }}
-              className="text-left rounded-xl border border-gray-300 bg-white px-4 py-3 hover:bg-gray-50"
-            >
-              <div className="font-bold text-gray-800">Link to an existing Person</div>
-              <div className="text-sm text-gray-600 mt-1">pick from the list (someone who already has a Person record but no Account yet)</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setSaveErr(""); setInviteView("create") }}
-              className="text-left rounded-xl border border-gray-300 bg-white px-4 py-3 hover:bg-gray-50"
-            >
-              <div className="font-bold text-gray-800">Create a new Person</div>
-              <div className="text-sm text-gray-600 mt-1">for someone not yet in FamilyChart at all</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setSaveErr(""); setInviteView("none") }}
-              className="text-left rounded-xl border border-gray-300 bg-white px-4 py-3 hover:bg-gray-50"
-            >
-              <div className="font-bold text-gray-800">No — Account only</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setInviteView("fields")}
-              className="border border-gray-400 rounded-xl py-3 text-gray-700 font-bold"
-            >
-              Back
-            </button>
-          </>
-        )}
-
-        {inviteView === "link" && (
-          <>
-            {unlinkedPeople.length === 0 ? (
-              <p className="text-sm text-gray-600">No Person records without a linked Account.</p>
-            ) : (
-              <div>
-                <label className="text-sm font-bold text-gray-700 block mb-1">Person</label>
-                <select
-                  value={invite.personId}
-                  onChange={e => setInvite(f => ({ ...f, personId: e.target.value }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800 bg-white"
-                >
-                  <option value="">Select…</option>
-                  {unlinkedPeople.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {saveErr && <p className="text-red-600 text-sm">{saveErr}</p>}
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => { setSaveErr(""); setInviteView("person") }}
-                className="flex-1 border border-gray-400 rounded-xl py-3 text-gray-700 font-bold"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitInvite("link")}
-                disabled={saving || !invite.personId}
-                className="flex-1 bg-fc-blue text-white font-bold rounded-xl py-3 disabled:opacity-50"
-              >
-                {saving ? "Sending…" : "Send invite"}
-              </button>
-            </div>
-          </>
-        )}
-
-        {inviteView === "create" && (
-          <>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-1">Name</label>
-              <input
-                type="text"
-                value={invite.personName}
-                onChange={e => setInvite(f => ({ ...f, personName: e.target.value }))}
-                autoFocus
-                className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800"
-              />
-            </div>
-            {saveErr && <p className="text-red-600 text-sm">{saveErr}</p>}
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => { setSaveErr(""); setInviteView("person") }}
-                className="flex-1 border border-gray-400 rounded-xl py-3 text-gray-700 font-bold"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitInvite("create")}
-                disabled={saving || !invite.personName.trim()}
-                className="flex-1 bg-fc-blue text-white font-bold rounded-xl py-3 disabled:opacity-50"
-              >
-                {saving ? "Sending…" : "Send invite"}
-              </button>
-            </div>
-          </>
-        )}
-
-        {inviteView === "none" && (
-          <>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              They will be able to sign in, with no Person record of their own.
-            </p>
-            {saveErr && <p className="text-red-600 text-sm">{saveErr}</p>}
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => { setSaveErr(""); setInviteView("person") }}
-                className="flex-1 border border-gray-400 rounded-xl py-3 text-gray-700 font-bold"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitInvite("none")}
-                disabled={saving}
-                className="flex-1 bg-fc-blue text-white font-bold rounded-xl py-3 disabled:opacity-50"
-              >
-                {saving ? "Sending…" : "Send invite"}
-              </button>
-            </div>
-          </>
-        )}
-      </Modal>
-
-      <Modal
-        open={editing != null}
-        onClose={closeEdit}
-        title="Edit Account"
-      >
-        {editing && (
-          <>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-1">Email</label>
-              <p className="text-gray-600 text-sm px-1">{editing.email}</p>
-            </div>
-
-            {editing.auth_method === "entra" ? (
-              <p className="text-sm text-gray-600 leading-relaxed">
-                This account signs in with Microsoft. Access level comes from Entra group membership — manage it in{" "}
-                <Link href="/admin/access-control" className="underline font-medium text-fc-blue">Access Control</Link>.
-              </p>
-            ) : (
-              <div>
-                <label className="text-sm font-bold text-gray-700 block mb-1">Role</label>
-                <select
-                  value={editForm.role}
-                  onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800 bg-white"
-                >
-                  {ROLES.map(r => (
+                <Select value={invite.role} onChange={e => setInvite(f => ({ ...f, role: e.target.value }))}>
+                  {HOUSEHOLD_ROLE_OPTIONS.map(r => (
                     <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
-                </select>
+                </Select>
+              </FormField>
+              {saveErr && <Banner kind="error">{saveErr}</Banner>}
+              <div className="fc-form-actions">
+                <Button variant="secondary" onClick={closeInvite}>Cancel</Button>
+                {invite.email.trim() ? (
+                  <Button onClick={() => { setSaveErr(""); setFieldErr({}); setInviteView("person") }}>Next</Button>
+                ) : (
+                  <Button disabled disabledReason="Enter an email address first.">Next</Button>
+                )}
               </div>
+            </>
+          )}
+
+          {inviteView === "person" && (
+            <>
+              <p className="fc-section-copy">
+                <strong>This invite creates an Account for {invite.email.trim() || "the invitee"}. Do they also need a Person record?</strong>
+              </p>
+              <p className="fc-section-copy">
+                An <strong>Account</strong> lets someone sign in. A <strong>Person</strong> is an entry FamilyChart tracks medication/health for — give someone a Person record if you want to log doses or observations for them.
+              </p>
+              <Button variant="secondary" fullWidth onClick={() => { setSaveErr(""); setInviteView("link") }}>
+                Link to an existing Person
+              </Button>
+              <p className="fc-field__hint">Pick from the list (someone who already has a Person record but no Account yet).</p>
+              <Button variant="secondary" fullWidth onClick={() => { setSaveErr(""); setInviteView("create") }}>
+                Create a new Person
+              </Button>
+              <p className="fc-field__hint">For someone not yet in FamilyChart at all.</p>
+              {!isNoneRole(invite.role) && (
+                <Button variant="secondary" fullWidth onClick={() => { setSaveErr(""); setInviteView("none") }}>
+                  No — Account only
+                </Button>
+              )}
+              <Button variant="quiet" onClick={() => setInviteView("fields")}>Back</Button>
+            </>
+          )}
+
+          {inviteView === "link" && (
+            <>
+              {unlinkedPeople.length === 0 ? (
+                <p className="fc-section-copy">No Person records without a linked Account.</p>
+              ) : (
+                <FormField label="Person" error={fieldErr.person}>
+                  <Select value={invite.personId} onChange={e => setInvite(f => ({ ...f, personId: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {unlinkedPeople.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </Select>
+                </FormField>
+              )}
+              {saveErr && <Banner kind="error">{saveErr}</Banner>}
+              <div className="fc-form-actions">
+                <Button variant="secondary" onClick={() => { setSaveErr(""); setFieldErr({}); setInviteView("person") }}>Back</Button>
+                <Button onClick={() => void submitInvite("link")} pending={saving} pendingLabel="Sending…">{sendLabel}</Button>
+              </div>
+            </>
+          )}
+
+          {inviteView === "create" && (
+            <>
+              <FormField label="Name" error={fieldErr.name}>
+                <Input
+                  type="text"
+                  value={invite.personName}
+                  onChange={e => setInvite(f => ({ ...f, personName: e.target.value }))}
+                  autoFocus
+                />
+              </FormField>
+              {saveErr && <Banner kind="error">{saveErr}</Banner>}
+              <div className="fc-form-actions">
+                <Button variant="secondary" onClick={() => { setSaveErr(""); setFieldErr({}); setInviteView("person") }}>Back</Button>
+                <Button onClick={() => void submitInvite("create")} pending={saving} pendingLabel="Sending…">{sendLabel}</Button>
+              </div>
+            </>
+          )}
+
+          {inviteView === "none" && (
+            <>
+              <p className="fc-section-copy">They will be able to sign in, with no Person record of their own.</p>
+              {saveErr && <Banner kind="error">{saveErr}</Banner>}
+              <div className="fc-form-actions">
+                <Button variant="secondary" onClick={() => { setSaveErr(""); setInviteView("person") }}>Back</Button>
+                <Button onClick={() => void submitInvite("none")} pending={saving} pendingLabel="Sending…">{sendLabel}</Button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
+
+      <Modal open={editing != null} onClose={closeEdit} title="Edit Account">
+        {editing && (
+          <div className="fc-form">
+            <FormField label="Email">
+              <Input type="email" value={editing.email} readOnly />
+            </FormField>
+
+            {editing.auth_method === "entra" ? (
+              <p className="fc-section-copy">
+                This account signs in with Microsoft. Access level comes from Entra group membership — manage it in{" "}
+                <Link href="/admin/access-control">Access Control</Link>.
+              </p>
+            ) : (
+              <FormField label="Role">
+                <Select
+                  value={editForm.role}
+                  onChange={e => {
+                    const role = e.target.value
+                    setEditForm(f => ({
+                      ...f,
+                      role,
+                      can_report: isNoneRole(role) ? 0 : f.can_report,
+                    }))
+                  }}
+                >
+                  {HOUSEHOLD_ROLE_OPTIONS.map(r => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </Select>
+              </FormField>
             )}
 
-            <Toggle
-              label="Can access reports"
-              value={editForm.can_report === 1}
-              onChange={v => setEditForm(f => ({ ...f, can_report: v ? 1 : 0 }))}
-            />
+            {isNoneRole(editForm.role) ? (
+              <Toggle
+                label="Can access reports"
+                checked={editForm.can_report === 1}
+                disabled
+                disabledReason="Household Reports needs a household Role. They can still report on their Personal-linked Person."
+                onChange={v => setEditForm(f => ({ ...f, can_report: v ? 1 : 0 }))}
+              />
+            ) : (
+              <Toggle
+                label="Can access reports"
+                checked={editForm.can_report === 1}
+                onChange={v => setEditForm(f => ({ ...f, can_report: v ? 1 : 0 }))}
+              />
+            )}
 
-            <Toggle
-              label="Account Active"
-              value={editForm.is_active === 1}
-              onChange={v => setEditForm(f => ({ ...f, is_active: v ? 1 : 0 }))}
-            />
+            {!isSignInManagedLocally(editing.auth_method) ? (
+              <p className="fc-section-copy">
+                Sign-in for this account is controlled in Entra. See{" "}
+                <Link href="/admin/access-control">Access Control</Link> and{" "}
+                <Link href="/admin/entra-sessions">Entra Sessions</Link>.
+              </p>
+            ) : editing.last_local_admin ? (
+              <Toggle
+                label="Sign-in enabled"
+                hint="Turning this off blocks sign-in immediately."
+                checked={editForm.is_active === 1}
+                disabled
+                disabledReason={LAST_LOCAL_ADMIN_ERROR}
+                onChange={v => setEditForm(f => ({ ...f, is_active: v ? 1 : 0 }))}
+              />
+            ) : (
+              <Toggle
+                label="Sign-in enabled"
+                hint="Turning this off blocks sign-in immediately."
+                checked={editForm.is_active === 1}
+                onChange={v => setEditForm(f => ({ ...f, is_active: v ? 1 : 0 }))}
+              />
+            )}
 
             {editing.auth_method === "local" && editing.mfa_enrolled === 1 && (
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setMfaClearDlg(true)}
-                  disabled={clearingMfa || saving}
-                  className="w-full border border-amber-600 text-amber-800 rounded-xl py-2 text-sm font-bold
-                             hover:bg-amber-50 disabled:opacity-50"
-                >
-                  {clearingMfa ? "Removing…" : "Remove authenticator (lockout recovery)"}
-                </button>
-              </div>
+              <Button variant="destructive" fullWidth onClick={() => setMfaClearDlg(true)} pending={clearingMfa} pendingLabel="Removing…">
+                Remove authenticator (lockout recovery)
+              </Button>
             )}
 
-            {saveErr && <p className="text-red-600 text-sm">{saveErr}</p>}
+            {saveErr && <Banner kind="error">{saveErr}</Banner>}
 
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={closeEdit}
-                className="flex-1 border border-gray-400 rounded-xl py-3 text-gray-700 font-bold"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSaveEdit()}
-                disabled={saving}
-                className="flex-1 bg-fc-blue text-white font-bold rounded-xl py-3 disabled:opacity-50"
-              >
-                {saving ? "Saving…" : "Save changes"}
-              </button>
+            <div className="fc-form-actions">
+              <Button variant="secondary" onClick={closeEdit}>Cancel</Button>
+              {editing.last_local_admin && (editForm.role !== "admin" || editForm.is_active === 0) ? (
+                <Button disabled disabledReason={LAST_LOCAL_ADMIN_ERROR} pending={saving}>Save changes</Button>
+              ) : (
+                <Button onClick={() => void handleSaveEdit()} pending={saving}>Save changes</Button>
+              )}
             </div>
-          </>
+          </div>
         )}
       </Modal>
+
+      {removeTarget && (
+        <RemoveAccountDialog
+          accountId={removeTarget.id}
+          onClose={() => setRemoveTarget(null)}
+          onRemoved={() => { setRemoveTarget(null); void load() }}
+        />
+      )}
 
       <AppFooter />
     </div>

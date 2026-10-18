@@ -6,7 +6,14 @@ import { useSession } from "next-auth/react"
 import { useCallback, useEffect, useState } from "react"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
-import { mainContentTargetProps } from "@/lib/a11y"
+import Button from "@/components/ui/Button"
+import { Select } from "@/components/ui/controls"
+import FormField from "@/components/ui/FormField"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
+import Panel from "@/components/ui/Panel"
+import { formatTime } from "@/lib/date-format"
+import { diagnosticsTrail } from "@/lib/ui/breadcrumbs"
 import {
   APP_LOCK_PROBE_SETS,
   describeAuthenticatorData,
@@ -125,7 +132,7 @@ export default function AppLockDiagnosticsPage() {
   }, [userId])
 
   const appendLog = useCallback((line: string) => {
-    setLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${line}`])
+    setLog((prev) => [...prev, `[${formatTime(new Date(), { seconds: true })}] ${line}`])
   }, [])
 
   const changeProvider = (value: string): void => {
@@ -230,106 +237,96 @@ export default function AppLockDiagnosticsPage() {
     }
   }
 
-  const button =
-    "rounded-lg bg-fc-blue-mid px-3 py-2 text-sm font-bold text-white hover:bg-fc-blue-dark disabled:opacity-50"
-  const smallButton =
-    "rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-
   return (
     <div className="flex flex-col flex-1">
-      <AppHeader title="App lock diagnostics" />
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue fc-scroll px-4 py-6">
-        <div className="mx-auto flex max-w-xl flex-col gap-5">
-          <p className="text-sm text-white/80">
-            For each run, note which screen appeared: the device prompt alone, a passkey picker, or a
-            password-manager screen. Then copy the log. These tests use their own credentials and never
-            touch your real App lock.
-          </p>
+      <AppHeader title="App Lock" />
+      <PageContainer trail={diagnosticsTrail({ label: "App Lock" })}>
+        <p className="fc-export-note">
+          For each run, note which screen appeared: the device prompt alone, a passkey picker, or a
+          password-manager screen. Then copy the log. These tests use their own credentials and never
+          touch your real App lock.
+        </p>
 
-          <section className="rounded-xl bg-white p-4">
-            <h2 className="mb-2 font-bold text-gray-800">This device</h2>
-            {deviceState == null ? (
-              <p className="text-sm text-gray-500">Loading…</p>
-            ) : (
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                <dt className="text-gray-500">Credential stored</dt>
-                <dd>{deviceState.credentialStored}</dd>
-                <dt className="text-gray-500">Version marker</dt>
-                <dd>{deviceState.versionMarker}</dd>
-                <dt className="text-gray-500">Opted out</dt>
-                <dd>{deviceState.optedOut}</dd>
-                <dt className="text-gray-500">Grace period</dt>
-                <dd>{deviceState.gracePeriod}</dd>
-                <dt className="text-gray-500">Photo/camera suppression</dt>
-                <dd>{deviceState.suppressed}</dd>
-              </dl>
-            )}
-          </section>
+        <Panel as="section" aria-labelledby="diag-device">
+          <h2 id="diag-device" className="fc-section-title">This device</h2>
+          {deviceState == null ? (
+            <p className="fc-section-copy">Loading…</p>
+          ) : (
+            <dl className="fc-dl">
+              <dt>Credential stored</dt>
+              <dd>{deviceState.credentialStored}</dd>
+              <dt>Version marker</dt>
+              <dd>{deviceState.versionMarker}</dd>
+              <dt>Opted out</dt>
+              <dd>{deviceState.optedOut}</dd>
+              <dt>Grace period</dt>
+              <dd>{deviceState.gracePeriod}</dd>
+              <dt>Photo/camera suppression</dt>
+              <dd>{deviceState.suppressed}</dd>
+            </dl>
+          )}
+        </Panel>
 
-          <label className="flex items-center justify-between gap-3 rounded-xl bg-white p-4 text-sm">
-            <span className="font-semibold text-gray-800">
-              Android &ldquo;Google&rdquo; provider is currently
-            </span>
-            <select
-              className="rounded-lg border border-gray-300 px-2 py-1"
-              value={provider}
-              onChange={(e) => changeProvider(e.target.value)}
-            >
+        <Panel>
+          <FormField label="Android “Google” provider is currently">
+            <Select value={provider} onChange={(e) => changeProvider(e.target.value)}>
               <option value="unknown">not set</option>
               <option value="on">ON</option>
               <option value="off">OFF</option>
-            </select>
-          </label>
+            </Select>
+          </FormField>
+        </Panel>
 
-          <div className="flex flex-col gap-3">
-            {APP_LOCK_PROBE_SETS.map((set) => (
-              <div key={set.key} className="flex items-center justify-between gap-3 rounded-xl bg-white p-4">
-                <div>
-                  <div className="font-semibold text-gray-800">{set.label}</div>
-                  <div className="text-xs text-gray-500">{set.description}</div>
-                </div>
-                <button type="button" className={`shrink-0 ${button}`} disabled={busy} onClick={() => runCreate(set)}>
+        <CardList>
+          {APP_LOCK_PROBE_SETS.map((set) => (
+            <ListCard
+              key={set.key}
+              title={set.label}
+              meta={[set.description]}
+              trailing={
+                <Button size="compact" pending={busy} pendingLabel="Working…" onClick={() => runCreate(set)} aria-label={`Create ${set.label}`}>
                   Create
-                </button>
-              </div>
-            ))}
-          </div>
+                </Button>
+              }
+            />
+          ))}
+        </CardList>
 
-          {creds.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <h2 className="text-xs font-bold uppercase tracking-wide text-white/70">Created credentials</h2>
+        {creds.length > 0 && (
+          <section aria-labelledby="diag-created" className="fc-form">
+            <h2 id="diag-created" className="fc-block-heading">Created credentials</h2>
+            <CardList>
               {creds.map((c) => (
-                <div
+                <ListCard
                   key={c.id}
-                  className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs"
-                >
-                  <span className="font-mono text-gray-700">
-                    {c.set} · Google {c.googleProvider} · {shortId(c.id)}
-                  </span>
-                  <button type="button" className={smallButton} disabled={busy} onClick={() => runGet(c)}>
-                    Test get()
-                  </button>
-                </div>
+                  title={c.set}
+                  meta={[`Google ${c.googleProvider}`, shortId(c.id)]}
+                  trailing={
+                    <Button variant="secondary" size="compact" pending={busy} pendingLabel="Working…" onClick={() => runGet(c)} aria-label={`Test get() for ${c.set}`}>
+                      Test get()
+                    </Button>
+                  }
+                />
               ))}
-              <button type="button" className={`self-start ${smallButton} bg-white`} disabled={busy} onClick={clearCreds}>
+            </CardList>
+            <div className="fc-form-actions">
+              <Button variant="secondary" size="compact" pending={busy} pendingLabel="Working…" onClick={clearCreds}>
                 Clear list
-              </button>
+              </Button>
             </div>
-          )}
+          </section>
+        )}
 
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-bold uppercase tracking-wide text-white/70">Run log</h2>
-              <button type="button" className={`${smallButton} bg-white`} onClick={copyLog}>
-                {copied ? "Copied" : "Copy log"}
-              </button>
-            </div>
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-black/40 p-3 text-xs text-white/80">
-              {log.join("\n")}
-            </pre>
+        <section aria-labelledby="diag-log" className="fc-form">
+          <div className="fc-log-head">
+            <h2 id="diag-log" className="fc-block-heading">Run log</h2>
+            <Button variant="secondary" size="compact" onClick={copyLog}>
+              {copied ? "Copied" : "Copy log"}
+            </Button>
           </div>
-        </div>
-      </main>
+          <pre className="fc-log" tabIndex={0} aria-label="Run log output">{log.join("\n")}</pre>
+        </section>
+      </PageContainer>
       <AppFooter />
     </div>
   )

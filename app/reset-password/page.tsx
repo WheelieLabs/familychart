@@ -7,6 +7,9 @@ import ResetPasswordForm from "./ResetPasswordForm"
 import { getDb } from "@/lib/db"
 import { resolveSetting } from "@/lib/settings/resolver"
 import { SETTING_SECURITY_PASSWORD_MIN_LENGTH } from "@/lib/settings/registry"
+import type { Metadata } from "next"
+
+export const metadata: Metadata = { title: "Reset Password" }
 
 export const dynamic = "force-dynamic"
 

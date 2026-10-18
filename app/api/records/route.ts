@@ -9,19 +9,17 @@ import { rejectDemoProfanity } from "@/lib/demo/demo-profanity-guard"
 import { getDb } from "@/lib/db"
 import { auditLog } from "@/lib/audit-log"
 import { clampHistoryLimit } from "@/lib/api-row-limits"
-import { loadScheduleSlotMatchConfig } from "@/lib/schedule/schedule-config"
-import { resolveSlotMatchOffsetMinutes } from "@/lib/instance-timezone"
-import {
-  matchRecordToScheduledSlot,
-  parseScheduleFrequencyUnknown,
-  parseScheduleTimesJson,
-} from "@/lib/schedule/schedule-recurrence"
+import { parseScheduleTimesJson } from "@/lib/schedule/schedule-recurrence"
+import { loadDoseTimingByRecord } from "@/lib/schedule/slot-outcome-reads"
+import { resolveCalendarContext } from "@/lib/calendar-context"
 import { sessionAccountUids } from "@/lib/account/account-identity"
 import { validateMedicationRecordWrite } from "@/lib/medication/medication-record-validation"
-import { ensureActivePersonMedicationLink } from "@/lib/person/person-medication-assign"
-import { sendMedicationAcknowledgementPushes } from "@/lib/push"
-import { trySuppressNextScheduleSlot } from "@/lib/schedule/schedule-reminder-suppression"
+import { recordDose } from "@/lib/medication/record-dose"
 import { clearSupersededPrnPushRequests } from "@/lib/prn/prn-push-supersede"
+import { sendMedicationAcknowledgementPushes, sendSelfDoseAcknowledgementPushes } from "@/lib/push"
+import { decideDoseNotification } from "@/lib/push/dose-notification-decision"
+import { recordingEndpointFromRequest } from "@/lib/push/recording-device"
+import { changeLinks, parseIdList, validateLinkTargets } from "@/lib/symptoms/symptom-dose-links"
 
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth()
@@ -60,7 +58,7 @@ export async function GET(request: NextRequest) {
 
   const conditions: string[] = ["r.person_id = ?"]
   const values: (string | number)[] = [pid]
-  appendRecordedAtRangeFilters(request, from, to, conditions, values, "r.recorded_at")
+  appendRecordedAtRangeFilters(request, db, from, to, conditions, values, "r.recorded_at")
   if (medId) {
     conditions.push("r.medication_id = ?")
     values.push(parseInt(medId, 10))
@@ -78,61 +76,47 @@ export async function GET(request: NextRequest) {
     dosage: number | null
     dosage_unit: string | null
     comments: string | null
+    administered_by: string | null
     medication_name: string
   }
 
+  type ScheduleConfig = {
+    schedule_times: string | null
+    schedule_frequency: string | null
+    schedule_start_date: string | null
+    schedule_end_date: string | null
+    schedule_tz: string | null
+  }
+
   const enrichMedRows = (rows: MedRow[]) => {
-    if (!medId) return rows
+    if (rows.length === 0) return rows
 
-    const mid = parseInt(medId, 10)
-    const pm = db
-      .prepare(
-        `SELECT schedule_times, schedule_frequency, schedule_start_date, schedule_end_date, schedule_tz
-           FROM person_medications
-          WHERE person_id = ? AND medication_id = ? AND is_active = 1`
-      )
-      .get(pid, mid) as {
-      schedule_times: string | null
-      schedule_frequency: string | null
-      schedule_start_date: string | null
-      schedule_end_date: string | null
-      schedule_tz: string | null
-    } | undefined
+    const medicationIds = medId ? [parseInt(medId, 10)] : [...new Set(rows.map(r => r.medication_id))]
 
-    if (!pm?.schedule_times) return rows
+    const scheduleByMedId = new Map<number, ScheduleConfig | null>()
+    for (const mid of medicationIds) {
+      const scheduleRow = db
+        .prepare(
+          `SELECT schedule_times, schedule_frequency, schedule_start_date, schedule_end_date, schedule_tz
+             FROM person_medications
+            WHERE person_id = ? AND medication_id = ? AND is_active = 1`
+        )
+        .get(pid, mid) as ScheduleConfig | undefined
+      scheduleByMedId.set(mid, scheduleRow?.schedule_times ? scheduleRow : null)
+    }
 
-    const timesHm = parseScheduleTimesJson(pm.schedule_times)
-    if (timesHm.length === 0) return rows
+    if ([...scheduleByMedId.values()].every(scheduleRow => scheduleRow === null)) return rows
 
-    const freq = parseScheduleFrequencyUnknown(pm.schedule_frequency ?? null)
-    const offRaw = request.headers.get("x-fc-tz-offset")
-    const clientOffsetMinutes =
-      offRaw != null && Number.isFinite(Number.parseInt(offRaw, 10))
-        ? Number.parseInt(offRaw, 10)
-        : new Date().getTimezoneOffset()
-    const slotMatchConfig = loadScheduleSlotMatchConfig(db)
+    // Timing comes from the slot outcome stored when the dose was saved (or answered), so a later
+    // schedule edit never relabels History. A scheduled medication's dose with no attached slot
+    // (an extra dose, or one from before timing was stored) has `timing: null`.
+    const timingByRecord = loadDoseTimingByRecord(db, rows.map(r => r.id))
 
     return rows.map(r => {
-      const recordedAt = new Date(r.recorded_at)
-      const match = matchRecordToScheduledSlot(
-        recordedAt,
-        timesHm,
-        freq,
-        pm.schedule_start_date,
-        pm.schedule_end_date,
-        resolveSlotMatchOffsetMinutes(
-          recordedAt.getTime(),
-          pm.schedule_tz,
-          clientOffsetMinutes,
-          db,
-        ),
-        slotMatchConfig,
-      )
-      return {
-        ...r,
-        scheduled_time: match?.slotTimeLabel ?? null,
-        scheduled_late: match === null ? null : match.late,
-      }
+      const scheduleRow = scheduleByMedId.get(r.medication_id)
+      if (!scheduleRow) return r
+      if (parseScheduleTimesJson(scheduleRow.schedule_times).length === 0) return r
+      return { ...r, timing: timingByRecord.get(r.id) ?? null }
     })
   }
 
@@ -172,7 +156,7 @@ export async function POST(request: NextRequest) {
   const { session } = authResult
 
   const body = await request.json()
-  const { person_id, medication_id, recorded_at, dosage, dosage_unit, comments, suppressNextSlot } = body
+  const { person_id, medication_id, recorded_at, dosage, dosage_unit, comments, administered_by } = body
   if (!person_id || !medication_id || !recorded_at) {
     return NextResponse.json({ error: "person_id, medication_id, and recorded_at are required" }, { status: 400 })
   }
@@ -184,89 +168,40 @@ export async function POST(request: NextRequest) {
   const profanity = await rejectDemoProfanity(typeof comments === "string" ? comments : null)
   if (profanity) return profanity
 
-  // requirePersonLink:false — recording a dose assigns the medication to the person below
-  // (see ensureActivePersonMedicationLink), so we don't force a pre-existing link here. The
-  // medication's existence/active state and age bounds are still enforced; an
-  // age-ineligible medication is rejected before any link is created.
-  //
-  // ADR-0011: deliberately do NOT call evaluatePrnState / reject for cooldown or
-  // 24h caps. FamilyChart is a record-keeping tool — frequency rules drive dashboard alerts
-  // and reminders only; valid writes always succeed so history can reflect what happened.
-  const validated = validateMedicationRecordWrite(
-    db,
-    {
-      medication_id,
-      recorded_at,
-      dosage,
-      dosage_unit,
-      person_id,
-    },
-    { requirePersonLink: false },
-  )
-  if (!validated.ok) {
-    return NextResponse.json({ error: validated.error }, { status: 400 })
-  }
+  // Opt-in symptom links offered on the form; never required, and an invalid list stops the write.
+  const linkedSymptomIds = parseIdList(body.linked_symptom_ids)
+  const linkError = linkedSymptomIds ? validateLinkTargets(db, person_id, linkedSymptomIds, []) : "Invalid id list"
+  if (linkError) return NextResponse.json({ error: linkError }, { status: 400 })
 
-  // Recording a dose is itself an act of assigning the medication to the person. Create or
-  // reactivate the link so the age-bounds/unit-match invariant holds while ad-hoc/PRN recording from the
-  // Record Medication screen keeps working (the screen offers the whole catalogue, not just
-  // already-assigned medications).
-  ensureActivePersonMedicationLink(db, person_id, medication_id, session.user?.email)
+  // ADR-0011: the shared write path deliberately never rejects for cooldown or 24h caps.
+  const recorded = recordDose(db, {
+    personId: person_id,
+    medicationId: medication_id,
+    recordedAt: recorded_at,
+    dosage,
+    dosageUnit: dosage_unit,
+    comments: comments ?? null,
+    administeredBy: administered_by,
+    createdBy: session.user?.email ?? null,
+    // Same calendar the schedule evaluator uses: the schedule zone, else the client's offset headers.
+    calendarFor: (tz, atMs) => resolveCalendarContext(db, tz, atMs, request),
+  })
+  if (!recorded.ok) {
+    return NextResponse.json({ error: recorded.error }, { status: 400 })
+  }
+  const { recordId, clearedPrnPushRequests } = recorded
 
   const medication = db.prepare("SELECT name FROM medications WHERE id = ?")
     .get(medication_id) as { name: string } | undefined
 
-  const insertAndSupersede = db.transaction(() => {
-    const result = db.prepare(
-      `INSERT INTO medication_records (person_id, medication_id, recorded_at, dosage, dosage_unit, comments, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(person_id, medication_id, validated.recordedAt, validated.dosage,
-          validated.dosageUnit, comments ?? null, session.user?.email ?? null)
-    const insertedId = Number(result.lastInsertRowid)
-    const cleared = clearSupersededPrnPushRequests(db, {
-      personId: person_id,
-      medicationId: medication_id,
-      currentRecordId: insertedId,
-      recordedAt: validated.recordedAt,
-    })
-    return { recordId: insertedId, clearedPrnPushRequests: cleared }
-  })
-  const { recordId, clearedPrnPushRequests } = insertAndSupersede()
   auditLog(db, session.user?.email, "CREATE", "medication_records",
     recordId, { person_id, medication_id })
-
-  // Opt-in suppression: cancel the next scheduled slot today only (server-local day)
-  if (suppressNextSlot === true) {
-    const pm = db.prepare(
-      `SELECT id, schedule_times, schedule_frequency, schedule_start_date, schedule_end_date, schedule_tz
-       FROM person_medications
-       WHERE person_id = ? AND medication_id = ? AND is_active = 1
-       LIMIT 1`
-    ).get(person_id, medication_id) as {
-      id: number
-      schedule_times: string | null
-      schedule_frequency: string | null
-      schedule_start_date: string | null
-      schedule_end_date: string | null
-      schedule_tz: string | null
-    } | undefined
-
-    if (pm?.schedule_times) {
-      trySuppressNextScheduleSlot(db, {
-        personMedication: {
-          id: pm.id,
-          schedule_times: pm.schedule_times,
-          schedule_frequency: pm.schedule_frequency,
-          schedule_start_date: pm.schedule_start_date,
-          schedule_end_date: pm.schedule_end_date,
-          schedule_tz: pm.schedule_tz,
-        },
-        recordedAtMs: new Date(recorded_at).getTime(),
-        recordId,
-        createdBy: session.user?.email ?? null,
-        request,
-      })
-    }
+  if (linkedSymptomIds && linkedSymptomIds.length > 0) {
+    changeLinks(db, {
+      personId: person_id,
+      actorEmail: session.user?.email ?? null,
+      add: { symptomIds: linkedSymptomIds, recordIds: [recordId] },
+    })
   }
 
   const tzOffsetRaw = request.headers.get("x-fc-tz-offset")
@@ -285,8 +220,35 @@ export async function POST(request: NextRequest) {
     tzOffsetMinutes
   ).catch(err => logger.error("[records] acknowledgement push failed:", err))
 
+  // Only a dose attached to a slot clears the reminder. The recording device
+  // closes its own copy by this tag; the recorder's other devices get "You gave…" in its place.
+  const notification = decideDoseNotification({
+    personId: person_id,
+    medicationId: medication_id,
+    clearsReminder: recorded.clearsReminder,
+  })
+  if (notification.replaceOnRecorderDevices) {
+    sendSelfDoseAcknowledgementPushes(db, {
+      personId: person_id,
+      medicationId: medication_id,
+      recorderUserUids: sessionAccountUids(session.user),
+      recordingEndpoint: recordingEndpointFromRequest(request),
+      personName: person.name,
+      medicationName: medication?.name ?? "medication",
+      recordedAt: recorded_at,
+      tzOffsetMinutes,
+    }).catch(err => logger.error("[records] self acknowledgement push failed:", err))
+  }
+
   return NextResponse.json(
-    { id: recordId, clearedPrnPushRequests, dosageUnitMismatch: validated.dosageUnitMismatch },
+    {
+      id: recordId,
+      closeNotificationTag: notification.closeTag,
+      clearedPrnPushRequests,
+      dosageUnitMismatch: recorded.dosageUnitMismatch,
+      timing: recorded.timing,
+      clearsReminder: recorded.clearsReminder,
+    },
     { status: 201 },
   )
 }
@@ -308,7 +270,10 @@ export async function PATCH(request: NextRequest) {
   const person = authorisePersonAccess(db, authResult, record.person_id, "write")
   if (person instanceof NextResponse) return person
 
-  const { recorded_at, dosage, dosage_unit, comments } = await request.json()
+  // Full-replace fields, not a partial patch: an omitted administered_by (like an omitted
+  // comments/dosage_unit) is not "leave unchanged" — it resets to the default ("me"). Every
+  // caller must resupply the current value, same as the other editable fields here.
+  const { recorded_at, dosage, dosage_unit, comments, administered_by } = await request.json()
   const profanity = await rejectDemoProfanity(typeof comments === "string" ? comments : null)
   if (profanity) return profanity
   // requirePersonLink:false — the record already exists, so the person↔medication pairing is
@@ -322,6 +287,7 @@ export async function PATCH(request: NextRequest) {
       recorded_at,
       dosage,
       dosage_unit,
+      administered_by,
       person_id: record.person_id,
     },
     { requirePersonLink: false },
@@ -333,8 +299,8 @@ export async function PATCH(request: NextRequest) {
   const recordedAtChanged = validated.recordedAt !== record.recorded_at
   const updateAndSupersede = db.transaction(() => {
     db.prepare(
-      "UPDATE medication_records SET recorded_at = ?, dosage = ?, dosage_unit = ?, comments = ? WHERE id = ?"
-    ).run(validated.recordedAt, validated.dosage, validated.dosageUnit, comments ?? null, parseInt(id, 10))
+      "UPDATE medication_records SET recorded_at = ?, dosage = ?, dosage_unit = ?, comments = ?, administered_by = ? WHERE id = ?"
+    ).run(validated.recordedAt, validated.dosage, validated.dosageUnit, comments ?? null, validated.administeredBy, parseInt(id, 10))
     // Only clear when recorded_at actually changed — dosage/comments-only edits don't.
     if (!recordedAtChanged) return 0
     return clearSupersededPrnPushRequests(db, {

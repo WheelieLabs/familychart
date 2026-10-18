@@ -2,14 +2,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { __setFileKeyForTests } from "@/lib/encryption/file-key"
-import { isEncryptedUploadBuffer } from "@/lib/encryption/file-crypto"
 import {
   __setUploadBlobAdapterForTests,
   createMemoryUploadBlobAdapter,
   deleteUpload,
   InvalidUploadFilenameError,
   listUploadMeta,
-  migratePlaintextUploads,
   readUpload,
   writeUpload,
 } from "@/lib/uploads/store"
@@ -81,25 +79,19 @@ describe("upload store", () => {
     expect(await deleteUpload("people", "gone.jpg")).toBe(false)
   })
 
-  it("migratePlaintextUploads encrypts legacy plaintext in place", async () => {
+  it("rejects a plaintext file in an encrypted bucket and leaves it unchanged", async () => {
     const adapter = createMemoryUploadBlobAdapter()
     __setUploadBlobAdapterForTests(adapter)
     const plain = Buffer.from("legacy-photo")
     await adapter.put("people", "legacy.jpg", plain)
-    expect(isEncryptedUploadBuffer(plain)).toBe(false)
 
     process.env.FC_ENCRYPTION_MODE = "env"
     __setFileKeyForTests(KEY_HEX)
-    const result = await migratePlaintextUploads()
-    expect(result.migrated).toBe(1)
 
+    await expect(readUpload("people", "legacy.jpg")).rejects.toThrow(
+      "Not an encrypted upload (missing FCE1 header)",
+    )
     const raw = await adapter.get("people", "legacy.jpg")
-    expect(raw && isEncryptedUploadBuffer(raw)).toBe(true)
-    expect((await readUpload("people", "legacy.jpg"))?.equals(plain)).toBe(true)
-  })
-
-  it("migratePlaintextUploads is a no-op when mode is none", async () => {
-    await writeUpload("people", "a.jpg", Buffer.from("x"))
-    expect(await migratePlaintextUploads()).toEqual({ migrated: 0, skipped: 0 })
+    expect(raw?.equals(plain)).toBe(true)
   })
 })

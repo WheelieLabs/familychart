@@ -1,7 +1,7 @@
 import Database from "better-sqlite3-multiple-ciphers"
 import { NextRequest } from "next/server"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { resolveCalendarContext, parseClientNow, serverAuthoritativeLocalYmd } from "@/lib/calendar-context"
+import { resolveCalendarContext, parseClientNow } from "@/lib/calendar-context"
 import { SETTING_LOCALE_DEFAULT_TIMEZONE } from "@/lib/settings/registry"
 
 const ENV_KEY = "FC_DEFAULT_TIMEZONE"
@@ -163,37 +163,5 @@ describe("parseClientNow", () => {
     const req = makeRequest({ "x-fc-client-now": "not-a-date" })
     const d = parseClientNow(req)
     expect(d.getTime()).toBeGreaterThanOrEqual(before)
-  })
-})
-
-describe("serverAuthoritativeLocalYmd", () => {
-  let db: Database.Database
-
-  beforeEach(() => {
-    db = createTestDb()
-    delete process.env[ENV_KEY]
-  })
-
-  afterEach(() => {
-    delete process.env[ENV_KEY]
-    db?.close()
-  })
-
-  it("uses IANA row tz without reading client headers", () => {
-    expect(serverAuthoritativeLocalYmd(db, "Australia/Sydney", NOW_MS)).toBe("2024-06-15")
-  })
-
-  it("falls back to process-local ymd when no IANA is configured", () => {
-    const ymd = serverAuthoritativeLocalYmd(db, null, NOW_MS)
-    expect(ymd).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-  })
-
-  it("uses instance tz when row tz is null", () => {
-    db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)").run(
-      SETTING_LOCALE_DEFAULT_TIMEZONE,
-      "Australia/Sydney",
-      Date.now(),
-    )
-    expect(serverAuthoritativeLocalYmd(db, null, NOW_MS)).toBe("2024-06-15")
   })
 })

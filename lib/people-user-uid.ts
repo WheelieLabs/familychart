@@ -8,6 +8,9 @@ export const PEOPLE_ACCOUNT_UID_UNIQUE_INDEX = "idx_people_account_uid_unique"
 export const ACCOUNT_UID_ALREADY_LINKED_ERROR =
   "This account is already linked to another family member"
 
+export const PERSON_LINK_ADMIN_ONLY_ERROR =
+  "Unauthorised: only an Admin can change a Person's linked account"
+
 /** Normalise API/form input: trim; empty → null. */
 export function normalizePersonAccountUid(raw: unknown): string | null {
   if (raw == null) return null

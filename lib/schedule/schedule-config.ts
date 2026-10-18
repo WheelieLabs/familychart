@@ -4,7 +4,6 @@ import type Database from "better-sqlite3-multiple-ciphers"
 import {
   SETTING_SCHEDULE_LEAD_MINUTES,
   SETTING_SCHEDULE_OVERDUE_OFFSET_MINUTES,
-  SETTING_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES,
   scheduleSettingDefaults,
 } from "@/lib/settings/registry"
 import { resolveSetting } from "@/lib/settings/resolver"
@@ -19,12 +18,6 @@ export const PUSH_DELIVERY_WINDOW_MINUTES = 30
 export interface ScheduleTimings {
   leadMinutes: number
   overdueOffsetMinutes: number
-  slotAssociationRadiusMinutes: number
-}
-
-export interface ScheduleSlotMatchConfig {
-  associationRadiusMs: number
-  lateGraceMs: number
 }
 
 function parseBoundedMinutes(value: string, fallback: number): number {
@@ -32,30 +25,19 @@ function parseBoundedMinutes(value: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
-function legacyOverdueOffsetMinutes(): number | undefined {
-  const raw = process.env.PUSH_OVERDUE_HOURS
-  if (raw == null || raw.trim() === "") return undefined
-  const hours = parseFloat(raw)
-  if (!Number.isFinite(hours) || hours < 0) return undefined
-  return Math.round(hours * 60)
-}
-
 function resolveScheduleMinutes(
   db: Database.Database,
   key: string,
   fallback: number,
-  legacyFallback?: () => number | undefined,
 ): number {
   const resolved = resolveSetting(db, key)
   if (resolved.source === "env" || resolved.source === "db") {
     return parseBoundedMinutes(resolved.value, fallback)
   }
-  const legacy = legacyFallback?.()
-  if (legacy !== undefined) return legacy
   return fallback
 }
 
-/** Loads the three caregiver-tunable schedule timings from app_settings (with env/legacy fallbacks). */
+/** Loads the two caregiver-tunable schedule timings from app_settings (with env fallbacks). */
 export function loadScheduleTimings(db: Database.Database): ScheduleTimings {
   const defaults = scheduleSettingDefaults()
   return {
@@ -68,12 +50,6 @@ export function loadScheduleTimings(db: Database.Database): ScheduleTimings {
       db,
       SETTING_SCHEDULE_OVERDUE_OFFSET_MINUTES,
       defaults.overdueOffsetMinutes,
-      legacyOverdueOffsetMinutes,
-    ),
-    slotAssociationRadiusMinutes: resolveScheduleMinutes(
-      db,
-      SETTING_SCHEDULE_SLOT_ASSOCIATION_RADIUS_MINUTES,
-      defaults.slotAssociationRadiusMinutes,
     ),
   }
 }
@@ -92,15 +68,4 @@ export function toSlotEvaluatorConfig(timings: ScheduleTimings): SlotEvaluatorCo
 
 export function loadSlotEvaluatorConfig(db: Database.Database): SlotEvaluatorConfig {
   return toSlotEvaluatorConfig(loadScheduleTimings(db))
-}
-
-export function toScheduleSlotMatchConfig(timings: ScheduleTimings): ScheduleSlotMatchConfig {
-  return {
-    associationRadiusMs: timings.slotAssociationRadiusMinutes * 60_000,
-    lateGraceMs: PUSH_DELIVERY_WINDOW_MINUTES * 60_000,
-  }
-}
-
-export function loadScheduleSlotMatchConfig(db: Database.Database): ScheduleSlotMatchConfig {
-  return toScheduleSlotMatchConfig(loadScheduleTimings(db))
 }

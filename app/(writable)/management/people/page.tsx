@@ -2,26 +2,37 @@
 
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
-import FormField from "@/components/FormField"
 import Modal from "@/components/Modal"
 import PersonPhotoCapture from "@/components/PersonPhotoCapture"
 import type { Person } from "@/lib/domain-types"
 import ConfirmModal, { confirmCopy, type ConfirmVariant } from "@/components/ConfirmModal"
-import { EntityRowDeleteButton, EntityRowEditButton } from "@/components/EntityRowActions"
 import ManagementStickyAdd from "@/components/ManagementStickyAdd"
-import { mainContentTargetProps } from "@/lib/a11y"
+import Badge from "@/components/ui/Badge"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { ChipGroup } from "@/components/ui/Chip"
+import { Input, Select } from "@/components/ui/controls"
+import DateEcho from "@/components/ui/DateEcho"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import EntityRowActions from "@/components/ui/EntityRowActions"
+import FormField, { FieldGroup } from "@/components/ui/FormField"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import PageContainer from "@/components/ui/PageContainer"
+import { formatDobWithAge, getDisplayTimeZone } from "@/lib/date-format"
 import { formatCount } from "@/lib/format-count"
 import { completedCalendarYears } from "@/lib/person/person-age"
 import { accountUidFromRow } from "@/lib/account/account-uid"
+import { focusFirstInvalid } from "@/lib/ui/form-errors"
+import { managementTrail } from "@/lib/ui/breadcrumbs"
 
 const PERSON_PHOTO_ASPECT = 1
 const PERSON_PHOTO_MAX_EDGE = 1024
 const PERSON_PHOTO_QUALITY = 0.8
 
-interface CurrentUser { id: string; name: string | null; email: string | null }
+interface CurrentUser { id: string; name: string | null; email: string | null; role?: string | null }
 interface AccountOption {
   id: number
   email: string
@@ -42,30 +53,32 @@ function accountLabel(a: AccountOption): string {
   return a.linkable ? `${a.email} (invite pending)` : `${a.email} (invite expired/revoked)`
 }
 
-const AVATAR_COLOURS = ["#256AA5","#E05C2A","#2EA86A","#8B3FC2","#C22B6E","#2BA8C2","#C2A32B","#606060"]
+const AVATAR_COLOURS = [
+  { value: "#256AA5", name: "Blue" },
+  { value: "#E05C2A", name: "Orange" },
+  { value: "#2EA86A", name: "Green" },
+  { value: "#8B3FC2", name: "Purple" },
+  { value: "#C22B6E", name: "Pink" },
+  { value: "#2BA8C2", name: "Teal" },
+  { value: "#C2A32B", name: "Gold" },
+  { value: "#606060", name: "Grey" },
+]
 
-function formatDob(dob: string | null): string {
+function ageFromDob(dob: string | null): string {
   if (!dob) return ""
-  return new Date(dob + "T00:00:00").toLocaleDateString("en-AU", {
-    day: "2-digit", month: "short", year: "numeric"
-  })
-}
-
-function ageFromDob(dob: string | null, timeZone: string | null): string {
-  if (!dob || !timeZone) return ""
-  const age = completedCalendarYears(dob, timeZone)
+  const age = completedCalendarYears(dob, getDisplayTimeZone())
   if (!Number.isFinite(age)) return ""
   return formatCount(age, "yr")
 }
 
 export default function ManagePeoplePage() {
   const [people, setPeople]         = useState<Person[]>([])
+  const [loaded, setLoaded]         = useState(false)
   const [editing, setEditing]       = useState<Partial<Person> | null>(null)
   const [saving, setSaving]         = useState(false)
   const [uploading, setUploading]   = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [currentUser, setCurrentUser]   = useState<CurrentUser | null>(null)
-  const [instanceTimezone, setInstanceTimezone] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<AccountOption[]>([])
   const [confirmDlg, setConfirmDlg] = useState<null | {
     title: string
@@ -80,6 +93,8 @@ export default function ManagePeoplePage() {
 
   const [noticeDlg, setNoticeDlg] = useState<{ title: string; message: string } | null>(null)
   const [saveErr, setSaveErr] = useState("")
+  const [nameErr, setNameErr] = useState("")
+  const formRef = useRef<HTMLDivElement>(null)
 
   async function load() {
     const [peopleRes, meRes, accountsRes] = await Promise.all([
@@ -88,23 +103,19 @@ export default function ManagePeoplePage() {
       fetch("/api/accounts/invites"),
     ])
     setPeople(await peopleRes.json())
-    const me = await meRes.json() as CurrentUser & { instanceTimezone?: string }
-    setCurrentUser(me)
-    setInstanceTimezone(
-      typeof me.instanceTimezone === "string" && me.instanceTimezone.trim() !== ""
-        ? me.instanceTimezone
-        : null,
-    )
+    setCurrentUser(await meRes.json() as CurrentUser)
     if (accountsRes.ok) setAccounts(await accountsRes.json())
+    setLoaded(true)
   }
   useEffect(() => { load() }, [])
 
   function openEdit(person?: Person) {
     setSaveErr("")
+    setNameErr("")
     setEditing(person ?? {
       name: "",
       full_name: null,
-      color: AVATAR_COLOURS[0],
+      color: AVATAR_COLOURS[0].value,
       sort_order: people.length,
       account_uid: null,
       date_of_birth: null,
@@ -112,7 +123,7 @@ export default function ManagePeoplePage() {
     setPreviewUrl(person?.photo_url ?? null)
   }
   function closeEdit() {
-    setEditing(null); setPreviewUrl(null); setSaveErr("")
+    setEditing(null); setPreviewUrl(null); setSaveErr(""); setNameErr("")
   }
 
   async function handleCroppedPhoto(blob: Blob) {
@@ -137,7 +148,13 @@ export default function ManagePeoplePage() {
   }
 
   async function handleSave() {
-    if (!editing?.name?.trim()) return
+    if (!editing?.name?.trim()) {
+      setNameErr("Enter a display name.")
+      // Focus once the error has rendered.
+      setTimeout(() => { if (formRef.current) focusFirstInvalid(formRef.current) }, 0)
+      return
+    }
+    setNameErr("")
     setSaving(true)
     setSaveErr("")
     const isNew = !editing.id
@@ -176,56 +193,48 @@ export default function ManagePeoplePage() {
 
   return (
     <div className="flex flex-col flex-1">
-      <AppHeader title="Manage People" />
-      <main {...mainContentTargetProps} className="fc-surface-app fc-scroll flex flex-col min-h-0">
-        <div className="flex flex-col gap-3 p-3 flex-1">
-        {people.map(p => (
-          <div key={p.id} className="bg-white/10 rounded-xl px-4 py-3 flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full border-2 border-fc-ring overflow-hidden shrink-0
-                            flex items-center justify-center" style={{ backgroundColor: p.color }}>
-              {p.photo_url
-                // eslint-disable-next-line @next/next/no-img-element
-                ? <img src={p.photo_url} alt={p.name} className="w-full h-full object-cover" />
-                : <span className="text-white font-bold">{initials(p.name)}</span>}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-white font-bold">{p.name}</div>
-              <div className="text-white/50 text-xs flex gap-2">
-                {p.date_of_birth && (
-                  <span>
-                    {formatDob(p.date_of_birth)}
-                    {instanceTimezone ? ` · ${ageFromDob(p.date_of_birth, instanceTimezone)}` : ""}
-                  </span>
-                )}
-                {p.account_uid && <span>🔗 Linked</span>}
-              </div>
-            </div>
-            <EntityRowEditButton onClick={() => openEdit(p)} />
-            <EntityRowDeleteButton
-              aria-label={`Remove ${p.name}`}
-              onClick={() => promptRemovePerson(p.id)}
+      <AppHeader title="People" />
+      <PageContainer trail={managementTrail({ label: "People" })}>
+        {loaded && people.length === 0 && (
+          <EmptyState icon={EMPTY_STATE_ICONS.noPeople} heading="No people yet">
+            Add the first family member to start recording.
+          </EmptyState>
+        )}
+        <CardList>
+          {people.map(p => (
+            <ListCard
+              key={p.id}
+              title={p.name}
+              avatar={{ src: p.photo_url, name: p.name }}
+              meta={[p.date_of_birth ? formatDobWithAge(p.date_of_birth) : null]}
+              extras={p.account_uid ? <Badge tone="info">🔗 Linked</Badge> : undefined}
+              trailing={
+                <EntityRowActions
+                  name={p.name}
+                  onEdit={() => openEdit(p)}
+                  onDelete={() => promptRemovePerson(p.id)}
+                  deleteLabel="Remove"
+                />
+              }
             />
-          </div>
-        ))}
-        </div>
+          ))}
+        </CardList>
         <ManagementStickyAdd onClick={() => openEdit()}>
           + Add Family Member
         </ManagementStickyAdd>
-      </main>
+      </PageContainer>
 
       {editing && (
-        <Modal open onClose={closeEdit} title={`${editing.id ? "Edit" : "Add"} Family Member`}>
-            {/* Photo */}
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">Photo</label>
+        <Modal open onClose={closeEdit} title={`${editing.id ? "Edit" : "Add"} family member`}>
+          <div ref={formRef} className="fc-form">
+            <FieldGroup label="Photo" optional>
               <div className="flex items-center gap-4">
-                <div className="w-20 h-20 rounded-full border-2 border-fc-ring overflow-hidden shrink-0
-                                flex items-center justify-center"
-                     style={{ backgroundColor: editing.color ?? AVATAR_COLOURS[0] }}>
+                <div className="w-20 h-20 rounded-full overflow-hidden shrink-0 flex items-center justify-center"
+                     style={{ backgroundColor: editing.color ?? AVATAR_COLOURS[0].value }}>
                   {previewUrl
                     // eslint-disable-next-line @next/next/no-img-element
-                    ? <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
-                    : <span className="text-white font-bold text-2xl">{initials(editing.name ?? "?")}</span>}
+                    ? <img src={previewUrl} alt="" className="w-full h-full object-cover" />
+                    : <span aria-hidden="true" className="text-white font-bold text-2xl">{initials(editing.name || "?")}</span>}
                 </div>
                 <div className="flex flex-col gap-2">
                   <PersonPhotoCapture
@@ -237,71 +246,68 @@ export default function ManagePeoplePage() {
                     onPhoto={handleCroppedPhoto}
                   />
                   {previewUrl && (
-                    <button onClick={() => { setPreviewUrl(null); setEditing(v => ({ ...v!, photo_url: null })) }}
-                      className="text-red-500 text-xs underline">Remove photo</button>
+                    <Button variant="quiet" onClick={() => { setPreviewUrl(null); setEditing(v => ({ ...v!, photo_url: null })) }}>
+                      Remove photo
+                    </Button>
                   )}
                 </div>
               </div>
-            </div>
+            </FieldGroup>
 
-            {/* Display name */}
-            <FormField label="Display name" hint="Home screen and person header">
-              <input type="text" value={editing.name ?? ""} autoFocus
-                onChange={e => setEditing(v => ({ ...v!, name: e.target.value }))}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800" />
+            <FormField label="Display name" hint="Shown on the home screen and the person header" error={nameErr || undefined}>
+              <Input type="text" value={editing.name ?? ""} autoFocus
+                onChange={e => { setEditing(v => ({ ...v!, name: e.target.value })); setNameErr("") }} />
             </FormField>
 
-            <FormField label="Full name" hint="Reports and formal use (optional)">
-              <input type="text" value={editing.full_name ?? ""}
+            <FormField label="Full name" optional hint="Used in reports and formal documents">
+              <Input type="text" value={editing.full_name ?? ""}
                 onChange={e => setEditing(v => ({
                   ...v!,
                   full_name: e.target.value.trim() === "" ? null : e.target.value,
-                }))}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800" />
+                }))} />
             </FormField>
 
-            {/* DOB */}
-            <FormField label="Date of Birth">
-              <input type="date" value={editing.date_of_birth ?? ""}
-                onChange={e => setEditing(v => ({ ...v!, date_of_birth: e.target.value || null }))}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800" />
-            </FormField>
-            {editing.date_of_birth && instanceTimezone && (
-              <p className="text-xs text-gray-500 -mt-2">
-                Age: {ageFromDob(editing.date_of_birth, instanceTimezone)} — used to filter age-appropriate medications
-              </p>
-            )}
-
-            {/* Colour */}
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">Avatar Colour</label>
-              <div className="flex gap-2 flex-wrap">
-                {AVATAR_COLOURS.map(c => (
-                  <button key={c} onClick={() => setEditing(v => ({ ...v!, color: c }))}
-                    className={`w-9 h-9 rounded-full border-2 transition-transform
-                      ${editing.color === c ? "border-gray-800 scale-110" : "border-transparent"}`}
-                    style={{ backgroundColor: c }} />
-                ))}
-              </div>
-            </div>
-
-            {/* Sort order */}
-            <FormField label="Sort Order">
-              <input type="number" value={editing.sort_order ?? 0} min="0"
-                onChange={e => setEditing(v => ({ ...v!, sort_order: parseInt(e.target.value) }))}
-                className="w-24 border border-gray-300 rounded px-3 py-2 text-gray-800" />
+            <FormField
+              label="Date of birth"
+              optional
+              hint={editing.date_of_birth ? `Age ${ageFromDob(editing.date_of_birth)}. Used to filter age-appropriate medications.` : "Used to filter age-appropriate medications"}
+            >
+              <Input type="date" value={editing.date_of_birth ?? ""}
+                onChange={e => setEditing(v => ({ ...v!, date_of_birth: e.target.value || null }))} />
+              <DateEcho date={editing.date_of_birth ?? ""} />
             </FormField>
 
-            {/* Linked Account */}
+            <ChipGroup
+              legend="Avatar colour"
+              options={AVATAR_COLOURS.map(c => ({
+                value: c.value,
+                label: (
+                  <>
+                    <span
+                      aria-hidden="true"
+                      style={{ display: "inline-block", width: 12, height: 12, borderRadius: 9999, backgroundColor: c.value }}
+                    />
+                    {c.name}
+                  </>
+                ),
+              }))}
+              value={editing.color ?? AVATAR_COLOURS[0].value}
+              onChange={color => setEditing(v => ({ ...v!, color }))}
+            />
+
+            <FormField label="Sort order" hint="Lower numbers come first">
+              <Input type="number" value={editing.sort_order ?? 0} min="0"
+                onChange={e => setEditing(v => ({ ...v!, sort_order: parseInt(e.target.value) }))} />
+            </FormField>
+
             {accounts.length > 0 && (
               <FormField
-                label="Linked Account"
+                label="Linked account"
                 hint="Gives this person read/write access to their own record."
               >
-                <select
+                <Select
                   value={editing.account_uid ?? ""}
                   onChange={e => setEditing(v => ({ ...v!, account_uid: e.target.value || null }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-gray-800 bg-white"
                 >
                   <option value="">None</option>
                   {editing.account_uid && !accounts.some(a => accountUidFor(a) === editing.account_uid) && (
@@ -322,26 +328,28 @@ export default function ManagePeoplePage() {
                       </option>
                     )
                   })}
-                </select>
+                </Select>
               </FormField>
             )}
-            {currentUser?.id && (
-              <button type="button" onClick={() => setEditing(v => ({ ...v!, account_uid: currentUser.id }))}
-                className="-mt-2 text-xs bg-fc-blue text-white px-3 py-1.5 rounded-lg
-                           hover:bg-fc-blue-mid transition-colors">
-                Use my account ({currentUser.email})
-              </button>
+            {currentUser?.id && currentUser.role === "admin" && (
+              <div>
+                <Button variant="secondary" onClick={() => setEditing(v => ({ ...v!, account_uid: currentUser.id }))}>
+                  Use my account ({currentUser.email})
+                </Button>
+              </div>
             )}
 
-            {saveErr && <p className="text-red-600 text-sm">{saveErr}</p>}
+            {saveErr && <Banner kind="error">{saveErr}</Banner>}
 
-            <div className="flex gap-3">
-              <button onClick={closeEdit} className="flex-1 border border-gray-400 rounded-xl py-3 text-gray-700 font-bold">Cancel</button>
-              <button onClick={handleSave} disabled={saving || uploading}
-                className="flex-1 bg-fc-blue text-white font-bold rounded-xl py-3 disabled:opacity-50">
-                {saving ? "Saving…" : "Save"}
-              </button>
+            <div className="fc-form-actions">
+              <Button variant="secondary" onClick={closeEdit}>Cancel</Button>
+              {uploading ? (
+                <Button disabled disabledReason="Wait for the photo to finish uploading.">Save</Button>
+              ) : (
+                <Button onClick={handleSave} pending={saving}>Save</Button>
+              )}
             </div>
+          </div>
         </Modal>
       )}
 

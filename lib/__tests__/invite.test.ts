@@ -3,8 +3,8 @@
 import crypto from "node:crypto"
 import Database from "better-sqlite3-multiple-ciphers"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { accountStatus } from "@/lib/account/invite-status"
 import {
-  accountInviteDisplayStatus,
   claimInviteForEntra,
   commitInviteResend,
   createInvite,
@@ -74,29 +74,53 @@ function insertInvitedAccount(
   return Number(result.lastInsertRowid)
 }
 
-describe("accountInviteDisplayStatus", () => {
-  it("returns active for a claimed account", () => {
-    expect(
-      accountInviteDisplayStatus({ status: "active", invite_expires_at: null, invite_revoked_at: null }, NOW),
-    ).toBe("active")
+describe("accountStatus", () => {
+  const invites = {
+    claimed: { status: "active", invite_expires_at: null, invite_revoked_at: null },
+    live: { status: "invited", invite_expires_at: FUTURE, invite_revoked_at: null },
+    expired: { status: "invited", invite_expires_at: PAST, invite_revoked_at: null },
+    revoked: { status: "invited", invite_expires_at: FUTURE, invite_revoked_at: PAST },
+  }
+  const chipFor = (invite: keyof typeof invites, auth_method: "local" | "entra", is_active: number) =>
+    accountStatus({ ...invites[invite], auth_method, is_active }, NOW)
+
+  it("shows Disabled for a claimed local account with sign-in off, never Active", () => {
+    expect(chipFor("claimed", "local", 0).chip).toBe("disabled")
   })
 
-  it("returns invited for a live pending invite", () => {
-    expect(
-      accountInviteDisplayStatus({ status: "invited", invite_expires_at: FUTURE, invite_revoked_at: null }, NOW),
-    ).toBe("invited")
+  it.each([
+    ["live", "invited"],
+    ["expired", "expired"],
+    ["revoked", "revoked"],
+  ] as const)("Disabled outranks a %s invite on a local account but keeps the invite state", (invite, state) => {
+    const s = chipFor(invite, "local", 0)
+    expect(s.chip).toBe("disabled")
+    expect(s.invite).toBe(state)
+    expect(s.disabled).toBe(true)
   })
 
-  it("returns expired when the invite has lapsed and was not revoked", () => {
-    expect(
-      accountInviteDisplayStatus({ status: "invited", invite_expires_at: PAST, invite_revoked_at: null }, NOW),
-    ).toBe("expired")
+  it.each([
+    ["claimed", "active"],
+    ["live", "invited"],
+    ["expired", "expired"],
+    ["revoked", "revoked"],
+  ] as const)("an enabled local %s account shows %s", (invite, chip) => {
+    expect(chipFor(invite, "local", 1).chip).toBe(chip)
+    expect(chipFor(invite, "local", 1).disabled).toBe(false)
   })
 
-  it("returns revoked when invite_revoked_at is set, even if expiry has also passed", () => {
-    expect(
-      accountInviteDisplayStatus({ status: "invited", invite_expires_at: PAST, invite_revoked_at: PAST }, NOW),
-    ).toBe("revoked")
+  it("shows revoked when the invite was revoked even if its expiry has also passed", () => {
+    const s = accountStatus(
+      { status: "invited", invite_expires_at: PAST, invite_revoked_at: PAST, auth_method: "local", is_active: 1 },
+      NOW,
+    )
+    expect(s.chip).toBe("revoked")
+  })
+
+  it.each(Object.keys(invites) as (keyof typeof invites)[])("ignores is_active for an Entra %s account", invite => {
+    expect(chipFor(invite, "entra", 0)).toEqual(chipFor(invite, "entra", 1))
+    expect(chipFor(invite, "entra", 0).chip).not.toBe("disabled")
+    expect(chipFor(invite, "entra", 0).disabled).toBe(false)
   })
 })
 
@@ -193,6 +217,15 @@ describe("createInvite", () => {
       { origin: ORIGIN, inviter: {} },
     )
     expect(result).toEqual({ ok: false, reason: "email_taken" })
+  })
+
+  it("denies an unknown role, a can_report outside 0/1 and a None role without a Person, creating nothing", () => {
+    const base = { email: "new@example.com", personAction: "none" as const }
+    const ctx = { origin: ORIGIN, inviter: {} }
+    expect(createInvite(db, { ...base, role: "superuser" }, ctx)).toEqual({ ok: false, reason: "invalid_role" })
+    expect(createInvite(db, { ...base, role: "read", can_report: 7 }, ctx)).toEqual({ ok: false, reason: "invalid_can_report" })
+    expect(createInvite(db, { ...base, role: "none" }, ctx)).toEqual({ ok: false, reason: "none_role_needs_person" })
+    expect(db.prepare("SELECT COUNT(*) AS n FROM accounts WHERE email = 'new@example.com'").get()).toEqual({ n: 0 })
   })
 
   it("denies person_not_found when linking a missing Person", () => {
@@ -474,11 +507,31 @@ describe("claimInviteForEntra", () => {
   it("repoints a Person linked at invite time from 'local:<id>' to the raw oid", () => {
     const id = insertInvitedAccount(db, { email: "invitee@example.com", tokenHash: "h", expiresAt: new Date(NOW + 60_000).toISOString() })
     db.prepare("INSERT INTO people (id, name, account_uid) VALUES (7, 'Alex', ?)").run(`local:${id}`)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_settings (
+        user_uid TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_uid, key)
+      );
+      CREATE TABLE IF NOT EXISTS favourites (
+        id INTEGER PRIMARY KEY, user_uid TEXT NOT NULL, person_id INTEGER NOT NULL,
+        action_kind TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0
+      );
+    `)
+    db.prepare(
+      "INSERT INTO user_settings (user_uid, key, value, updated_at) VALUES (?, 'locale.timezone', 'Australia/Adelaide', 1)",
+    ).run(`local:${id}`)
+    db.prepare(
+      "INSERT INTO favourites (user_uid, person_id, action_kind, sort_order) VALUES (?, 7, 'observation', 0)",
+    ).run(`local:${id}`)
 
     claimInviteForEntra(db, { oid: "oid-1", email: "invitee@example.com" })
 
     const person = db.prepare("SELECT account_uid FROM people WHERE id = 7").get() as { account_uid: string }
     expect(person.account_uid).toBe("oid-1")
+    const setting = db.prepare("SELECT user_uid FROM user_settings WHERE key = 'locale.timezone'").get() as { user_uid: string }
+    expect(setting.user_uid).toBe("oid-1")
+    const favourite = db.prepare("SELECT user_uid FROM favourites WHERE person_id = 7").get() as { user_uid: string }
+    expect(favourite.user_uid).toBe("oid-1")
   })
 
   it("does not touch an unrelated Person's link when claiming an invite", () => {

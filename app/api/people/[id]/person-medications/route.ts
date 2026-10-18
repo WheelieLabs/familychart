@@ -7,6 +7,7 @@ import { requireAuth, requireRead, authorisePersonAccess } from "@/lib/auth/auth
 import { getDb } from "@/lib/db"
 import { auditLog } from "@/lib/audit-log"
 import type { Person } from "@/lib/domain-types"
+import { parseScheduleTimesJson } from "@/lib/schedule/schedule-recurrence"
 import {
   resolveTimesAndSlotsForPersonMedicationPatch,
   resolveTimesAndSlotsForPersonMedicationPost,
@@ -116,11 +117,20 @@ export async function POST(request: NextRequest, { params }: Params) {
   const tz = tzCheck.tz
 
   try {
+    // The boundary is stamped only when a schedule starts running (none yet, or deactivated); re-sending an
+    // already running schedule keeps its instant, as PATCH does.
+    const prior = db
+      .prepare("SELECT is_active, schedule_times, schedule_created_at_ms FROM person_medications WHERE person_id = ? AND medication_id = ?")
+      .get(personId, medicationId) as
+      | { is_active: number; schedule_times: string | null; schedule_created_at_ms: number | null }
+      | undefined
+    const hadSchedule = prior !== undefined && prior.is_active === 1 && parseScheduleTimesJson(prior.schedule_times).length > 0
+    const createdAtMs = scheduleActive ? (hadSchedule ? prior.schedule_created_at_ms : Date.now()) : null
     const result = db
       .prepare(
         `INSERT INTO person_medications (person_id, medication_id, is_active,
-          schedule_times, schedule_slots, schedule_frequency, schedule_start_date, schedule_end_date, schedule_tz)
-         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
+          schedule_times, schedule_slots, schedule_frequency, schedule_start_date, schedule_end_date, schedule_tz, schedule_created_at_ms)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(person_id, medication_id) DO UPDATE SET
            is_active = 1,
            schedule_times = excluded.schedule_times,
@@ -128,7 +138,8 @@ export async function POST(request: NextRequest, { params }: Params) {
            schedule_frequency = excluded.schedule_frequency,
            schedule_start_date = excluded.schedule_start_date,
            schedule_end_date = excluded.schedule_end_date,
-           schedule_tz = excluded.schedule_tz`
+           schedule_tz = excluded.schedule_tz,
+           schedule_created_at_ms = excluded.schedule_created_at_ms`
       )
       .run(
         personId,
@@ -138,7 +149,9 @@ export async function POST(request: NextRequest, { params }: Params) {
         sched.frequencyJson,
         sched.start,
         sched.end,
-        tz
+        tz,
+        // The boundary for a schedule made part-way through its start day.
+        createdAtMs
       )
 
     const rowId = Number(result.lastInsertRowid)
@@ -201,7 +214,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const rowFull = db
     .prepare(
       `SELECT pm.schedule_times, pm.schedule_slots, pm.schedule_frequency, pm.schedule_start_date, pm.schedule_end_date,
-              pm.is_active, pm.schedule_tz, m.default_dosage AS med_default_dosage
+              pm.is_active, pm.schedule_tz, pm.schedule_created_at_ms, m.default_dosage AS med_default_dosage
          FROM person_medications pm
          JOIN medications m ON m.id = pm.medication_id
         WHERE pm.id = ?`
@@ -214,6 +227,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     schedule_end_date: string | null
     is_active: number
     schedule_tz: string | null
+    schedule_created_at_ms: number | null
     med_default_dosage: number | null
   }
 
@@ -283,11 +297,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!tzCheck.ok) return NextResponse.json({ error: tzCheck.error }, { status: 400 })
   const tz = tzCheck.tz
 
+  // A schedule is created when an assignment goes from having no running schedule (none yet, or
+  // deactivated) to having one. Later edits keep the instant, so they never re-apply the boundary.
+  const hadSchedule = rowFull.is_active === 1 && parseScheduleTimesJson(rowFull.schedule_times).length > 0
+  const createdAtMs = scheduleActive ? (hadSchedule ? rowFull.schedule_created_at_ms : Date.now()) : null
+
   db.prepare(
     `UPDATE person_medications SET
        is_active = ?,
        schedule_times = ?, schedule_slots = ?, schedule_frequency = ?, schedule_start_date = ?, schedule_end_date = ?,
-       schedule_tz = ?
+       schedule_tz = ?, schedule_created_at_ms = ?
      WHERE id = ? AND person_id = ?`
   ).run(
     nextActive,
@@ -297,6 +316,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     sched.start,
     sched.end,
     tz,
+    createdAtMs,
     pmId,
     personId
   )

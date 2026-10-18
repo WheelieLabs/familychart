@@ -2,11 +2,16 @@
 
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { signIn } from "next-auth/react"
+import AuthShell, { AuthCard, PasswordField } from "@/components/AuthShell"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { Input } from "@/components/ui/controls"
+import FormField from "@/components/ui/FormField"
+import IconButton from "@/components/ui/IconButton"
 import { safeRelativeCallbackUrl } from "@/lib/safe-callback-url"
-import { mainContentTargetProps } from "@/lib/a11y"
 
 interface SsoProvider {
   id: string
@@ -15,7 +20,7 @@ interface SsoProvider {
 }
 
 const ENTRA_ICON = (
-  <svg width="21" height="21" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">
+  <svg width="21" height="21" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <rect x="1"  y="1"  width="9" height="9" fill="#f25022"/>
     <rect x="11" y="1"  width="9" height="9" fill="#7fba00"/>
     <rect x="1"  y="11" width="9" height="9" fill="#00a4ef"/>
@@ -23,12 +28,16 @@ const ENTRA_ICON = (
   </svg>
 )
 
+const EMAIL_ID = "login-email"
+
 interface LoginFormProps {
   enableEntra: boolean
   enableCredentials: boolean
+  /** The instance enforces MFA, so the authenticator code is not optional. */
+  mfaRequired?: boolean
 }
 
-export default function LoginForm({ enableEntra, enableCredentials }: LoginFormProps) {
+export default function LoginForm({ enableEntra, enableCredentials, mfaRequired = false }: LoginFormProps) {
   const searchParams = useSearchParams()
   const hasError = searchParams.get("error") === "CredentialsSignin"
   const safeCb = safeRelativeCallbackUrl(searchParams.get('callbackUrl'))
@@ -43,7 +52,11 @@ export default function LoginForm({ enableEntra, enableCredentials }: LoginFormP
   const [password, setPassword] = useState("")
   const [otp, setOtp]           = useState("")
   const [loading, setLoading]   = useState(false)
-  const showOtp = email.trim() !== "" && password.trim() !== ""
+
+  // After a failed sign-in the page reloads with the error: put focus back on the email field.
+  useEffect(() => {
+    if (hasError) document.getElementById(EMAIL_ID)?.focus()
+  }, [hasError])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -52,7 +65,7 @@ export default function LoginForm({ enableEntra, enableCredentials }: LoginFormP
       await signIn("credentials", {
         email,
         password,
-        otp: otp || undefined,
+        otp,
         callbackUrl: safeCb,
       })
     } finally {
@@ -61,121 +74,81 @@ export default function LoginForm({ enableEntra, enableCredentials }: LoginFormP
   }
 
   return (
-    <main {...mainContentTargetProps} className="flex-1 bg-fc-blue flex flex-col items-center justify-center gap-8 px-8">
-      <div className="w-24 h-24 rounded-2xl bg-white/20 flex items-center justify-center">
-        <svg width="56" height="56" viewBox="0 0 24 24" fill="white">
-          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"/>
-        </svg>
-      </div>
-
-      <div className="text-center">
-        <h2 className="text-white font-bold text-3xl mb-2">FamilyChart</h2>
-        <p className="text-white text-sm">Sign in to continue</p>
-      </div>
-
-      {enableCredentials && hasError && (
-        <div className="w-full bg-red-500/20 border border-red-400/40 rounded-xl px-4 py-3 text-white text-sm text-center">
-          Invalid email, password, or authenticator code. Try again.
-        </div>
-      )}
-
+    <AuthShell heading="Sign in" subheading="Sign in to continue">
       {enableCredentials && (
-        <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="Email address"
-            required
-            autoComplete="email"
-            className="bg-white/10 border border-white/20 text-white placeholder:text-white
-                       rounded-xl px-4 py-3 w-full outline-none focus:border-white/50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-fc-blue"
-          />
-          <input
-            type="password"
+        <AuthCard onSubmit={handleSubmit}>
+          {/* Deliberately generic: it never says which part was wrong. */}
+          {hasError && <Banner kind="error">Email or password is incorrect.</Banner>}
+          <FormField id={EMAIL_ID} label="Email address">
+            <Input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+            />
+          </FormField>
+          <PasswordField
+            label="Password"
             value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="Password"
-            required
+            onChange={setPassword}
             autoComplete="current-password"
-            className="bg-white/10 border border-white/20 text-white placeholder:text-white
-                       rounded-xl px-4 py-3 w-full outline-none focus:border-white/50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-fc-blue"
           />
-          {showOtp && (
-            <>
-              <p className="text-white text-sm text-center">
-                If MFA is enabled on your account, enter your 6-digit authenticator code below.
-              </p>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]*"
-                maxLength={6}
-                value={otp}
-                onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="Authenticator code (if required)"
-                className="bg-white/10 border border-white/20 text-white placeholder:text-white
-                           rounded-xl px-4 py-3 w-full outline-none focus:border-white/50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-fc-blue tracking-widest text-center"
-              />
-            </>
-          )}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-white/20 hover:bg-white/30 active:bg-white/40 text-white
-                       font-bold text-lg py-4 px-6 rounded-xl shadow-md transition-colors
-                       disabled:opacity-50"
-          >
-            {loading ? "Signing in…" : "Sign in with Email"}
-          </button>
-        </form>
-      )}
+          <FormField label="Authenticator code"
+            optional={!mfaRequired}
+            hint={mfaRequired ? undefined : "Only if your account uses an authenticator app."}>
+            <Input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={otp}
+              onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            />
+          </FormField>
+          <Button type="submit" fullWidth pending={loading} pendingLabel="Signing in…">Sign in</Button>
 
-      {enableCredentials && ssoProviders.length > 0 && (
-        <div className="w-full flex items-center gap-3">
-          <div className="flex-1 border-t border-white/20" />
-          <span className="text-white text-sm">or continue with</span>
-          <div className="flex-1 border-t border-white/20" />
-        </div>
+          {ssoProviders.length > 0 && <p className="fc-auth__divider">or continue with</p>}
+          {ssoProviders.length === 1 && (
+            <Button variant="secondary" fullWidth onClick={() => signIn(ssoProviders[0].id, { callbackUrl: safeCb })}>
+              {ssoProviders[0].icon}
+              {ssoProviders[0].label}
+            </Button>
+          )}
+          {ssoProviders.length > 1 && (
+            <div className="fc-auth__sso">
+              {ssoProviders.map(p => (
+                <IconButton key={p.id} label={p.label} onClick={() => signIn(p.id, { callbackUrl: safeCb })}>
+                  {p.icon}
+                </IconButton>
+              ))}
+            </div>
+          )}
+        </AuthCard>
       )}
 
       {!enableCredentials && ssoProviders.length > 0 && (
-        <p className="text-white text-sm text-center">Sign in with:</p>
+        <AuthCard>
+          <p className="fc-section-copy">Sign in with:</p>
+          {ssoProviders.length === 1 ? (
+            <Button fullWidth onClick={() => signIn(ssoProviders[0].id, { callbackUrl: safeCb })}>
+              {ssoProviders[0].icon}
+              {ssoProviders[0].label}
+            </Button>
+          ) : (
+            <div className="fc-auth__sso">
+              {ssoProviders.map(p => (
+                <IconButton key={p.id} label={p.label} onClick={() => signIn(p.id, { callbackUrl: safeCb })}>
+                  {p.icon}
+                </IconButton>
+              ))}
+            </div>
+          )}
+        </AuthCard>
       )}
 
-      {ssoProviders.length === 1 && (
-        <button
-          onClick={() => signIn(ssoProviders[0].id, { callbackUrl: safeCb })}
-          className="w-full bg-white text-fc-blue font-bold text-lg py-4 px-6 rounded-xl
-                     shadow-md flex items-center justify-center gap-3
-                     hover:bg-gray-100 active:bg-gray-200 transition-colors"
-        >
-          {ssoProviders[0].icon}
-          {ssoProviders[0].label}
-        </button>
-      )}
-
-      {ssoProviders.length > 1 && (
-        <div className="w-full flex flex-wrap items-center justify-center gap-3">
-          {ssoProviders.map(p => (
-            <button
-              key={p.id}
-              onClick={() => signIn(p.id, { callbackUrl: safeCb })}
-              title={p.label}
-              aria-label={p.label}
-              className="w-14 h-14 shrink-0 bg-white rounded-xl shadow-md flex items-center justify-center
-                         hover:bg-gray-100 active:bg-gray-200 transition-colors"
-            >
-              {p.icon}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <p className="text-white text-sm text-center">
-        Access is restricted to authorised family accounts only.
-      </p>
-    </main>
+      <p className="fc-auth__fine">Access is restricted to authorised family accounts only.</p>
+    </AuthShell>
   )
 }

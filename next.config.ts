@@ -51,6 +51,7 @@ const nextConfig: NextConfig = {
     return [
       { source: "/login", headers: [...SECURITY_HEADERS] },
       { source: "/denied", headers: [...SECURITY_HEADERS] },
+      { source: "/api/restore/upload", headers: [...SECURITY_HEADERS] },
       {
         source: "/manifest.json",
         headers: [...SECURITY_HEADERS, { key: "Cache-Control", value: "public, max-age=3600" }],
@@ -58,51 +59,6 @@ const nextConfig: NextConfig = {
       // Full CSP/frame-ancestors set is meaningless noise on a .js/.css asset response —
       // only the two headers that matter for a raw asset fetch.
       { source: "/_next/static/:path*", headers: staticAssetHeaders },
-    ]
-  },
-  async redirects() {
-    // Legacy `/admin/*` URLs from before routes moved under `/management/*`.
-    // Also unwind poisoned URLs from removed `/:personId/medications` redirects:
-    // browsers may still cache a permanent 308 from `/management/medications` →
-    // `/management/schedules-goals?tab=medications` (personId="management" → 404).
-    return [
-      {
-        source: "/management/schedules-goals",
-        has: [{ type: "query", key: "tab", value: "medications" }],
-        destination: "/management/medications?tab=medications",
-        permanent: false,
-      },
-      {
-        source: "/management/schedules-goals",
-        has: [{ type: "query", key: "tab", value: "observations" }],
-        destination: "/management/observation-types",
-        permanent: false,
-      },
-      {
-        source: "/management/schedules-goals",
-        destination: "/management/medications",
-        permanent: false,
-      },
-      {
-        source: "/admin/people",
-        destination: "/management/people",
-        permanent: true,
-      },
-      {
-        source: "/admin/import",
-        destination: "/management/import",
-        permanent: true,
-      },
-      {
-        source: "/admin/medications",
-        destination: "/management/medications?tab=medications",
-        permanent: true,
-      },
-      {
-        source: "/admin/medication-groups",
-        destination: "/management/medications?tab=groups",
-        permanent: true,
-      },
     ]
   },
 }

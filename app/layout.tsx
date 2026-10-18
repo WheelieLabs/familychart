@@ -5,11 +5,14 @@ import type { Metadata, Viewport } from "next"
 import "./globals.css"
 import AppLockProvider from "@/components/AppLockProvider"
 import DeployRefresh from "@/components/DeployRefresh"
+import DisplayTimeZone from "@/components/DisplayTimeZone"
 import SkipToContent from "@/components/SkipToContent"
+import LiveRegion from "@/components/ui/LiveRegion"
 import WhatsNewModal from "@/components/WhatsNewModal"
 
 export const metadata: Metadata = {
-  title: "FamilyChart",
+  // Each route names itself ("History"); the tab then reads "History · FamilyChart". Home is "FamilyChart".
+  title: { default: "FamilyChart", template: "%s · FamilyChart" },
   description: "Family medication and health tracker",
   manifest: "/manifest.json",
   icons: {
@@ -37,7 +40,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en-AU">
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -46,11 +49,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="mobile-web-app-capable" content="yes" />
         <link rel="manifest" href="/manifest.json" />
       </head>
-      <body className="flex h-[100dvh] flex-col overflow-hidden [&>*]:min-h-0">
+      <body className="flex h-full flex-col overflow-hidden [&>*]:min-h-0">
         <SkipToContent />
         <AppLockProvider>{children}</AppLockProvider>
         <DeployRefresh />
+        <DisplayTimeZone />
         <WhatsNewModal />
+        <LiveRegion />
       </body>
     </html>
   )

@@ -5,6 +5,7 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
 import type { Person } from "@/lib/domain-types"
 import type { DashboardPersonStatus, DashboardStatus } from "@/lib/dashboard/dashboard-status"
 import { dashboardScheduleHeaders } from "@/lib/dashboard/dashboard-client-context"
@@ -14,12 +15,9 @@ type HomePerson = Person & { canWrite: boolean }
 const STATUS_EMOJI: Record<DashboardStatus, string> = {
   red: "🔴",
   amber: "🟡",
+  // Like the other dots, colour is never the only signal: the alert text always sits beside it.
+  notice: "🔵",
   green: "🟢",
-}
-
-function personCardAriaLabel(name: string, entry?: DashboardPersonStatus): string {
-  if (!entry) return name
-  return `${name} — ${entry.summary}`
 }
 
 export default function HomePeopleList({ people }: { people: HomePerson[] }) {
@@ -66,10 +64,9 @@ export default function HomePeopleList({ people }: { people: HomePerson[] }) {
 
   if (people.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-white text-center px-8 gap-4">
-        <p className="text-lg">No family members added yet.</p>
-        <p className="text-sm text-white">Use the menu (☰) to add people.</p>
-      </div>
+      <EmptyState icon={EMPTY_STATE_ICONS.noPeople} heading="No family members yet">
+        Use the menu to open Management and add people.
+      </EmptyState>
     )
   }
 
@@ -102,15 +99,15 @@ function PersonHomeRow({
 
   return (
     <li
-      aria-label={personCardAriaLabel(person.name, entry)}
       className="border-b border-fc-blue-mid hover:bg-fc-blue-mid active:bg-fc-blue-dark transition-colors cursor-pointer"
       onClick={() => router.push(`/${person.id}`)}
     >
       <div className="flex items-center gap-4 px-4 py-3">
         <Link
           href={`/${person.id}`}
-          className="shrink-0 outline-none rounded-full focus-visible:ring-2 focus-visible:ring-white/80"
-          aria-label={`Open ${person.name}`}
+          className="shrink-0 outline-none rounded-full"
+          aria-hidden="true"
+          tabIndex={-1}
         >
           <div
             className="w-[5.5rem] h-[5.5rem] sm:w-24 sm:h-24 rounded-full border-[3px] border-fc-ring flex items-center justify-center overflow-hidden"
@@ -125,7 +122,7 @@ function PersonHomeRow({
           </div>
         </Link>
         <div className="flex flex-col gap-1 min-w-0">
-          <Link href={`/${person.id}`} className="text-2xl font-bold text-white shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80">
+          <Link href={`/${person.id}`} className="text-2xl font-bold text-white shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
             {person.name}
           </Link>
           {loading ? (

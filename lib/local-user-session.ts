@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import type Database from "better-sqlite3-multiple-ciphers"
+import { isNoneRole } from "@/lib/account/none-role"
 
 /** Bump session_version so existing JWTs for this user are rejected on the next request. */
 export function bumpLocalUserSessionVersion(db: Database.Database, localUserId: number): void {
@@ -11,6 +12,9 @@ export function bumpLocalUserSessionVersion(db: Database.Database, localUserId: 
 
 export function localRoleToGroups(role: string, canReport: number): string[] {
   const groups: string[] = []
+  // None is not a ladder rung. A leftover can_report flag must not grant Household Reports;
+  // own-Person reports come from the Personal-link, not local:report.
+  if (isNoneRole(role)) return groups
   if (role === "admin") groups.push("local:admin")
   else if (role === "manage") groups.push("local:manage")
   else if (role === "write") groups.push("local:write")

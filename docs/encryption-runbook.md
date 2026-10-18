@@ -19,7 +19,7 @@ npm run fc-db-convert -- \
 
 Env for keyserver modes: `DB_KEY_SERVER_URL` (**must be `https://`** — boot fails closed on `http://`), `DB_KS_TOKEN`, `DB_WRAPPED_KEY`, `FILE_WRAPPED_KEY`, `DB_KS_CUSTOMER_ID`.
 
-File uploads use the same `FC_ENCRYPTION_MODE`. Env mode also requires `FC_FILE_KEY` (64-char hex). Missing file key when mode ≠ `none` fails closed at boot. Plaintext photos under `uploads/people/` are encrypted automatically on first boot after enabling encryption.
+File uploads use the same `FC_ENCRYPTION_MODE`. Env mode also requires `FC_FILE_KEY` (64-char hex). Missing file key when mode ≠ `none` fails closed at boot. Uploads written while encryption is active are stored with an `FCE1` header. A plaintext file already in an encrypted bucket is not rewritten at boot and cannot be read until it is replaced.
 
 ## Managed-hosting conversion, provisioning, and outage procedures
 

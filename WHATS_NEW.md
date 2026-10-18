@@ -6,39 +6,24 @@ Add a version section only when something visible or meaningfully different for 
 
 Promote `## [Unreleased]` into `## [N]` on the **same commit** (or an earlier commit) as the `package.json` bump to N — never after that version has been built and deployed. The in-app modal is generated at image build from this file; a bump without a matching `## [N]` heading ships an empty What's New list. First login after such a deploy records `last_seen_version = N` with nothing shown, so those accounts will not see N's notes later.
 
-Versions before 1.0.0 were internal development releases, not public installs — their individual entries have been consolidated into the welcome message below so upgraders don't see 40+ dev-cycle notes on first login post-launch. Full history remains in `git log -- WHATS_NEW.md` and `CHANGELOG.md` for maintainers.
+An Account sees every section newer than the version it last saw, up to the running version, and a brand-new Account sees none. So this file is a trail of **minor** versions: when a new minor (1.1.0, 1.2.0) is released, delete the previous line's patch sections (for 1.1.0, everything from 1.0.2 to 1.0.12) in the same commit, and fold anything an upgrader still needs to know into the new minor's section first. Patch sections for the current minor stay until the next minor. Full history remains in `git log -- WHATS_NEW.md` and `CHANGELOG.md` for maintainers.
+
+Versions before 1.0.0 were internal development releases, not public installs; their individual entries were consolidated into the welcome message below.
 
 ---
 
-## [Unreleased]
+## [1.1.0] - 2026-10-18
 
-## [1.0.12] - 2026-10-03
-
-- App lock is faster and more dependable on Android — unlock is now just your fingerprint, face, or screen lock, with no passkey picker. You'll be asked to set App lock up once more on each device
-- New "App lock grace period" setting in Profile lets you skip re-locking for 30 seconds, 1 minute or 5 minutes when you switch apps briefly. The default is still to lock immediately
-- App lock now stays locked if your connection drops or the server restarts while you're away, and turning it off needs you to confirm it's you again
-- Taking or choosing a photo no longer re-locks the app and loses the photo
-- Hydration quick amounts are now Mug 250 mL, Can 375 mL, Glass 400 mL and Bottle 600 mL
-- A Hydration favourite can now have an amount: tapping it opens the record page with that amount filled in, ready to save
-
-## [1.0.5] - 2026-09-21
-
-- App lock is more reliable on Android — unlock no longer gets stuck repeatedly re-prompting when your phone's password manager briefly takes over the screen mid-unlock
-- If unlock does get stuck, the lock screen now tells you to fully close and reopen FamilyChart, instead of a "try again" button that couldn't actually fix it
-- We now call this feature "password manager unlock" instead of "biometric unlock" — it's more accurate, since depending on your device and its settings, unlock may use your fingerprint or face, but it can also fall back to your device PIN or pattern
-
-## [1.0.4] - 2026-09-12
-
-- Fixes biometric unlock getting permanently stuck for some users after changing their device's lock screen or re-enrolling a fingerprint/face — you can now reset and re-register biometric unlock right from the lock screen
-
-## [1.0.3] - 2026-09-12
-
-- Further reliability improvements for biometric unlock
-
-## [1.0.2] - 2026-09-11
-
-- Improves reliability of biometric unlock behaviour
-- Introduces additional medication schedule frequency options
+- Test results: record a lab or imaging report with the report attached, choose values from a built-in list of about 60 common tests, and chart any value over time against the report's own reference range. A PDF can fill in the values for you to check.
+- Reports are covered before they are uploaded. Your phone marks the Medicare number, date of birth, address, phone number and email for covering and you review every page, drawing over anything else. Only the covered copy is kept, never the original.
+- Symptoms: record what is happening with a start date, an optional end date and a severity from 1 to 5. A symptom that is still open is asked about once a day, and you can link it to the medication given for it.
+- History is now Activity, Calendar and Summaries. A symptom is drawn across every day it lasts, and Summaries covers medications, observations, symptoms and test results.
+- Each person's screen shows a medication timeline of the last 24 hours, coloured by whether doses were on time, late or early, with a cross where a dose was never recorded.
+- Doses show whether they were on time. Record one at an unscheduled time and a banner asks which dose it was: late, early or an extra dose. Missed never sends an alert or stops you recording.
+- Recording a dose clears your reminder, and your other devices say "You gave…" instead of still asking. New schedules start from the next dose.
+- Doses given away from home: record who gave a dose, set a school-term schedule and answer Yes, No or Not yet when asked.
+- Admins can export, restore and erase a person or the whole household, with an optional passphrase on the file.
+- App lock asks you to confirm it's you before it resets or sets up, and has a grace period setting in Profile. Hydration has new quick amounts.
 
 ## [1.0.0] - 2026-08-03
 

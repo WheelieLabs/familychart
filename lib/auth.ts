@@ -21,7 +21,9 @@ import {
   resolveEntraJwtGroups,
 } from "@/lib/auth/auth-revalidation"
 import { isEntraProviderActive, resolveEntraCredentials } from "@/lib/settings/auth-settings"
-import { matchOrCreateEntraAccount } from "@/lib/account/account-entra-match"
+import { applyEntraAuthTimeToToken, applyLocalAuthAtToToken } from "@/lib/app-lock/app-lock-reauth"
+import { isEntraOidRemoved } from "@/lib/account/entra-removed"
+import { signInEntraAccount } from "@/lib/account/account-entra-match"
 
 /**
  * Absolute (non-sliding) lifetime for Entra sessions, in ms.
@@ -86,6 +88,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
     signIn: "/login",
   },
   callbacks: {
+    async signIn({ account, profile }) {
+      if (account?.provider === "microsoft-entra-id") {
+        const oid = (profile as { oid?: string } | undefined)?.oid
+        if (oid && isEntraOidRemoved(getDb(), oid)) return "/account-removed"
+      }
+      return true
+    },
     // Defence-in-depth alongside the client-side safeRelativeCallbackUrl() check —
     // enforce the same same-origin-relative-path allow-list even if Auth.js's own default
     // redirect resolution ever changes.
@@ -102,6 +111,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
       }
     },
     async jwt({ token, account, profile, user }) {
+      // Stamp the password sign-in time only on a real sign-in (account present); later calls
+      // re-encode the same token and must not refresh it.
+      if (account) applyLocalAuthAtToToken(token, account.provider, Date.now())
       if (account?.provider === "credentials") {
         delete token.entraOid
       }
@@ -115,23 +127,31 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
           token.entraOid = p.oid
           token.sub = p.oid
           token.entraAuthAt = Date.now()
-          // Ensure a tracking row exists so the hourly background poller (and
-          // admin-triggered instant revoke) can act on this session; idempotent.
-          try {
-            ensureAuthRevalidationRow(getDb(), "entra", p.oid, {
-              email: p.email ?? null,
-              displayName: profile.name ?? null,
-            })
-          } catch (err) {
-            logger.error("[auth] failed to ensure auth-revalidation row:", err)
-          }
-          // Claims a pending invite by email, or dedups/auto-creates an `accounts` row for
-          // this Entra identity — bookkeeping only, never a source of access; Entra access
-          // is governed entirely by group membership. Must never block sign-in on failure.
-          try {
-            matchOrCreateEntraAccount(getDb(), { oid: p.oid, email: p.email })
-          } catch (err) {
-            logger.error("[auth] failed to match/create Entra account:", err)
+          // Step-up freshness comes from the IdP's own auth_time, not from this sign-in
+          // time; a missing/invalid claim leaves it unset so step-up fails closed.
+          applyEntraAuthTimeToToken(token, profile as { auth_time?: unknown }, Date.now())
+          if (isEntraOidRemoved(getDb(), p.oid)) {
+            token.accountRemoved = true
+          } else {
+            // Ensure a tracking row exists so the hourly background poller (and
+            // admin-triggered instant revoke) can act on this session; idempotent.
+            try {
+              ensureAuthRevalidationRow(getDb(), "entra", p.oid, {
+                email: p.email ?? null,
+                displayName: profile.name ?? null,
+              })
+            } catch (err) {
+              logger.error("[auth] failed to ensure auth-revalidation row:", err)
+            }
+            // Claims a pending invite by email, or dedups/auto-creates an `accounts` row for
+            // this Entra identity — bookkeeping only, never a source of access; Entra access
+            // is governed entirely by group membership. The tombstone is checked first.
+            try {
+              const signedIn = signInEntraAccount(getDb(), { oid: p.oid, email: p.email })
+              if ("removed" in signedIn) token.accountRemoved = true
+            } catch (err) {
+              logger.error("[auth] failed to match/create Entra account:", err)
+            }
           }
         }
         // Record that an admin has authenticated so the unauthenticated bootstrap
@@ -181,6 +201,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
       // if never yet revalidated) before an interactive re-login is forced. An
       // admin-triggered or Graph-detected `revoked` status invalidates immediately,
       // with no Graph round-trip on the request path.
+      if (token.accountRemoved || (token.entraOid && isEntraOidRemoved(getDb(), token.entraOid as string))) {
+        logger.warn("session_revoked", { reason: "entra_account_removed" })
+        return null
+      }
+
       if (token.entraOid) {
         const oid = token.entraOid as string
         const authAt = typeof token.entraAuthAt === "number" ? token.entraAuthAt : null
@@ -220,7 +245,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
       const s = session as typeof session & {
         user?: typeof session.user & { id?: string; groups?: string[]; entraOid?: string | null }
         sessionVersion?: number
-        entraAuthAt?: number
+        entraAuthTime?: number
+        localAuthAt?: number
       }
       if (s.user) {
         s.user.id     = token.sub ?? ""
@@ -233,12 +259,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
       if (token.sessionVersion != null) {
         s.sessionVersion = token.sessionVersion as number
       }
-      // Timestamp of the last *interactive* Entra sign-in (jwt callback, account+profile
-      // present) — not touched by background refreshes. The app-lock Entra step-up
-      // re-auth (lib/app-lock/app-lock-reauth.ts) treats this as freshness proof after
-      // the client forces a new interactive login (prompt=login, max_age=0).
-      if (token.entraOid && typeof token.entraAuthAt === "number") {
-        s.entraAuthAt = token.entraAuthAt
+      // The id_token auth_time (ms) of the last Entra sign-in (jwt callback, account+profile
+      // present) — not touched by background refreshes. The Entra step-up re-auth
+      // (lib/app-lock/app-lock-reauth.ts) treats this as freshness proof after the client
+      // forces a new interactive login (prompt=login, max_age=0). Absent when the
+      // provider did not emit auth_time, in which case step-up is refused.
+      if (token.entraOid && typeof token.entraAuthTime === "number") {
+        s.entraAuthTime = token.entraAuthTime
+      }
+      // ms epoch of the local password sign-in (jwt callback); lets App lock first set-up accept
+      // a recent sign-in as proof (lib/app-lock/app-lock-reauth.ts).
+      if (!token.entraOid && typeof token.localAuthAt === "number") {
+        s.localAuthAt = token.localAuthAt
       }
       return session
     },

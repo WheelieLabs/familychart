@@ -12,29 +12,20 @@ import { markAdminSeen, setSetupComplete } from "@/lib/setup-gate"
 
 describe("isBootstrapEndpointAllowed", () => {
   const originalProfile = process.env.FC_PLATFORM_PROFILE
-  const originalProviders = process.env.ENABLED_AUTH_PROVIDERS
 
   afterEach(() => {
     if (originalProfile === undefined) delete process.env.FC_PLATFORM_PROFILE
     else process.env.FC_PLATFORM_PROFILE = originalProfile
-    if (originalProviders === undefined) delete process.env.ENABLED_AUTH_PROVIDERS
-    else process.env.ENABLED_AUTH_PROVIDERS = originalProviders
   })
 
-  it("allows credentials-only self-host by default", () => {
+  it("allows self-host by default", () => {
     delete process.env.FC_PLATFORM_PROFILE
-    delete process.env.ENABLED_AUTH_PROVIDERS
     expect(isBootstrapEndpointAllowed()).toBe(true)
   })
 
   it("refuses managed profile", () => {
     process.env.FC_PLATFORM_PROFILE = "managed"
     expect(isBootstrapEndpointAllowed()).toBe(false)
-  })
-
-  it("allows entra-only self-host (local auth always on)", () => {
-    process.env.ENABLED_AUTH_PROVIDERS = "entra"
-    expect(isBootstrapEndpointAllowed()).toBe(true)
   })
 })
 

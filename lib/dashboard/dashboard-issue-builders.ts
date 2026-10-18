@@ -2,7 +2,8 @@
 
 import type { Person } from "@/lib/domain-types"
 import type { AlertReadiness } from "@/lib/alert-readiness"
-import type { DashboardIssue } from "@/lib/dashboard/dashboard-status"
+import { formatShortDay, type DashboardIssue } from "@/lib/dashboard/dashboard-status"
+import type { OpenSymptomPrompt } from "@/lib/symptoms/open-symptom-prompts"
 import { overdueMessage } from "@/lib/observation/observation-recurrence"
 import { formatHHMM, dayQualifierForYmd, utcMsToLocalYmd } from "@/lib/datetime"
 
@@ -42,6 +43,36 @@ export function buildScheduledMedicationIssues(
     }
   }
   return issues
+}
+
+/** Doses expected away from home that are awaiting the parent's yes / no / not-yet. */
+export function buildPendingDoseExpectationIssues(
+  person: Person,
+  facts: AlertReadiness,
+): DashboardIssue[] {
+  return facts.pendingDoseExpectations
+    .filter(p => p.personId === person.id)
+    .map(p => ({
+      kind: "dose_expectation_pending" as const,
+      severity: "amber" as const,
+      message: `${p.medicationName} — was the ${p.hhmm} dose given away from home?`,
+      medicationId: p.medicationId,
+      scheduledSlotTime: p.hhmm,
+      scheduledDosage: p.scheduledDosage,
+      expectation: { expectationId: p.expectationId, ymd: p.ymd },
+    }))
+}
+
+/** One notice per Open symptom awaiting today's "still ongoing or resolved?" for this person. */
+export function buildOpenSymptomIssues(person: Person, prompts: OpenSymptomPrompt[]): DashboardIssue[] {
+  return prompts
+    .filter(p => p.personId === person.id)
+    .map(p => ({
+      kind: "symptom_open_pending" as const,
+      severity: "notice" as const,
+      message: `${p.label} — open since ${formatShortDay(p.startYmd)}: still ongoing?`,
+      symptom: { symptomId: p.symptomId, startYmd: p.startYmd, label: p.label },
+    }))
 }
 
 export function buildPrnFrequencyIssues(

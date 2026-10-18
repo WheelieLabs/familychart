@@ -5,6 +5,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { addCalendarDaysToIsoYmd, localDateAndTimeToUtcIso, localDateToIsoYmd } from "@/lib/datetime"
 import { dashboardScheduleHeaders } from "@/lib/dashboard/dashboard-client-context"
+import type { DoseMissedSummary } from "@/lib/medication/dose-missed-history"
+import type { DoseTiming } from "@/lib/medication/dose-timing-display"
+import type { MedicationAdministeredBy } from "@/lib/medication/medication-administered-by"
 
 export interface MedSummary {
   id: number
@@ -21,8 +24,10 @@ export interface MedRecord {
   dosage: number | null
   dosage_unit: string | null
   comments: string | null
-  scheduled_time?: string | null
-  scheduled_late?: boolean | null
+  /** How the dose sat against its slot; null when it attached to none, absent for an unscheduled medication. */
+  timing?: DoseTiming | null
+  /** Who gave the dose — null on historical/imported rows predating this field, treated as "me". */
+  administered_by?: MedicationAdministeredBy | null
 }
 
 export type RecordsCursor = { ts: string; id: number }
@@ -33,17 +38,36 @@ export interface MedRecordDraft {
   dosage: string
   dosage_unit: string
   comments: string
+  administered_by: MedicationAdministeredBy
 }
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 export const MED_HISTORY_PAGE_SIZE = 50
 
-export function fmtAU(iso: string): string {
-  const d = new Date(iso)
-  const h = d.getHours()
-  const hour = h % 12 || 12
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} ${hour}:${d.getMinutes().toString().padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`
+/** One line of a medication's History list: a recorded dose, or a Missed slot with no dose. */
+export type MedHistoryRow =
+  | { kind: "dose"; record: MedRecord }
+  | { kind: "missed"; missed: DoseMissedSummary }
+
+/**
+ * Interleaves a medication's Missed slots with its doses, newest first. Doses load in pages, so while
+ * more remain (`cursor` set) a Missed slot older than the last loaded dose is held back until its
+ * page arrives; that keeps the list in order and every row listed once.
+ */
+export function mergeMissedIntoRecords(
+  records: MedRecord[],
+  missed: DoseMissedSummary[],
+  cursor: RecordsCursor | null,
+): MedHistoryRow[] {
+  const lastLoaded = records.length > 0 ? records[records.length - 1].recorded_at : null
+  const rows: MedHistoryRow[] = [
+    ...records.map((record): MedHistoryRow => ({ kind: "dose", record })),
+    ...missed
+      .filter(m => !cursor || (lastLoaded !== null && m.recorded_at >= lastLoaded))
+      .map((m): MedHistoryRow => ({ kind: "missed", missed: m })),
+  ]
+  const at = (r: MedHistoryRow) => (r.kind === "dose" ? r.record.recorded_at : r.missed.recorded_at)
+  const key = (r: MedHistoryRow) => (r.kind === "dose" ? `dose:${r.record.id}` : r.missed.id)
+  return rows.sort((a, b) => (at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : key(a) < key(b) ? 1 : -1))
 }
 
 export function daysAgo(n: number, fromYmd: string): string {
@@ -63,16 +87,21 @@ export function applyKeysetPage<T>(
 
 export interface UseMedicationHistoryArgs {
   personId: string
-  tab: string
+  /** Whether the Medication summary is the one currently visible (gates the summary-list fetch). */
+  active: boolean
   todayYmd: string
 }
 
 export interface UseMedicationHistoryResult {
   summaries: MedSummary[]
   summaryLoading: boolean
+  /** True once the summary list has been fetched at least once (distinguishes "not yet" from "none"). */
+  summaryLoaded: boolean
   selectedMed: MedSummary | null
   selectMed: (med: MedSummary | null) => void
   records: MedRecord[]
+  /** The selected medication's Missed slots in the date range (all of them, not paged). */
+  missed: DoseMissedSummary[]
   recordsLoading: boolean
   cursor: RecordsCursor | null
   loadingMore: boolean
@@ -88,15 +117,17 @@ export interface UseMedicationHistoryResult {
 
 export function useMedicationHistory({
   personId,
-  tab,
+  active,
   todayYmd,
 }: UseMedicationHistoryArgs): UseMedicationHistoryResult {
   const prevTodayRef = useRef(todayYmd)
 
   const [summaries, setSummaries] = useState<MedSummary[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryLoaded, setSummaryLoaded] = useState(false)
   const [selectedMed, setSelectedMed] = useState<MedSummary | null>(null)
   const [records, setRecords] = useState<MedRecord[]>([])
+  const [missed, setMissed] = useState<DoseMissedSummary[]>([])
   const [recordsLoading, setRecordsLoading] = useState(false)
   const [cursor, setCursor] = useState<RecordsCursor | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -112,27 +143,35 @@ export function useMedicationHistory({
   }, [todayYmd])
 
   useEffect(() => {
-    if (tab !== "medication" || selectedMed) return
+    if (!active || selectedMed) return
     setSummaryLoading(true)
     fetch(`/api/records?summary=true&person_id=${personId}`)
       .then(r => r.json())
       .then((data: MedSummary[]) => {
         setSummaries(data)
         setSummaryLoading(false)
+        setSummaryLoaded(true)
       })
-      .catch(() => setSummaryLoading(false))
-  }, [tab, personId, selectedMed])
+      .catch(() => { setSummaryLoading(false); setSummaryLoaded(true) })
+  }, [active, personId, selectedMed])
 
   const loadRecords = useCallback(async () => {
     if (!selectedMed) return
     setRecordsLoading(true)
     setCursor(null)
     try {
-      const res = await fetch(
-        `/api/records?person_id=${personId}&medication_id=${selectedMed.id}&from=${from}&to=${to}&limit=${MED_HISTORY_PAGE_SIZE}`,
-        { headers: dashboardScheduleHeaders() },
-      )
+      const [res, missedRes] = await Promise.all([
+        fetch(
+          `/api/records?person_id=${personId}&medication_id=${selectedMed.id}&from=${from}&to=${to}&limit=${MED_HISTORY_PAGE_SIZE}`,
+          { headers: dashboardScheduleHeaders() },
+        ),
+        fetch(
+          `/api/dose-missed?person_id=${personId}&medication_id=${selectedMed.id}&from=${from}&to=${to}`,
+          { headers: dashboardScheduleHeaders() },
+        ),
+      ])
       const data = await res.json() as { rows: MedRecord[]; nextCursor: RecordsCursor | null }
+      setMissed(missedRes.ok ? (await missedRes.json() as DoseMissedSummary[]) : [])
       const next = applyKeysetPage([], data, "replace")
       setRecords(next.records)
       setCursor(next.nextCursor)
@@ -165,6 +204,7 @@ export function useMedicationHistory({
     setSelectedMed(med)
     if (!med) {
       setRecords([])
+      setMissed([])
       setCursor(null)
     }
   }
@@ -178,6 +218,7 @@ export function useMedicationHistory({
         dosage: draft.dosage ? parseFloat(draft.dosage) : null,
         dosage_unit: draft.dosage_unit || null,
         comments: draft.comments || null,
+        administered_by: draft.administered_by,
       }),
     })
     let clearedPrnPushRequests = 0
@@ -197,9 +238,11 @@ export function useMedicationHistory({
   return {
     summaries,
     summaryLoading,
+    summaryLoaded,
     selectedMed,
     selectMed,
     records,
+    missed,
     recordsLoading,
     cursor,
     loadingMore,

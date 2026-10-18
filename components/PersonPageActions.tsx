@@ -4,16 +4,27 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import BackButton from "@/components/BackButton"
-import type { DashboardPersonStatus, DashboardStatus } from "@/lib/dashboard/dashboard-status"
+import SaveFlash from "@/components/SaveFlash"
+import DoseExpectationActions from "@/components/DoseExpectationActions"
+import MedicationTimeline from "@/components/MedicationTimeline"
+import StatusRegion from "@/components/StatusRegion"
+import Button from "@/components/ui/Button"
+import { HubButtonTile, HubGrid, HubTile } from "@/components/ui/HubTile"
+import PageContainer from "@/components/ui/PageContainer"
+import Surface from "@/components/ui/Surface"
+import type { DashboardPersonStatus, DashboardSeverity, DashboardStatus } from "@/lib/dashboard/dashboard-status"
 import { dashboardScheduleHeaders } from "@/lib/dashboard/dashboard-client-context"
+import { formatSlotHhmm } from "@/lib/medication/dose-timing-display"
 import { formatHydration } from "@/lib/format"
 import { hydrationPacingHint } from "@/lib/hydration/hydration-pacing-copy"
-import { mainContentTargetProps } from "@/lib/a11y"
+import { personHubTrail } from "@/lib/ui/breadcrumbs"
+import { partitionActionTiles } from "@/lib/person/action-screen"
 
 const STATUS_EMOJI: Record<DashboardStatus, string> = {
   red: "🔴",
   amber: "🟡",
+  // Like the other dots, colour is never the only signal: the alert text always sits beside it.
+  notice: "🔵",
   green: "🟢",
 }
 
@@ -25,20 +36,17 @@ interface Props {
   canWrite: boolean
   /** Linked self-user viewing their own person — enables hydration mute. */
   isLinkedViewer: boolean
+  /** Live Feed row id (e.g. `med:12`) to emphasise on the medication timeline. */
+  highlightTimelineRowId?: string | null
 }
 
-type ActionCard = { href: string; icon: string; title: string; description: string }
+type ActionCard = { href: string; icon: string; title: string }
 
-const tileClass =
-  "rounded-xl p-5 min-h-[80px] flex flex-col gap-3 bg-fc-blue-mid hover:bg-fc-blue-dark active:bg-fc-blue-dark shadow-md cursor-pointer transition-colors " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
-
-const cardClass = "bg-fc-blue-mid rounded-xl overflow-hidden shadow-md"
-
-export default function PersonPageActions({ personId, name, photoUrl, color = "#256AA5", canWrite, isLinkedViewer }: Props) {
+export default function PersonPageActions({ personId, name, photoUrl, color = "#256AA5", canWrite, isLinkedViewer, highlightTimelineRowId = null }: Props) {
   const [dashboard, setDashboard] = useState<DashboardPersonStatus[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [muting, setMuting] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
 
   function loadDashboard(cancelled?: () => boolean) {
     return fetch("/api/dashboard", { cache: "no-store", headers: dashboardScheduleHeaders() })
@@ -103,13 +111,21 @@ export default function PersonPageActions({ personId, name, photoUrl, color = "#
           href: `/${personId}/record-medication`,
           icon: "💊",
           title: "Record Medication",
-          description: "Log a dose with time",
         },
         {
           href: `/${personId}/record-observation`,
           icon: "📊",
           title: "Record Observation",
-          description: "Add a health measurement",
+        },
+        {
+          href: `/${personId}/record-test-result`,
+          icon: "🧪",
+          title: "Record Test Result",
+        },
+        {
+          href: `/${personId}/record-symptom`,
+          icon: "🤒",
+          title: "Record Symptom",
         }
       )
     }
@@ -117,18 +133,24 @@ export default function PersonPageActions({ personId, name, photoUrl, color = "#
       href: `/${personId}/history`,
       icon: "📜",
       title: "History",
-      description: "Medication and observation timeline",
+    })
+    out.push({
+      href: `/${personId}/test-chart`,
+      icon: "📈",
+      title: "Test Result Chart",
     })
     if (canWrite) {
       out.push({
         href: `/${personId}/schedules-goals`,
         icon: "🗓️",
         title: "Schedules & Goals",
-        description: "Schedules, reminders and goals",
       })
     }
     return out
   }, [personId, canWrite])
+
+  // Tiles are ordered most to least frequent; past the cap the rest sit behind "More".
+  const { visible: visibleCards, more: moreCards } = partitionActionTiles(cards)
 
   const initials = name
     .split(" ")
@@ -140,193 +162,243 @@ export default function PersonPageActions({ personId, name, photoUrl, color = "#
   const hasAlerts = (entry?.alerts ?? []).length > 0
   // Worst-of-all-rows accent is intentional: a single red row should draw
   // attention to the whole card, not just its own row.
-  const maxSeverity = entry?.alerts.some(a => a.severity === "red") ? "red" : "amber"
-  const accentBorder = !hasAlerts ? "border-white/20"
-    : maxSeverity === "red" ? "border-red-500" : "border-amber-400"
+  const maxSeverity: DashboardSeverity =
+    entry?.alerts.some(a => a.severity === "red") ? "red"
+    : entry?.alerts.some(a => a.severity === "amber") ? "amber"
+    : "notice"
 
-  return (
-    <>
-      <div className="bg-fc-blue px-4 py-4 flex items-start gap-4 shrink-0">
-        <div
-          className="w-16 h-16 rounded-full border-[3px] border-fc-ring flex items-center justify-center overflow-hidden shrink-0"
-          style={{ backgroundColor: color }}
-        >
-          {photoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={photoUrl} alt={name} className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-white font-bold text-lg">{initials}</span>
-          )}
-        </div>
-        <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
-            <span className="text-white font-bold text-2xl shrink-0">{name}</span>
-          </div>
-          {!failed && dashboard === null ? (
-            <span className="text-sm text-white">Status updating…</span>
-          ) : failed ? (
-            <span className="text-sm text-white">Dashboard status could not be loaded.</span>
-          ) : entry ? (
-            entry.alerts.length > 0 ? (
-              <span className="text-sm text-white flex items-center gap-1.5">
-                <span className="text-[1.15em]" aria-hidden>{STATUS_EMOJI[maxSeverity]}</span>
-                {entry.summary}
-              </span>
-            ) : (
-              <span className="text-sm text-white">
-                <span className="text-[1.15em]" aria-hidden>{STATUS_EMOJI[entry.status]}</span>{" "}
-                {entry.summary}
-              </span>
-            )
-          ) : null}
-        </div>
-        <BackButton href="/" className="shrink-0" />
+  const timelineHasContent = Boolean(entry?.medicationTimeline && entry.medicationTimeline.length > 0)
+
+  /** One alert row's text: the name and the status dot with its words (the dot never stands alone). */
+  const alertText = (alert: NonNullable<typeof entry>["alerts"][number]) => (
+    <div className="fc-alert-row__text">
+      <div className="fc-alert-row__name">{alert.detail.name}</div>
+      <div className="fc-alert-row__sub">
+        <span className="fc-dot" aria-hidden>{STATUS_EMOJI[alert.severity]}</span>
+        {alert.detail.sub}
       </div>
+    </div>
+  )
 
-      {/* Alert panel — fixed height in all states so the action grid below never shifts. */}
-      <div className="shrink-0 mx-4 mt-3">
-        <div className={`${cardClass} border-l-[3px] ${accentBorder} relative`}>
-          <div
-            className="h-[156px] overflow-y-scroll flex flex-col
-                       [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.3)_transparent]
-                       [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-white/30
-                       [&::-webkit-scrollbar-track]:bg-transparent"
-            role="region"
-            aria-label="Alerts"
-          >
-            {!hasAlerts ? (
-              <div className="flex-1 flex items-center justify-center px-4 py-5 text-center">
-                <span className="text-white text-sm">✓ No alerts — nothing due right now</span>
+  // Missed doses are quiet information, not alerts: the blue notice dot, not counted, and gone when the day ends.
+  const missedLines = (entry?.missedSlots ?? []).map(slot => (
+    <div key={`missed-${slot.id}`} className="fc-alert-row">
+      <div className="fc-alert-row__text">
+        <div className="fc-alert-row__name">{slot.medicationName}</div>
+        <div className="fc-alert-row__sub">
+          <span className="fc-dot" aria-hidden>{STATUS_EMOJI.notice}</span>
+          {slot.day === "yesterday" ? "Yesterday's" : "Today's"} {formatSlotHhmm(slot.slotHhmm)} dose was missed.
+        </div>
+      </div>
+    </div>
+  ))
+
+  // Both status panels share one fixed height, so the grid below never shifts between states.
+  const alertsSlide = (
+    <Surface kind="dark" className="fc-status-card" data-accent={hasAlerts ? maxSeverity : undefined}>
+      <div className="fc-status-scroll" role="region" aria-label="Alerts" tabIndex={0}>
+        {!hasAlerts ? (
+          <>
+            {missedLines}
+            <div className={`fc-status-empty${missedLines.length > 0 ? " fc-status-empty--compact" : ""}`}>
+              <span>✓ No alerts — nothing due right now</span>
+            </div>
+          </>
+        ) : (
+          (entry?.alerts ?? []).map(alert => {
+            const key = `${alert.detail.name}-${alert.detail.sub}`
+            const isHydrationAlert = alert.detail.name === "Hydration" && alert.action_url != null
+
+            if (isHydrationAlert) {
+              return (
+                <div key={key} className="fc-alert-row">
+                  {alertText(alert)}
+                  <div className="fc-alert-row__actions">
+                    {isLinkedViewer && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => void muteHydrationToday()}
+                        pending={muting}
+                        pendingLabel="Muting…"
+                      >
+                        Mute today
+                      </Button>
+                    )}
+                    <Button variant="secondary" href={alert.action_url!}>Record</Button>
+                  </div>
+                </div>
+              )
+            }
+
+            if (alert.resolveSymptom) {
+              return (
+                <div key={key} className="fc-alert-row">
+                  {alertText(alert)}
+                  {canWrite && (
+                    // Saving the symptom while it is still open counts as today's "still ongoing" answer.
+                    <div className="fc-alert-row__actions">
+                      <Button variant="secondary" href={`/${personId}/record-symptom?edit=${alert.resolveSymptom.symptomId}`}>
+                        Update
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )
+            }
+
+            if (alert.resolve) {
+              return (
+                <div key={key} className="fc-alert-row">
+                  {alertText(alert)}
+                  {canWrite && (
+                    <DoseExpectationActions
+                      expectationId={alert.resolve.expectationId}
+                      ymd={alert.resolve.ymd}
+                      onResolved={() => void loadDashboard()}
+                    />
+                  )}
+                </div>
+              )
+            }
+
+            return alert.action_url ? (
+              <div key={key} className="fc-alert-row">
+                {alertText(alert)}
+                <div className="fc-alert-row__actions">
+                  <Button variant="secondary" href={alert.action_url} aria-label={`Record ${alert.detail.name}`}>Record</Button>
+                </div>
               </div>
             ) : (
-              (entry?.alerts ?? []).map((alert, i, arr) => {
-                const isLast = i === arr.length - 1
-                const rowClass = `flex items-start gap-3 px-4 py-3${isLast ? "" : " border-b border-white/10"}`
-                const isHydrationAlert = alert.detail.name === "Hydration" && alert.action_url != null
-                const actionBtnClass =
-                  "text-sm text-sky-100 shrink-0 self-center px-2 py-1 rounded-md hover:bg-white/10 active:bg-white/15 transition-colors"
+              <div key={key} className="fc-alert-row">{alertText(alert)}</div>
+            )
+          })
+        )}
+        {hasAlerts && missedLines}
+      </div>
+      {hasAlerts && <div className="fc-status-fade" />}
+    </Surface>
+  )
 
-                if (isHydrationAlert) {
-                  return (
-                    <div key={`${alert.detail.name}-${alert.detail.sub}`} className={rowClass}>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-white leading-snug">{alert.detail.name}</div>
-                        <div className="text-sm text-white leading-snug mt-0.5 flex items-center gap-1">
-                          <span className="text-[1.15em]" aria-hidden>{STATUS_EMOJI[alert.severity]}</span>
-                          {alert.detail.sub}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 self-center">
-                        <Link href={alert.action_url!} className={actionBtnClass}>
-                          Record
-                        </Link>
-                        {isLinkedViewer && (
-                          <button
-                            type="button"
-                            onClick={() => void muteHydrationToday()}
-                            disabled={muting}
-                            className={`${actionBtnClass} disabled:opacity-50`}
-                          >
-                            {muting ? "Muting…" : "Mute today"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                }
+  const hydration = entry?.hydration
 
-                const inner = (
-                  <>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-white leading-snug">{alert.detail.name}</div>
-                      <div className="text-sm text-white leading-snug mt-0.5 flex items-center gap-1">
-                        <span className="text-[1.15em]" aria-hidden>{STATUS_EMOJI[alert.severity]}</span>
-                        {alert.detail.sub}
-                      </div>
-                    </div>
-                    {alert.action_url && (
-                      <span className="text-sm text-sky-100 shrink-0 self-center">Record ›</span>
-                    )}
-                  </>
-                )
-                return alert.action_url ? (
-                  <Link key={`${alert.detail.name}-${alert.detail.sub}`} href={alert.action_url}
-                    className={`${rowClass} hover:bg-white/10 active:bg-white/15 transition-colors`}>
-                    {inner}
-                  </Link>
-                ) : (
-                  <div key={`${alert.detail.name}-${alert.detail.sub}`} className={rowClass}>{inner}</div>
-                )
-              })
+  return (
+    <PageContainer
+      trail={personHubTrail(name)}
+      header={
+        <div className="fc-person-head">
+          <div className="fc-person-head__avatar" style={{ backgroundColor: color }}>
+            {photoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={photoUrl} alt="" />
+            ) : (
+              <span aria-hidden>{initials}</span>
             )}
           </div>
-          {hasAlerts && (
-            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-b from-transparent to-[#1A5F96] rounded-b-xl" />
-          )}
+          <div className="fc-person-head__body">
+            <h2 className="fc-person-head__name">{name}</h2>
+            {!failed && dashboard === null ? (
+              <span>Status updating…</span>
+            ) : failed ? (
+              <span>Dashboard status could not be loaded.</span>
+            ) : entry ? (
+              // Same structure with and without alerts, so the line is the same height and the grid never moves.
+              <span className="fc-person-head__status">
+                <span className="fc-dot" aria-hidden>
+                  {STATUS_EMOJI[entry.alerts.length > 0 ? maxSeverity : entry.status]}
+                </span>
+                <span title={entry.summary}>{entry.summary}</span>
+              </span>
+            ) : null}
+          </div>
         </div>
-      </div>
+      }
+    >
+      <SaveFlash />
 
-      {entry?.hydration?.goal_ml != null && (
-        <div className="shrink-0 mx-4 mt-2 mb-1">
-          <Link href={`/${personId}/record-observation?type=Hydration`} className={`${cardClass} p-4 flex flex-col gap-2 hover:bg-fc-blue-dark active:bg-fc-blue-dark cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80`}>
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-cyan-300 font-medium text-sm">
-                <span aria-hidden>💧</span>
-                Hydration
-                {entry.hydration.hydrationMutedToday && (
-                  <span className="text-white font-normal text-xs">Reminders muted today</span>
+      <StatusRegion
+        hasAlerts={hasAlerts}
+        hasNotices={missedLines.length > 0}
+        alertSeverity={maxSeverity}
+        alertCount={(entry?.alerts ?? []).length}
+        timelineParam={highlightTimelineRowId}
+        alertsSlide={alertsSlide}
+        timelineHasContent={timelineHasContent}
+        ready={dashboard !== null || failed}
+        timelineSlide={
+          <MedicationTimeline
+            personId={personId}
+            lanes={entry?.medicationTimeline ?? []}
+            highlightFeedRowId={highlightTimelineRowId}
+            loading={dashboard === null && !failed}
+            embedded
+          />
+        }
+      />
+
+      {hydration?.goal_ml != null && (
+        <Surface as={Link} kind="dark" href={`/${personId}/record-observation?type=Hydration`} className="fc-hydration">
+          <div className="fc-hydration__row">
+            <span className="fc-hydration__name">
+              <span aria-hidden>💧</span>
+              Hydration
+              {hydration.hydrationMutedToday && (
+                <span className="fc-hydration__note">Reminders muted today</span>
+              )}
+              {hydration.status === "met" && (
+                <span className="fc-hydration__met">Goal met</span>
+              )}
+            </span>
+            <span className="fc-hydration__amount">
+              {formatHydration(hydration.total_ml)} / {formatHydration(hydration.goal_ml)}
+            </span>
+          </div>
+          <div className="fc-hydration__bar" aria-hidden>
+            <div
+              className={`fc-hydration__fill${hydration.status === "met" ? " fc-hydration__fill--met" : ""}`}
+              style={{ width: `${Math.min(hydration.percent ?? 0, 100)}%` }}
+            />
+          </div>
+          {/* One line is always reserved for the pacing hint, so the card keeps the same height with or without it. */}
+          {(() => {
+            const hint =
+              hydration.pacing && !hydration.hydrationMutedToday
+                ? hydrationPacingHint(hydration.pacing)
+                : null
+            return (
+              <p className="fc-hydration__hint">
+                {hint && (
+                  <>
+                    <span aria-hidden>{STATUS_EMOJI.amber}</span>
+                    {hint}
+                  </>
                 )}
-                {entry.hydration.status === "met" && (
-                  <span className="text-green-300 font-normal">Goal met</span>
-                )}
-              </span>
-              <span className="text-sm text-sky-100/70 tabular-nums">
-                {formatHydration(entry.hydration.total_ml)} / {formatHydration(entry.hydration.goal_ml)}
-              </span>
-            </div>
-            <div className="h-[7px] rounded-full bg-white/15 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${entry.hydration.status === "met" ? "bg-green-400" : "bg-cyan-400"}`}
-                style={{ width: `${Math.min(entry.hydration.percent ?? 0, 100)}%` }}
-              />
-            </div>
-            {(() => {
-              const hint =
-                entry.hydration.pacing && !entry.hydration.hydrationMutedToday
-                  ? hydrationPacingHint(entry.hydration.pacing)
-                  : null
-              return hint ? (
-                <p className="text-xs text-white leading-snug flex items-center gap-1">
-                  <span aria-hidden>{STATUS_EMOJI.amber}</span>
-                  {hint}
-                </p>
-              ) : null
-            })()}
-          </Link>
+              </p>
+            )
+          })()}
+        </Surface>
+      )}
+
+      <HubGrid dense>
+        {visibleCards.map(card => (
+          <HubTile key={card.href} href={card.href} icon={card.icon} title={card.title} />
+        ))}
+        {moreCards.length > 0 && (
+          <HubButtonTile icon="⋯" title="More" expanded={moreOpen} controls="more-actions" onClick={() => setMoreOpen(o => !o)} />
+        )}
+      </HubGrid>
+      {moreCards.length > 0 && moreOpen && (
+        <div id="more-actions">
+          <HubGrid dense>
+            {moreCards.map(card => (
+              <HubTile key={card.href} href={card.href} icon={card.icon} title={card.title} />
+            ))}
+          </HubGrid>
         </div>
       )}
 
-      <main {...mainContentTargetProps} className="flex-1 bg-fc-blue overflow-y-auto fc-scroll p-4 min-h-0">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-w-4xl mx-auto">
-          {cards.map(card => (
-            <Link key={card.href} href={card.href} className={tileClass}>
-              <span className="text-3xl" aria-hidden>
-                {card.icon}
-              </span>
-              <div>
-                <div className="text-white font-bold text-base leading-tight">{card.title}</div>
-                <div className="text-white text-sm mt-1 leading-snug">{card.description}</div>
-              </div>
-            </Link>
-          ))}
-        </div>
-
-        {!canWrite && (
-          <p className="text-white text-sm text-center mt-6 max-w-xl mx-auto">
-            Read-only access — contact your administrator to enable recording.
-          </p>
-        )}
-      </main>
-    </>
+      {!canWrite && (
+        <p className="fc-admin-note">Read-only access — contact your administrator to enable recording.</p>
+      )}
+    </PageContainer>
   )
 }

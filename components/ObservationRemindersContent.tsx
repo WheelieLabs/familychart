@@ -2,13 +2,21 @@
 
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import { ChipGroup } from "@/components/ui/Chip"
+import { Input, Select } from "@/components/ui/controls"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import EntityRowActions from "@/components/ui/EntityRowActions"
+import FormField, { FieldRow } from "@/components/ui/FormField"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import Panel from "@/components/ui/Panel"
 import type { ObservationTypeConfig, Person } from "@/lib/domain-types"
+import { formatDateTime, formatMonthName, getDeviceTimeZone } from "@/lib/date-format"
 import { fractionalAgeYears } from "@/lib/person/person-age"
-import { PanelOutlineRemoveButton } from "@/components/EntityRowActions"
 import type { ObservationCadence } from "@/lib/observation/observation-recurrence"
 import { dashboardScheduleHeaders } from "@/lib/dashboard/dashboard-client-context"
-import { mainContentTargetProps } from "@/lib/a11y"
 
 type ApiRow = {
   id: number
@@ -78,7 +86,7 @@ function formRowToSinglePayload(r: FormRow): Record<string, unknown> {
     observation_type: r.observation_type,
     cadence: r.cadence,
     enabled: true,
-    tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    tz: getDeviceTimeZone(),
   }
   if (r.cadence === "daily" || r.cadence === "monthly" || r.cadence === "yearly") {
     base.due_time_hhmm = r.due_time_hhmm.trim() || "00:00"
@@ -103,16 +111,14 @@ function formRowToSinglePayload(r: FormRow): Record<string, unknown> {
   return base
 }
 
-function summarizeObservation(row: FormRow): string {
+/** The card's meta line: how often, then when it was last recorded and when it is next due. */
+function summarizeObservation(row: FormRow): (string | null)[] {
   const cad = CADENCES.find(c => c.value === row.cadence)?.label ?? row.cadence
-  let extra = ""
-  if (row.last_recorded_at) {
-    extra += ` · Last recorded: ${new Date(row.last_recorded_at).toLocaleString("en-AU")}`
-  }
-  if (row.next_due_at) {
-    extra += ` · Next due: ${new Date(row.next_due_at).toLocaleString("en-AU")}`
-  }
-  return `${row.observation_type} · ${cad}${extra}`
+  return [
+    cad,
+    row.last_recorded_at ? `Last recorded ${formatDateTime(row.last_recorded_at)}` : null,
+    row.next_due_at ? `Next due ${formatDateTime(row.next_due_at)}` : null,
+  ]
 }
 
 export default function ObservationRemindersContent({ personId }: { personId: string }) {
@@ -151,7 +157,7 @@ export default function ObservationRemindersContent({ personId }: { personId: st
         }
       }
 
-      const clientTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const clientTz = getDeviceTimeZone()
       const nullTzRows = data.expectations.filter(r => r.enabled === 1 && r.tz == null)
       if (nullTzRows.length > 0) {
         await Promise.allSettled(
@@ -327,244 +333,185 @@ export default function ObservationRemindersContent({ personId }: { personId: st
     }
   }
 
-  const fieldSelect =
-    "w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 min-w-0"
-  const fieldInput =
-    "bg-white border border-gray-300 rounded px-3 py-2 text-gray-800"
-
   if (loading) {
-    return (
-      <div className="flex-1 bg-fc-blue flex items-center justify-center">
-        <div className="text-white text-lg">Loading…</div>
-      </div>
-    )
+    return <p className="fc-admin-note">Loading…</p>
   }
 
   return (
-    <main {...mainContentTargetProps} className="flex-1 bg-fc-blue overflow-y-auto fc-scroll">
-      <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-        <p className="text-sm text-gray-600 leading-relaxed">
-          Set how often each Observation Type should be recorded for this person. This drives Observation Reminders on the home screen.
-          Expand a row to edit; tap <strong className="text-gray-800">Save</strong> to store and collapse. Types come from{" "}
-          <strong className="text-gray-800">Management → Observation Types</strong>; with a date of birth, age-limited types follow the catalogue (e.g. Head Circumference).
-        </p>
-        {person && !person.date_of_birth && (
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Add a date of birth on the Manage People screen to use &quot;On birthday&quot; recurrence.
-          </p>
-        )}
+    <>
+      <p className="fc-section-copy fc-surface-copy">
+        Set how often each Observation Type should be recorded for this person. This drives Observation Reminders on the home screen.
+        Choose Edit on a reminder to change it, then Save. Types come from Management › Observation Types; with a date of birth,
+        age-limited types follow the catalogue (for example Head Circumference).
+      </p>
+      {person && !person.date_of_birth && (
+        <Banner kind="warning">Add a date of birth on the People screen to use &quot;On birthday&quot; recurrence.</Banner>
+      )}
+      {error && <Banner kind="error" announced>{error}</Banner>}
 
+      {rows.length === 0 && (
+        <EmptyState icon={EMPTY_STATE_ICONS.noSchedules} heading="No observation reminders yet">
+          Add one to be reminded to record an observation.
+        </EmptyState>
+      )}
+
+      <CardList>
         {rows.map(row => {
           const expanded = expandedKeys.has(row.key)
           return (
-            <div
-              key={row.key}
-              className="flex flex-col gap-3 pt-4 border-t border-gray-300 first:border-t-0 first:pt-0"
-            >
-              <div className="flex flex-wrap items-start gap-2">
-                <button
-                  type="button"
-                  onClick={() => toggleExpanded(row.key)}
-                  className="flex flex-1 min-w-0 items-start gap-2 rounded-lg text-left hover:bg-white/40 transition-colors px-1 py-0.5 -mx-1"
-                >
-                  <span className="text-gray-500 text-xl leading-none shrink-0 mt-0.5 w-5">
-                    {expanded ? "▼" : "›"}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold text-gray-800 text-lg leading-tight">{row.observation_type}</div>
-                    <div className="text-gray-600 text-xs mt-1 leading-snug">{summarizeObservation(row)}</div>
-                  </div>
-                </button>
-                <PanelOutlineRemoveButton onClick={() => handleRemove(row)}>Remove</PanelOutlineRemoveButton>
-              </div>
-
+            <Fragment key={row.key}>
+              <ListCard
+                icon="📏"
+                title={row.observation_type}
+                meta={summarizeObservation(row)}
+                trailing={
+                  <EntityRowActions
+                    name={row.observation_type}
+                    editLabel={expanded ? "Close" : "Edit"}
+                    onEdit={() => toggleExpanded(row.key)}
+                    deleteLabel="Remove"
+                    onDelete={() => handleRemove(row)}
+                  />
+                }
+              />
               {expanded && (
-                <>
-                  <div className="flex flex-col gap-1">
-                    <span className="font-bold text-gray-800">Observation Type</span>
-                    <select
-                      value={row.observation_type}
-                      onChange={e => updateRow(row.key, { observation_type: e.target.value })}
-                      className={fieldSelect}
-                    >
-                      {observationTypeDropdownOptions.map(t => (
-                        <option key={t} value={t} disabled={usedTypes.has(t) && t !== row.observation_type}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <li>
+                  <Panel>
+                    <FormField label="Observation type">
+                      <Select
+                        value={row.observation_type}
+                        onChange={e => updateRow(row.key, { observation_type: e.target.value })}
+                      >
+                        {observationTypeDropdownOptions.map(t => (
+                          <option key={t} value={t} disabled={usedTypes.has(t) && t !== row.observation_type}>
+                            {t}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
 
-                  <div>
-                    <label className="font-bold text-gray-800 block mb-1">Cadence</label>
-                    <select
-                      value={row.cadence}
-                      onChange={e => {
-                        const cadence = e.target.value as ObservationCadence
-                        updateRow(row.key, {
-                          cadence,
-                          interval_days:
-                            cadence === "weekly"
-                              ? (row.interval_days ?? 7)
-                              : cadence === "custom_days"
-                                ? (row.interval_days ?? 14)
-                                : null,
-                        })
-                      }}
-                      className={fieldSelect}
-                    >
-                      {CADENCES.map(c => (
-                        <option key={c.value} value={c.value}>{c.label}</option>
-                      ))}
-                    </select>
-                  </div>
+                    <FormField label="Cadence">
+                      <Select
+                        value={row.cadence}
+                        onChange={e => {
+                          const cadence = e.target.value as ObservationCadence
+                          updateRow(row.key, {
+                            cadence,
+                            interval_days:
+                              cadence === "weekly"
+                                ? (row.interval_days ?? 7)
+                                : cadence === "custom_days"
+                                  ? (row.interval_days ?? 14)
+                                  : null,
+                          })
+                        }}
+                      >
+                        {CADENCES.map(c => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
+                      </Select>
+                    </FormField>
 
-                  {(row.cadence === "daily" || row.cadence === "monthly" || row.cadence === "yearly") && (
-                    <div>
-                      <label className="font-bold text-gray-800 block mb-1">Due time (local)</label>
-                      <p className="text-xs text-gray-600 mb-1">
-                        Home reminders use this clock time with your device timezone (same as medication schedules).
-                      </p>
-                      <input
-                        type="time"
-                        value={row.due_time_hhmm}
-                        onChange={e => updateRow(row.key, { due_time_hhmm: e.target.value })}
-                        className={`${fieldInput} w-40`}
-                      />
-                    </div>
-                  )}
+                    {(row.cadence === "daily" || row.cadence === "monthly" || row.cadence === "yearly") && (
+                      <FormField
+                        label="Due time"
+                        hint="Home reminders use this clock time with your device timezone (same as medication schedules)."
+                      >
+                        <Input type="time" value={row.due_time_hhmm} onChange={e => updateRow(row.key, { due_time_hhmm: e.target.value })} />
+                      </FormField>
+                    )}
 
-                  {(row.cadence === "weekly" || row.cadence === "custom_days") && (
-                    <div>
-                      <label className="font-bold text-gray-800 block mb-1">Every (days)</label>
-                      <input
-                        type="number"
-                        min={0.5}
-                        step={0.5}
-                        value={row.interval_days ?? ""}
-                        onChange={e =>
-                          updateRow(row.key, { interval_days: parseFloat(e.target.value) || null })
-                        }
-                        className={`${fieldInput} w-32`}
-                      />
-                    </div>
-                  )}
-
-                  {row.cadence === "monthly" && (
-                    <div className="flex flex-col gap-2 border-t border-gray-300 pt-3">
-                      <span className="font-bold text-gray-800">Monthly on</span>
-                      <label className="flex items-center gap-2 text-gray-800 text-sm">
-                        <input
-                          type="radio"
-                          className="accent-fc-blue"
-                          checked={!row.recurrence_use_birthday}
-                          onChange={() => updateRow(row.key, { recurrence_use_birthday: false })}
-                        />
-                        Day of month
-                      </label>
-                      {!row.recurrence_use_birthday && (
-                        <input
+                    {(row.cadence === "weekly" || row.cadence === "custom_days") && (
+                      <FormField label="Every (days)">
+                        <Input
                           type="number"
-                          min={1}
-                          max={31}
-                          value={row.recurrence_day_of_month ?? ""}
-                          onChange={e =>
-                            updateRow(row.key, { recurrence_day_of_month: parseInt(e.target.value, 10) || null })
-                          }
-                          className={`${fieldInput} w-24 ml-6`}
+                          min={0.5}
+                          step={0.5}
+                          value={row.interval_days ?? ""}
+                          onChange={e => updateRow(row.key, { interval_days: parseFloat(e.target.value) || null })}
                         />
-                      )}
-                      <label className="flex items-center gap-2 text-gray-800 text-sm">
-                        <input
-                          type="radio"
-                          className="accent-fc-blue"
-                          checked={row.recurrence_use_birthday}
-                          disabled={!person?.date_of_birth}
-                          onChange={() => updateRow(row.key, { recurrence_use_birthday: true })}
-                        />
-                        Birthday (day of month from DOB)
-                      </label>
-                    </div>
-                  )}
+                      </FormField>
+                    )}
 
-                  {row.cadence === "yearly" && (
-                    <div className="flex flex-col gap-2 border-t border-gray-300 pt-3">
-                      <span className="font-bold text-gray-800">Yearly on</span>
-                      <label className="flex items-center gap-2 text-gray-800 text-sm">
-                        <input
-                          type="radio"
-                          className="accent-fc-blue"
-                          checked={!row.recurrence_use_birthday}
-                          onChange={() => updateRow(row.key, { recurrence_use_birthday: false })}
-                        />
-                        Calendar date
-                      </label>
-                      {!row.recurrence_use_birthday && (
-                        <div className="flex flex-wrap gap-2 ml-6">
-                          <select
-                            value={row.recurrence_month ?? 1}
-                            onChange={e =>
-                              updateRow(row.key, { recurrence_month: parseInt(e.target.value, 10) })
-                            }
-                            className={fieldSelect}
-                          >
-                            {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                              <option key={m} value={m}>
-                                {new Date(2000, m - 1, 1).toLocaleString("en-AU", { month: "long" })}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            type="number"
-                            min={1}
-                            max={31}
-                            value={row.recurrence_day ?? ""}
-                            onChange={e =>
-                              updateRow(row.key, { recurrence_day: parseInt(e.target.value, 10) || null })
-                            }
-                            className={`${fieldInput} w-20`}
+                    {row.cadence === "monthly" && (
+                      <>
+                        {person?.date_of_birth || row.recurrence_use_birthday ? (
+                          <ChipGroup
+                            legend="Monthly on"
+                            value={row.recurrence_use_birthday ? "birthday" : "day"}
+                            onChange={v => updateRow(row.key, { recurrence_use_birthday: v === "birthday" })}
+                            options={[
+                              { value: "day", label: "Day of month" },
+                              { value: "birthday", label: "Birthday (day of month from DOB)" },
+                            ]}
                           />
-                        </div>
-                      )}
-                      <label className="flex items-center gap-2 text-gray-800 text-sm">
-                        <input
-                          type="radio"
-                          className="accent-fc-blue"
-                          checked={row.recurrence_use_birthday}
-                          disabled={!person?.date_of_birth}
-                          onChange={() => updateRow(row.key, { recurrence_use_birthday: true })}
-                        />
-                        Birthday (month and day from DOB)
-                      </label>
-                    </div>
-                  )}
+                        ) : null}
+                        {!row.recurrence_use_birthday && (
+                          <FormField label="Day of the month">
+                            <Input
+                              type="number"
+                              min={1}
+                              max={31}
+                              value={row.recurrence_day_of_month ?? ""}
+                              onChange={e => updateRow(row.key, { recurrence_day_of_month: parseInt(e.target.value, 10) || null })}
+                            />
+                          </FormField>
+                        )}
+                      </>
+                    )}
 
-                  <button
-                    type="button"
-                    disabled={savingKey === row.key}
-                    onClick={() => handleSaveRow(row)}
-                    className="self-end bg-fc-blue text-white font-bold px-6 py-3 rounded-xl hover:bg-fc-blue-mid
-                               active:bg-fc-blue-dark disabled:opacity-50 transition-colors"
-                  >
-                    {savingKey === row.key ? "Saving…" : "Save"}
-                  </button>
-                </>
+                    {row.cadence === "yearly" && (
+                      <>
+                        {person?.date_of_birth || row.recurrence_use_birthday ? (
+                          <ChipGroup
+                            legend="Yearly on"
+                            value={row.recurrence_use_birthday ? "birthday" : "date"}
+                            onChange={v => updateRow(row.key, { recurrence_use_birthday: v === "birthday" })}
+                            options={[
+                              { value: "date", label: "Calendar date" },
+                              { value: "birthday", label: "Birthday (month and day from DOB)" },
+                            ]}
+                          />
+                        ) : null}
+                        {!row.recurrence_use_birthday && (
+                          <FormField label="Month and day">
+                            <FieldRow>
+                              <Select
+                                aria-label="Month"
+                                value={row.recurrence_month ?? 1}
+                                onChange={e => updateRow(row.key, { recurrence_month: parseInt(e.target.value, 10) })}
+                              >
+                                {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                                  <option key={m} value={m}>{formatMonthName(m)}</option>
+                                ))}
+                              </Select>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={31}
+                                value={row.recurrence_day ?? ""}
+                                onChange={e => updateRow(row.key, { recurrence_day: parseInt(e.target.value, 10) || null })}
+                              />
+                            </FieldRow>
+                          </FormField>
+                        )}
+                      </>
+                    )}
+
+                    <div className="fc-actions-end">
+                      <Button onClick={() => handleSaveRow(row)} pending={savingKey === row.key}>Save</Button>
+                    </div>
+                  </Panel>
+                </li>
               )}
-            </div>
+            </Fragment>
           )
         })}
+      </CardList>
 
-        <button
-          type="button"
-          onClick={addRow}
-          className="self-start rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-800
-                     hover:bg-gray-50 transition-colors"
-        >
-          Add Observation Reminder
-        </button>
-
-        {error && <p className="text-red-600 text-sm font-medium">{error}</p>}
+      <div>
+        <Button variant="secondary" onClick={addRow}>Add observation reminder</Button>
       </div>
-    </main>
+    </>
   )
 }

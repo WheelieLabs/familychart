@@ -4,6 +4,9 @@ import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { isAdmin } from "@/lib/permissions"
 import type { AppSession } from "@/lib/session"
+import type { Metadata } from "next"
+
+export const metadata: Metadata = { title: "Audit Log" }
 
 export default async function AdminAuditLogLayout({ children }: { children: React.ReactNode }) {
   const session = await auth() as AppSession | null

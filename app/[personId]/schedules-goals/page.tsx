@@ -11,6 +11,9 @@ import type { AppSession } from "@/lib/session"
 import AppHeader from "@/components/AppHeader"
 import AppFooter from "@/components/AppFooter"
 import SchedulesGoalsClient from "./SchedulesGoalsClient"
+import type { Metadata } from "next"
+
+export const metadata: Metadata = { title: "Schedules & Goals" }
 
 interface Props { params: Promise<{ personId: string }> }
 

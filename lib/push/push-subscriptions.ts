@@ -24,9 +24,14 @@ export function prunePushSubscriptionsForUserUids(
  * True when `userUid` still has read access to `personId` at cron send time.
  * Local accounts are re-checked against live role/`is_active`. Entra OIDs consult
  * `auth_revalidation_status`: `revoked` always denies; when `groups_json` is set,
- * access follows `canReadForPerson` (including personal-link). Pre-first-poll
- * (`groups_json` null, status ok) fail-opens so login-time subscriptions keep
- * working until the hourly Graph poll lands.
+ * access follows `canReadForPerson` (including personal-link).
+ *
+ * Deliberately fail-open: an Entra subscriber with no group data (`groups_json`
+ * null, status ok) stays authorised. That holds for as long as the Graph
+ * permissions are not granted, or while a user's Graph check keeps failing,
+ * until the account is revoked or unsubscribes. Failing closed would silently
+ * drop medication reminders. The gap is made visible instead
+ * (`lib/auth/entra-revalidation-gap.ts`).
  */
 export function pushSubscriberStillAuthorised(
   db: Database.Database,

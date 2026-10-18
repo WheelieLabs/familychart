@@ -108,3 +108,133 @@ export async function purgeOrphanUploadFiles(
 
   return { deleted, skipped }
 }
+
+const ATTACHMENT_EXT = /\.(pdf|jpg|jpeg|png|webp)$/i
+const ATTACHMENT_URL_PREFIX = "/api/test-results/uploads/"
+
+export type AttachmentEventRef = {
+  id: number
+  personId: number
+  personName: string
+  name: string
+  date: string
+}
+
+export type AttachmentFileRow = {
+  filename: string
+  url: string
+  sizeBytes: number
+  encrypted: boolean
+  /** On disk but no test result references it. */
+  orphan: boolean
+  /** A test result references it but the file is not on disk. */
+  missing: boolean
+  events: AttachmentEventRef[]
+}
+
+export type AttachmentsScan = {
+  files: AttachmentFileRow[]
+  totalBytes: number
+  orphanCount: number
+  orphanBytes: number
+  missingCount: number
+  /** Space used per person, largest first. */
+  byPerson: { personId: number; personName: string; fileCount: number; bytes: number }[]
+}
+
+/**
+ * On-demand scan of uploads/test-results against test_events.attachment_url. Metadata only —
+ * never decrypts content. A file shared by several events is counted once.
+ */
+export async function scanTestResultAttachments(db: Database.Database): Promise<AttachmentsScan> {
+  const entries = (await listUploadMeta("test-results")).filter(e => ATTACHMENT_EXT.test(e.filename))
+  const onDisk = new Map(entries.map(e => [e.filename, e]))
+
+  const refs = db
+    .prepare(
+      `SELECT te.id, te.person_id AS personId, p.name AS personName, te.name, te.date, te.attachment_url AS url
+         FROM test_events te JOIN people p ON p.id = te.person_id
+        WHERE te.attachment_url LIKE ?
+        ORDER BY te.date DESC, te.id DESC`,
+    )
+    .all(`${ATTACHMENT_URL_PREFIX}%`) as (AttachmentEventRef & { url: string })[]
+
+  const byFile = new Map<string, AttachmentEventRef[]>()
+  for (const { url, ...event } of refs) {
+    const filename = url.slice(ATTACHMENT_URL_PREFIX.length)
+    byFile.set(filename, [...(byFile.get(filename) ?? []), event])
+  }
+
+  const files: AttachmentFileRow[] = []
+  for (const entry of entries) {
+    const events = byFile.get(entry.filename) ?? []
+    files.push({
+      filename: entry.filename,
+      url: `${ATTACHMENT_URL_PREFIX}${entry.filename}`,
+      sizeBytes: entry.sizeBytes,
+      encrypted: entry.encrypted,
+      orphan: events.length === 0,
+      missing: false,
+      events,
+    })
+  }
+  for (const [filename, events] of byFile) {
+    if (onDisk.has(filename)) continue
+    files.push({
+      filename, url: `${ATTACHMENT_URL_PREFIX}${filename}`, sizeBytes: 0, encrypted: false,
+      orphan: false, missing: true, events,
+    })
+  }
+  files.sort((a, b) => b.sizeBytes - a.sizeBytes || a.filename.localeCompare(b.filename))
+
+  const byPersonMap = new Map<number, { personId: number; personName: string; fileCount: number; bytes: number }>()
+  for (const f of files) {
+    // Attribute a shared file to its first (most recent) event's person so totals never double count.
+    const owner = f.events[0]
+    if (!owner) continue
+    const row = byPersonMap.get(owner.personId) ?? { personId: owner.personId, personName: owner.personName, fileCount: 0, bytes: 0 }
+    row.fileCount++
+    row.bytes += f.sizeBytes
+    byPersonMap.set(owner.personId, row)
+  }
+
+  const orphans = files.filter(f => f.orphan)
+  return {
+    files,
+    totalBytes: files.reduce((sum, f) => sum + f.sizeBytes, 0),
+    orphanCount: orphans.length,
+    orphanBytes: orphans.reduce((sum, f) => sum + f.sizeBytes, 0),
+    missingCount: files.filter(f => f.missing).length,
+    byPerson: [...byPersonMap.values()].sort((a, b) => b.bytes - a.bytes || a.personName.localeCompare(b.personName)),
+  }
+}
+
+/** Delete orphan attachment files only; a file any test result still references is never deleted. */
+export async function purgeOrphanAttachmentFiles(
+  db: Database.Database,
+  filenames: string[],
+): Promise<{ deleted: string[]; skipped: string[] }> {
+  const deleted: string[] = []
+  const skipped: string[] = []
+
+  for (const filename of filenames) {
+    if (!ATTACHMENT_EXT.test(filename) || filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+      skipped.push(filename)
+      continue
+    }
+    const referenced = db
+      .prepare("SELECT id FROM test_events WHERE attachment_url = ? LIMIT 1")
+      .get(`${ATTACHMENT_URL_PREFIX}${filename}`)
+    if (referenced) {
+      skipped.push(filename)
+      continue
+    }
+    try {
+      if (await deleteUpload("test-results", filename)) deleted.push(filename)
+      else skipped.push(filename)
+    } catch {
+      skipped.push(filename)
+    }
+  }
+  return { deleted, skipped }
+}

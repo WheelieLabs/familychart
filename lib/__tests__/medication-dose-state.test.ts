@@ -66,7 +66,8 @@ function createTestDb(): Database.Database {
       schedule_start_date TEXT,
       schedule_end_date TEXT,
       schedule_slots TEXT,
-      schedule_tz TEXT
+      schedule_tz TEXT,
+      schedule_created_at_ms INTEGER
     );
     CREATE TABLE medication_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

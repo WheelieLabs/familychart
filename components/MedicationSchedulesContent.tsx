@@ -2,10 +2,21 @@
 
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import ConfirmModal, { confirmCopy } from "@/components/ConfirmModal"
-import { PanelOutlineRemoveButton, ScheduleChipDismissButton } from "@/components/EntityRowActions"
-import { mainContentTargetProps } from "@/lib/a11y"
+import DoseExpectationsPanel from "@/components/DoseExpectationsPanel"
+import Banner from "@/components/ui/Banner"
+import Button from "@/components/ui/Button"
+import Chip from "@/components/ui/Chip"
+import { Input, Select } from "@/components/ui/controls"
+import DateEcho from "@/components/ui/DateEcho"
+import EmptyState, { EMPTY_STATE_ICONS } from "@/components/ui/EmptyState"
+import EntityRowActions from "@/components/ui/EntityRowActions"
+import FormField, { FieldGroup, FieldRow } from "@/components/ui/FormField"
+import ListCard, { CardList } from "@/components/ui/ListCard"
+import Panel from "@/components/ui/Panel"
+import SuggestionList from "@/components/ui/SuggestionList"
+import { getDeviceTimeZone } from "@/lib/date-format"
 import {
   parseScheduleSlotsJson,
   parseScheduleTimeUserInput,
@@ -56,12 +67,7 @@ function defaultAmt(row: PersonMedicationRow): string {
 }
 
 function rowToEditor(r: PersonMedicationRow): RowEditorState {
-  const freqRaw = parseScheduleFrequencyUnknown(r.schedule_frequency)
-  // "twice_daily" is a legacy frequency kind that behaved identically to
-  // "daily" (dose count always came from the times list, never the kind).
-  // Normalize it away on load so the count-based label and picker below
-  // don't need a dedicated option per dose count.
-  const freq: MedScheduleFreq = freqRaw.kind === "twice_daily" ? { kind: "daily" } : freqRaw
+  const freq = parseScheduleFrequencyUnknown(r.schedule_frequency)
   const times = parseScheduleTimesJson(r.schedule_times)
   const slots = parseScheduleSlotsJson(r.schedule_slots)
   const slotDosages: Record<string, string> = {}
@@ -80,9 +86,9 @@ function rowToEditor(r: PersonMedicationRow): RowEditorState {
   }
 }
 
-/** "Daily" (and legacy "twice_daily") derive their per-day dose count from
- * however many times are scheduled, so the label scales to any count —
- * once, twice, three times, etc. — without a dedicated option per count. */
+/** Daily derives its per-day dose count from however many times are scheduled,
+ * so the label scales to any count — once, twice, three times, and so on —
+ * without a dedicated option per count. */
 function timesPerDayLabel(timesCount: number): string {
   if (timesCount <= 1) return "Daily"
   if (timesCount === 2) return "Twice daily"
@@ -92,7 +98,6 @@ function timesPerDayLabel(timesCount: number): string {
 function summarizeFreq(freq: MedScheduleFreq, timesCount: number): string {
   switch (freq.kind) {
     case "daily":
-    case "twice_daily":
       return timesPerDayLabel(timesCount)
     case "every_n_days":
       return `Every ${freq.n} days`
@@ -155,7 +160,7 @@ export default function MedicationSchedulesContent({ personId }: { personId: str
       }
       setEditors(nextEd)
 
-      const clientTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const clientTz = getDeviceTimeZone()
       const nullTzRows = list.filter(r => r.schedule_times != null && r.schedule_tz == null)
       if (nullTzRows.length > 0) {
         await Promise.allSettled(
@@ -271,7 +276,7 @@ export default function MedicationSchedulesContent({ personId }: { personId: str
       schedule_frequency: ed.freq,
       schedule_start_date: timeArr.length > 0 ? ed.startDate : null,
       schedule_end_date: timeArr.length > 0 ? ed.endDate.trim() || null : null,
-      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      tz: getDeviceTimeZone(),
     }
 
     try {
@@ -324,7 +329,7 @@ export default function MedicationSchedulesContent({ personId }: { personId: str
     const res = await fetch(`/api/people/${personId}/person-medications?id=${pmId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_active: true, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+      body: JSON.stringify({ is_active: true, tz: getDeviceTimeZone() }),
     })
     if (!res.ok) {
       const j = await res.json().catch(() => ({}))
@@ -344,7 +349,7 @@ export default function MedicationSchedulesContent({ personId }: { personId: str
         body: JSON.stringify({
           medication_id: med.id,
           schedule_times: [],
-          tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          tz: getDeviceTimeZone(),
         }),
       })
       if (!res.ok) {
@@ -413,334 +418,239 @@ export default function MedicationSchedulesContent({ personId }: { personId: str
     updateEditor(pmId, { slotDosages: { ...ed.slotDosages, [hm]: value } })
   }
 
-  const fieldSelect =
-    "w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-800 min-w-0"
-  const fieldInput =
-    "bg-white border border-gray-300 rounded px-3 py-2 text-gray-800"
-
   if (loading && rows.length === 0) {
-    return (
-      <div className="flex-1 bg-fc-blue flex items-center justify-center">
-        <div className="text-white text-lg">Loading…</div>
-      </div>
-    )
+    return <p className="fc-admin-note">Loading…</p>
   }
+
+  const presetSet = new Set<string>(PRESET_TIMES)
 
   return (
     <>
-      <main {...mainContentTargetProps} className="flex-1 min-h-0 bg-fc-blue overflow-y-auto fc-scroll">
-        <div className="bg-fc-panel m-3 rounded-xl p-4 flex flex-col gap-4">
-          <p className="text-sm text-gray-600 leading-relaxed">
-            Set expected dose times and amounts for each medication on this person&apos;s profile (catalogue unit only). This
-            feeds the home dashboard schedule alongside catalogue frequency rules. Expand a row to edit; tap{" "}
-            <strong className="text-gray-800">Save</strong> to store and collapse. Assign new medications from the
-            catalogue below (opens expanded). Search matches Record Medication age filtering.
-          </p>
+      <p className="fc-section-copy fc-surface-copy">
+        Set expected dose times and amounts for each medication on this person&apos;s profile (catalogue unit only). This
+        feeds the home dashboard schedule alongside catalogue frequency rules. Choose Edit on a medication to change
+        its schedule, then Save. Assign new medications from the catalogue below (the new row opens ready to edit).
+        Search matches Record Medication age filtering.
+      </p>
 
-          {error ? <p className="text-red-600 text-sm font-medium">{error}</p> : null}
+      {error ? <Banner kind="error" announced>{error}</Banner> : null}
 
-          {!loading && visibleRows.length === 0 ? (
-            <p className="text-gray-600 text-center py-4 text-sm">
-              No scheduled medications yet. Add one from the catalogue below.
-            </p>
-          ) : null}
+      {!loading && visibleRows.length === 0 ? (
+        <EmptyState icon={EMPTY_STATE_ICONS.noSchedules} heading="No scheduled medications yet">
+          Add one from the catalogue below.
+        </EmptyState>
+      ) : null}
 
-          {visibleRows.map(row => {
-            const ed = editors[row.id]
-            if (!ed) return null
-            const inactive = Number(row.is_active) !== 1
-            const expanded = expandedPmIds.has(row.id)
+      <CardList>
+        {visibleRows.map(row => {
+          const ed = editors[row.id]
+          if (!ed) return null
+          const inactive = Number(row.is_active) !== 1
+          const expanded = expandedPmIds.has(row.id)
 
-            if (inactive) {
-              return (
-                <div
-                  key={row.id}
-                  className="flex flex-col gap-3 pt-4 border-t border-gray-300 first:border-t-0 first:pt-0 opacity-70"
-                >
-                  <div className="font-bold text-gray-800 text-lg leading-tight">{row.medication_name}</div>
-                  <div className="text-amber-800 text-xs font-semibold">Inactive on this profile</div>
-                  <button
-                    type="button"
-                    onClick={() => handleRestore(row.id)}
-                    className="self-start rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-800
-                               hover:bg-gray-50 transition-colors"
-                  >
-                    Restore to active list
-                  </button>
-                </div>
-              )
-            }
-
+          if (inactive) {
             return (
-              <div
+              <ListCard
                 key={row.id}
-                className="flex flex-col gap-3 pt-4 border-t border-gray-300 first:border-t-0 first:pt-0"
-              >
-                <div className="flex flex-wrap items-start gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleExpanded(row.id)}
-                    className="flex flex-1 min-w-0 items-start gap-2 rounded-lg text-left hover:bg-white/40 transition-colors px-1 py-0.5 -mx-1"
-                  >
-                    <span className="text-gray-500 text-xl leading-none shrink-0 mt-0.5 w-5">
-                      {expanded ? "▼" : "›"}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-bold text-gray-800 text-lg leading-tight">{row.medication_name}</div>
-                      {row.dosage_unit ? (
-                        <div className="text-gray-600 text-xs mt-0.5">Catalogue unit: {row.dosage_unit}</div>
-                      ) : null}
-                      <div className="text-gray-600 text-xs mt-1 leading-snug">{summarizeScheduleRow(row, ed)}</div>
-                    </div>
-                  </button>
-                  <PanelOutlineRemoveButton
-                    onClick={() => {
+                icon="💊"
+                title={row.medication_name}
+                inactive
+                meta={["Inactive on this profile"]}
+                trailing={<Button variant="secondary" onClick={() => handleRestore(row.id)}>Restore to active list</Button>}
+              />
+            )
+          }
+
+          const sortedTimes = [...ed.times].sort()
+          const customs = sortedTimes.filter(t => !presetSet.has(t))
+          return (
+            <Fragment key={row.id}>
+              <ListCard
+                icon="💊"
+                title={row.medication_name}
+                meta={[row.dosage_unit ? `Catalogue unit: ${row.dosage_unit}` : null, summarizeScheduleRow(row, ed)]}
+                trailing={
+                  <EntityRowActions
+                    name={row.medication_name}
+                    editLabel={expanded ? "Close" : "Edit"}
+                    onEdit={() => toggleExpanded(row.id)}
+                    deleteLabel="Remove"
+                    onDelete={() => {
                       setError("")
                       setRemovePmId(row.id)
                     }}
-                  >
-                    Remove from list
-                  </PanelOutlineRemoveButton>
-                </div>
-
-                {expanded && (
-                  <>
-                    <div>
-                      <label className="font-bold text-gray-800 block mb-1">Times of day</label>
-                      <div className="flex flex-wrap gap-2">
-                        {PRESET_TIMES.map(t => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => togglePreset(row.id, t)}
-                            className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-                              ed.times.has(t)
-                                ? "bg-fc-blue text-white"
-                                : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                            }`}
-                          >
+                  />
+                }
+              />
+              {expanded && (
+                <li>
+                  <Panel>
+                    <FieldGroup label="Times of day" hint="Tap times to add or remove them, or enter your own below.">
+                      <div className="fc-chip-set__chips">
+                        {[...PRESET_TIMES, ...customs].map(t => (
+                          <Chip key={t} kind="toggle" pressed={ed.times.has(t)} onPressedChange={() => togglePreset(row.id, t)}>
                             {t}
-                          </button>
+                          </Chip>
                         ))}
                       </div>
-                      {(() => {
-                        const presetSet = new Set<string>(PRESET_TIMES)
-                        const customs = [...ed.times].filter(t => !presetSet.has(t)).sort()
-                        if (customs.length === 0) return null
-                        return (
-                          <div className="mt-3">
-                            <div className="text-xs font-semibold text-gray-700 mb-1.5">Custom times</div>
-                            <div className="flex flex-wrap gap-2">
-                              {customs.map(t => (
-                                <span
-                                  key={t}
-                                  className="inline-flex items-center gap-1 rounded-lg bg-fc-blue text-white pl-3 pr-1 py-1.5 text-sm font-semibold"
-                                >
-                                  {t}
-                                  <ScheduleChipDismissButton
-                                    aria-label={`Remove ${t}`}
-                                    onClick={() => removeScheduledTime(row.id, t)}
-                                  />
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      })()}
-                      <div className="flex gap-2 mt-3 flex-wrap items-end">
-                        <input
+                    </FieldGroup>
+                    <FormField label="Add a custom time" hint="HH:mm or four digits, for example 0830 (24 hour).">
+                      <FieldRow>
+                        <Input
                           type="text"
                           inputMode="numeric"
                           maxLength={5}
-                          placeholder="HH:mm or HHMM"
+                          placeholder="e.g. 08:30"
                           value={ed.customTimeInput}
                           onChange={e => updateEditor(row.id, { customTimeInput: e.target.value })}
-                          className={`${fieldInput} text-sm w-36`}
                         />
-                        <button
-                          type="button"
-                          onClick={() => addCustomTime(row.id)}
-                          className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-800
-                                     hover:bg-gray-50 transition-colors"
-                        >
-                          Add time
-                        </button>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1.5">
-                        Tap presets, or enter a time as HH:mm or four digits (e.g. 0830). Remove custom times with ×.
-                      </p>
-                    </div>
+                        <Button variant="secondary" onClick={() => addCustomTime(row.id)}>Add time</Button>
+                      </FieldRow>
+                    </FormField>
 
-                    {[...ed.times].sort().length > 0 && (
-                      <div>
-                        <label className="font-bold text-gray-800 block mb-2">Dose amount per time</label>
-                        <div className="flex flex-col gap-2">
-                          {[...ed.times].sort().map(t => (
-                            <div key={t} className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-semibold text-gray-800 w-14 shrink-0">{t}</span>
-                              <input
-                                type="number"
-                                min={0}
-                                step="any"
-                                value={ed.slotDosages[t] ?? ""}
-                                onChange={e => updateSlotDose(row.id, t, e.target.value)}
-                                className={`${fieldInput} text-sm w-24`}
-                              />
-                              {row.dosage_unit ? (
-                                <span className="text-xs text-gray-600">{row.dosage_unit}</span>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                    {sortedTimes.length > 0 && (
+                      <FieldGroup label="Dose amount per time" hint={row.dosage_unit ? `In ${row.dosage_unit}.` : undefined}>
+                        {sortedTimes.map(t => (
+                          <FormField key={t} label={`Dose at ${t}`}>
+                            <Input
+                              type="number"
+                              min={0}
+                              step="any"
+                              value={ed.slotDosages[t] ?? ""}
+                              onChange={e => updateSlotDose(row.id, t, e.target.value)}
+                            />
+                          </FormField>
+                        ))}
+                      </FieldGroup>
                     )}
 
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="font-bold text-gray-800 block mb-1">Frequency</label>
-                        <select
-                          value={ed.freq.kind === "twice_daily" ? "daily" : ed.freq.kind}
-                          onChange={e => {
-                            const kind = e.target.value as Exclude<MedScheduleFreq["kind"], "twice_daily">
-                            let next: MedScheduleFreq
-                            if (kind === "daily") next = { kind: "daily" }
-                            else if (kind === "every_n_days") next = { kind: "every_n_days", n: ed.freq.kind === "every_n_days" ? ed.freq.n : 2 }
-                            else next = { kind: "weekly", weekdays: ed.freq.kind === "weekly" ? ed.freq.weekdays : [1, 2, 3, 4, 5] }
-                            updateEditor(row.id, { freq: next })
-                          }}
-                          className={fieldSelect}
-                        >
-                          <option value="daily">Daily</option>
-                          <option value="every_n_days">Every N days</option>
-                          <option value="weekly">Weekly</option>
-                        </select>
-                        {ed.freq.kind === "daily" && (
-                          <p className="text-xs text-gray-500 mt-1.5">
-                            Add as many times above as this needs — once, twice, three times a day, however many —
-                            the summary updates to match automatically.
-                          </p>
-                        )}
-                        {ed.freq.kind === "every_n_days" && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <label className="text-xs text-gray-700 whitespace-nowrap">Every</label>
-                            <input
-                              type="number"
-                              min={2}
-                              step={1}
-                              value={ed.freq.n}
-                              onChange={e =>
-                                updateEditor(row.id, { freq: { kind: "every_n_days", n: Math.max(2, parseInt(e.target.value, 10) || 2) } })
-                              }
-                              className={`${fieldInput} w-16 text-sm`}
-                            />
-                            <span className="text-xs text-gray-600">days</span>
-                          </div>
-                        )}
-                        {ed.freq.kind === "weekly" && (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {WEEKDAY_LABELS.map((label, d) => {
-                              const pressed = ed.freq.kind === "weekly" && ed.freq.weekdays.includes(d)
-                              return (
-                                <button
-                                  key={label}
-                                  type="button"
-                                  onClick={() => {
-                                    if (ed.freq.kind !== "weekly") return
-                                    const next = ed.freq.weekdays.includes(d)
-                                      ? ed.freq.weekdays.filter(x => x !== d)
-                                      : [...ed.freq.weekdays, d].sort((a, b) => a - b)
-                                    updateEditor(row.id, { freq: { kind: "weekly", weekdays: next } })
-                                  }}
-                                  className={`rounded-full px-2.5 py-1 text-xs font-bold transition-colors ${
-                                    pressed
-                                      ? "bg-fc-blue text-white"
-                                      : "border border-gray-300 bg-white text-gray-700"
-                                  }`}
-                                >
-                                  {label}
-                                </button>
-                              )
-                            })}
-                            <span className="text-xs text-gray-500 w-full mt-1">Sun=0 … Sat=6.</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-3">
-                        <div>
-                          <label className="font-bold text-gray-800 block mb-1">Schedule start date</label>
-                          <input
-                            type="date"
-                            value={ed.startDate}
-                            onChange={e => updateEditor(row.id, { startDate: e.target.value })}
-                            className={`${fieldSelect} text-sm`}
-                          />
-                        </div>
-                        <div>
-                          <label className="font-bold text-gray-800 block mb-1">Schedule end date (optional)</label>
-                          <input
-                            type="date"
-                            value={ed.endDate}
-                            onChange={e => updateEditor(row.id, { endDate: e.target.value })}
-                            className={`${fieldSelect} text-sm`}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={savingPmId === row.id}
-                      onClick={() => handleSave(row.id)}
-                      className="self-end bg-fc-blue text-white font-bold px-6 py-3 rounded-xl hover:bg-fc-blue-mid
-                                 active:bg-fc-blue-dark disabled:opacity-50 transition-colors"
+                    <FormField
+                      label="Frequency"
+                      hint={ed.freq.kind === "daily"
+                        ? "Add as many times above as this needs — once, twice, three times a day — and the summary updates to match."
+                        : undefined}
                     >
-                      {savingPmId === row.id ? "Saving…" : "Save"}
-                    </button>
-                  </>
-                )}
-              </div>
-            )
-          })}
+                      <Select
+                        value={ed.freq.kind}
+                        onChange={e => {
+                          const kind = e.target.value as MedScheduleFreq["kind"]
+                          let next: MedScheduleFreq
+                          if (kind === "daily") next = { kind: "daily" }
+                          else if (kind === "every_n_days") next = { kind: "every_n_days", n: ed.freq.kind === "every_n_days" ? ed.freq.n : 2 }
+                          else next = { kind: "weekly", weekdays: ed.freq.kind === "weekly" ? ed.freq.weekdays : [1, 2, 3, 4, 5] }
+                          updateEditor(row.id, { freq: next })
+                        }}
+                      >
+                        <option value="daily">Daily</option>
+                        <option value="every_n_days">Every N days</option>
+                        <option value="weekly">Weekly</option>
+                      </Select>
+                    </FormField>
+                    {ed.freq.kind === "every_n_days" && (
+                      <FormField label="Every (days)">
+                        <Input
+                          type="number"
+                          min={2}
+                          step={1}
+                          value={ed.freq.n}
+                          onChange={e =>
+                            updateEditor(row.id, { freq: { kind: "every_n_days", n: Math.max(2, parseInt(e.target.value, 10) || 2) } })
+                          }
+                        />
+                      </FormField>
+                    )}
+                    {ed.freq.kind === "weekly" && (
+                      <FieldGroup label="Weekdays">
+                        <div className="fc-chip-set__chips">
+                          {WEEKDAY_LABELS.map((label, d) => {
+                            const pressed = ed.freq.kind === "weekly" && ed.freq.weekdays.includes(d)
+                            return (
+                              <Chip
+                                key={label}
+                                kind="toggle"
+                                pressed={pressed}
+                                onPressedChange={() => {
+                                  if (ed.freq.kind !== "weekly") return
+                                  const next = ed.freq.weekdays.includes(d)
+                                    ? ed.freq.weekdays.filter(x => x !== d)
+                                    : [...ed.freq.weekdays, d].sort((a, b) => a - b)
+                                  updateEditor(row.id, { freq: { kind: "weekly", weekdays: next } })
+                                }}
+                              >
+                                {label}
+                              </Chip>
+                            )
+                          })}
+                        </div>
+                      </FieldGroup>
+                    )}
+                    <FormField label="Schedule start date">
+                      <Input type="date" value={ed.startDate} onChange={e => updateEditor(row.id, { startDate: e.target.value })} />
+                      <DateEcho date={ed.startDate} />
+                    </FormField>
+                    <FormField label="Schedule end date" optional>
+                      <Input type="date" value={ed.endDate} onChange={e => updateEditor(row.id, { endDate: e.target.value })} />
+                      <DateEcho date={ed.endDate} />
+                    </FormField>
 
-          <div className="border-t border-gray-300 pt-4 flex flex-col gap-3">
-            <div className="font-bold text-gray-800">Add medication</div>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              Assign a catalogue medication. The row opens expanded so you can set times and save.
-            </p>
-            <input
+                    <div className="fc-actions-end">
+                      <Button onClick={() => handleSave(row.id)} pending={savingPmId === row.id}>Save</Button>
+                    </div>
+                    <DoseExpectationsPanel
+                      personId={personId}
+                      personMedicationId={row.id}
+                      scheduleTimesJson={row.schedule_times}
+                    />
+                  </Panel>
+                </li>
+              )}
+            </Fragment>
+          )
+        })}
+      </CardList>
+
+      <Panel>
+        <FormField
+          label="Add medication"
+          hint="Assign a catalogue medication. The new row opens ready to set times and save."
+        >
+          <div
+            className="fc-suggest-wrap"
+            onBlur={e => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setAddOpen(false)
+            }}
+          >
+            <Input
               type="text"
               value={addQuery}
+              autoComplete="off"
+              placeholder="e.g. Paracetamol"
               onChange={e => {
                 setAddQuery(e.target.value)
                 setAddOpen(true)
               }}
               onFocus={() => addQuery.trim().length > 0 && setAddOpen(true)}
-              placeholder="Type medication name…"
-              className={`${fieldSelect} text-sm`}
             />
             {addOpen && addSuggestions.length > 0 && (
-              <ul className="rounded-lg border border-gray-300 bg-white max-h-48 overflow-y-auto shadow-lg">
-                {addSuggestions.map(m =>
-                  scheduledMedIds.has(m.id) ? null : (
-                    <li key={m.id}>
-                      <button
-                        type="button"
-                        disabled={addingId === m.id}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-fc-panel text-gray-900 disabled:opacity-50"
-                        onClick={() => handleAddMedication(m)}
-                      >
-                        <span className="font-semibold">{m.name}</span>
-                        <span className="text-gray-500 text-xs ml-2">{m.dosage_unit}</span>
-                        {addingId === m.id && <span className="text-xs ml-2">Saving…</span>}
-                      </button>
-                    </li>
-                  )
-                )}
-              </ul>
+              <SuggestionList
+                items={addSuggestions
+                  .filter(m => !scheduledMedIds.has(m.id))
+                  .map(m => ({
+                    key: m.id,
+                    onSelect: () => { if (addingId !== m.id) void handleAddMedication(m) },
+                    label: (
+                      <>
+                        <span className="fc-suggest__name">{m.name}</span>
+                        <span className="fc-suggest__detail">{m.dosage_unit}</span>
+                        {addingId === m.id && <span className="fc-suggest__detail">Saving…</span>}
+                      </>
+                    ),
+                  }))}
+              />
             )}
           </div>
-        </div>
-      </main>
+        </FormField>
+      </Panel>
 
       {removePmId != null && (
         <ConfirmModal

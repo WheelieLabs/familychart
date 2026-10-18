@@ -364,3 +364,10 @@ describe("security.password_min_length", () => {
     expect(resolved.locked).toBe(true)
   })
 })
+
+describe("settings resolver exports", () => {
+  it("does not expose deprecated resolveAllAppSettings", async () => {
+    const resolver = await import("@/lib/settings/resolver")
+    expect("resolveAllAppSettings" in resolver).toBe(false)
+  })
+})

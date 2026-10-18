@@ -4,13 +4,11 @@ import {
   parseScheduleSlotsJson,
   parseScheduleFrequencyJson,
   isScheduleActiveOnYmd,
-  matchRecordToScheduledSlot,
   dosageForScheduledTime,
 } from "@/lib/schedule/schedule-recurrence"
 import type { MedScheduleFreq } from "@/lib/schedule/schedule-recurrence"
 
 const daily: MedScheduleFreq = { kind: "daily" }
-const twiceDaily: MedScheduleFreq = { kind: "twice_daily" }
 const everyThreeDays: MedScheduleFreq = { kind: "every_n_days", n: 3 }
 const monWedFri: MedScheduleFreq = { kind: "weekly", weekdays: [1, 3, 5] } // Mon=1, Wed=3, Fri=5
 
@@ -82,10 +80,6 @@ describe("parseScheduleFrequencyJson", () => {
     expect(parseScheduleFrequencyJson('{"kind":"daily"}')).toEqual({ kind: "daily" })
   })
 
-  it("parses twice_daily", () => {
-    expect(parseScheduleFrequencyJson('{"kind":"twice_daily"}')).toEqual({ kind: "twice_daily" })
-  })
-
   it("parses every_n_days", () => {
     expect(parseScheduleFrequencyJson('{"kind":"every_n_days","n":3}')).toEqual({ kind: "every_n_days", n: 3 })
   })
@@ -129,11 +123,6 @@ describe("isScheduleActiveOnYmd — daily", () => {
 
   it("is active on the end date itself", () => {
     expect(isScheduleActiveOnYmd(daily, "2025-01-01", "2025-01-31", "2025-01-31")).toBe(true)
-  })
-
-  it("twice_daily behaves the same as daily for date filtering", () => {
-    expect(isScheduleActiveOnYmd(twiceDaily, "2025-01-01", null, "2025-01-10")).toBe(true)
-    expect(isScheduleActiveOnYmd(twiceDaily, "2025-01-15", null, "2025-01-01")).toBe(false)
   })
 
   it("returns false when freq is null", () => {
@@ -203,36 +192,5 @@ describe("dosageForScheduledTime", () => {
 
   it("returns fallbackDosage when slotsJson is null", () => {
     expect(dosageForScheduledTime("08:00", null, 5)).toBe(5)
-  })
-})
-
-describe("matchRecordToScheduledSlot", () => {
-  const daily: MedScheduleFreq = { kind: "daily" }
-
-  it("matches using client offset calendar, not server-local midnight", () => {
-    // Sydney (UTC+10): offset -600. 21:30 UTC on 15 Jan is 08:30 on 16 Jan local.
-    const recordedAt = new Date("2025-01-15T22:35:00.000Z")
-    const match = matchRecordToScheduledSlot(
-      recordedAt,
-      ["08:00", "20:00"],
-      daily,
-      "2025-01-01",
-      null,
-      -600,
-    )
-    expect(match).toEqual({ slotTimeLabel: "08:00", late: true })
-  })
-
-  it("returns null when local calendar day is outside schedule", () => {
-    const recordedAt = new Date("2025-01-15T21:30:00.000Z")
-    const match = matchRecordToScheduledSlot(
-      recordedAt,
-      ["08:00"],
-      daily,
-      "2025-02-01",
-      null,
-      -600,
-    )
-    expect(match).toBeNull()
   })
 })

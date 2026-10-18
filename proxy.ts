@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db"
 import { localUserNeedsMfaEnrollment } from "@/lib/account/account-local-reauth"
 import { parseLocalAccountUid } from "@/lib/account/account-uid"
 import { loadLocalUserSessionRow } from "@/lib/local-user-session"
-import { isSessionExemptPage } from "@/lib/proxy-paths"
+import { isPageAllowedBeforeSetupComplete, isSessionExemptPage } from "@/lib/proxy-paths"
 import { applySecurityHeaders } from "@/lib/security-headers"
 import { isSetupComplete } from "@/lib/setup-gate"
 import { NextResponse } from "next/server"
@@ -38,6 +38,11 @@ function isMfaEnrollmentAllowedPath(pathname: string): boolean {
  * run for those paths. Keep the broad exclusion; do not assume proxy coverage
  * when adding new setup routes.
  *
+ * `POST /api/restore/upload` is excluded too. While a request passes through this
+ * proxy, Next.js buffers its body (10MB unless `proxyClientMaxBodySize` is raised),
+ * which would truncate a restore upload. The route checks the admin session itself
+ * and streams the zip to a temporary file.
+ *
  * `lib/auth.ts` configures NextAuth with a config *function* (per-request DB-backed
  * Entra resolution). That makes `initAuth` wrap everything in an `async`
  * outer function, so `auth(handler)` resolves to a Promise<Handler> rather than a
@@ -59,7 +64,7 @@ const authProxy = await auth(async req => {
     if (!req.auth && !isSessionExemptPage(pathname)) {
       return applySecurityHeaders(NextResponse.redirect(new URL("/setup", req.url)))
     }
-    if (req.auth && pathname !== "/setup" && !pathname.startsWith("/api/")) {
+    if (req.auth && !pathname.startsWith("/api/") && !isPageAllowedBeforeSetupComplete(pathname)) {
       return applySecurityHeaders(NextResponse.redirect(new URL("/setup", req.url)))
     }
   }
@@ -118,6 +123,6 @@ export default authProxy
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/setup|api/health|api/version|api/push/vapid-public-key|api/cron|login|denied|_next/static|_next/image|favicon.ico|manifest.json|icons|sw.js|sw-push.js|push-notification-actions.js|workbox-.*).*)"
+    "/((?!api/auth|api/setup|api/health|api/version|api/push/vapid-public-key|api/cron|api/restore/upload|login|denied|_next/static|_next/image|favicon.ico|manifest.json|icons|sw.js|sw-push.js|push-notification-actions.js|workbox-.*).*)"
   ]
 }

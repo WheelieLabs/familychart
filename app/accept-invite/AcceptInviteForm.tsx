@@ -15,7 +15,7 @@ export default function AcceptInviteForm({ passwordMinLength }: AcceptInviteForm
       passwordMinLength={passwordMinLength}
       heading="Set your password"
       subheading="Choose a password to finish setting up your FamilyChart account."
-      invalidTokenMessage="This invite link is invalid or has expired. Ask your administrator to send a new one."
+      linkNoun="invite link"
       submitLabel="Set password and sign in"
       submittingLabel="Please wait…"
     />

@@ -2,6 +2,7 @@
 
 import Database from "better-sqlite3-multiple-ciphers"
 import { NextRequest } from "next/server"
+import { accountListCopy } from "@/lib/account/account-role-labels"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/db", async importOriginal => {
@@ -14,7 +15,10 @@ vi.mock("@/lib/auth", () => ({
 }))
 
 let testDb: Database.Database
-let sessionOverride: { user: { id: string; email: string }; sessionVersion: number } | null
+let sessionOverride: {
+  user: { id: string; email: string; groups?: string[] }
+  sessionVersion: number
+} | null
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:")
@@ -42,6 +46,17 @@ function createTestDb(): Database.Database {
     );
     CREATE TABLE push_endpoints (
       user_uid TEXT NOT NULL
+    );
+    CREATE TABLE people (
+      id            INTEGER PRIMARY KEY,
+      name          TEXT NOT NULL,
+      full_name     TEXT,
+      photo_url     TEXT,
+      color         TEXT,
+      sort_order    INTEGER,
+      is_active     INTEGER NOT NULL DEFAULT 1,
+      account_uid   TEXT,
+      date_of_birth TEXT
     );
     CREATE TABLE audit_log (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,6 +119,31 @@ describe("PUT /api/accounts/[id]", () => {
     expect(row.role).toBe("read")
   })
 
+  it("rejects is_active on an Entra-backed account", async () => {
+    testDb.prepare(
+      "INSERT INTO accounts (id, email, role, auth_method, external_id) VALUES (2, 'entra@example.com', 'read', 'entra', 'oid-1')",
+    ).run()
+
+    const res = await putAccount(2, { is_active: 0 })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error?: string }
+    expect(body.error).toBe("Sign-in for this account is controlled in Entra")
+
+    const row = testDb.prepare("SELECT is_active FROM accounts WHERE id = 2").get() as { is_active: number }
+    expect(row.is_active).toBe(1)
+  })
+
+  it("still accepts is_active on a local account", async () => {
+    testDb.prepare(
+      "INSERT INTO accounts (id, email, password_hash, role, auth_method) VALUES (2, 'local@example.com', 'h', 'read', 'local')",
+    ).run()
+
+    const res = await putAccount(2, { is_active: 0 })
+    expect(res.status).toBe(200)
+    const row = testDb.prepare("SELECT is_active FROM accounts WHERE id = 2").get() as { is_active: number }
+    expect(row.is_active).toBe(0)
+  })
+
   it("still updates reports access on an Entra-backed account", async () => {
     testDb.prepare(
       "INSERT INTO accounts (id, email, role, auth_method, external_id, can_report) VALUES (2, 'entra@example.com', 'read', 'entra', 'oid-1', 0)",
@@ -118,6 +158,97 @@ describe("PUT /api/accounts/[id]", () => {
     }
     expect(row.can_report).toBe(1)
     expect(row.role).toBe("read")
+  })
+
+  it("rejects Role None when the Account has no Personal-link", async () => {
+    testDb.prepare(
+      "INSERT INTO accounts (id, email, password_hash, role, can_report, auth_method) VALUES (2, 'local@example.com', 'h', 'write', 1, 'local')",
+    ).run()
+
+    const res = await putAccount(2, { role: "none" })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toMatch(/Personal-link is required when Role is None/)
+
+    const row = testDb.prepare("SELECT role, can_report FROM accounts WHERE id = 2").get() as {
+      role: string
+      can_report: number
+    }
+    expect(row).toEqual({ role: "write", can_report: 1 })
+  })
+
+  it("sets Role None when a Personal-link exists and clears Household Reports in the same save", async () => {
+    testDb.prepare(
+      "INSERT INTO accounts (id, email, password_hash, role, can_report, auth_method) VALUES (2, 'local@example.com', 'h', 'write', 1, 'local')",
+    ).run()
+    testDb.prepare(
+      "INSERT INTO people (id, name, is_active, account_uid) VALUES (5, 'Alex', 1, 'local:2')",
+    ).run()
+
+    const res = await putAccount(2, { role: "none", can_report: 1 })
+    expect(res.status).toBe(200)
+    const updated = (await res.json()) as { role: string; can_report: number }
+    expect(updated.role).toBe("none")
+    expect(updated.can_report).toBe(0)
+    expect(accountListCopy({ auth_method: "local", ...updated })).toEqual({
+      role: "Role: None",
+      reports: "Cannot access reports",
+    })
+
+    const audit = testDb.prepare("SELECT details FROM audit_log WHERE entity_id = 2").get() as { details: string }
+    expect(JSON.parse(audit.details)).toMatchObject({ role: "none", can_report: 0 })
+  })
+
+  it("refuses to demote the last local Admin", async () => {
+    const res = await putAccount(1, { role: "read" })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toBe("Cannot remove the last local Admin")
+    const row = testDb.prepare("SELECT role FROM accounts WHERE id = 1").get() as { role: string }
+    expect(row.role).toBe("admin")
+  })
+
+  it("refuses to deactivate the last local Admin", async () => {
+    const res = await putAccount(1, { is_active: 0 })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toBe("Cannot remove the last local Admin")
+    const row = testDb.prepare("SELECT is_active FROM accounts WHERE id = 1").get() as { is_active: number }
+    expect(row.is_active).toBe(1)
+  })
+
+  it("refuses to demote the only local Admin even when that Admin is already inactive", async () => {
+    testDb.prepare("UPDATE accounts SET is_active = 0 WHERE id = 1").run()
+    sessionOverride = {
+      user: { id: "entra-admin", email: "entra-admin@example.com", groups: ["local:admin"] },
+      sessionVersion: 0,
+    }
+    const res = await putAccount(1, { role: "read" })
+    expect(res.status).toBe(400)
+    const row = testDb.prepare("SELECT role FROM accounts WHERE id = 1").get() as { role: string }
+    expect(row.role).toBe("admin")
+  })
+
+  it("refuses to demote the only active local Admin when the other local Admin is inactive", async () => {
+    testDb.prepare(
+      "INSERT INTO accounts (id, email, password_hash, role, is_active, auth_method) VALUES (2, 'other-admin@example.com', 'h', 'admin', 0, 'local')",
+    ).run()
+
+    const res = await putAccount(1, { role: "write" })
+    expect(res.status).toBe(400)
+    const row = testDb.prepare("SELECT role FROM accounts WHERE id = 1").get() as { role: string }
+    expect(row.role).toBe("admin")
+  })
+
+  it("demotes a local Admin when another local Admin remains", async () => {
+    testDb.prepare(
+      "INSERT INTO accounts (id, email, password_hash, role, auth_method) VALUES (2, 'other-admin@example.com', 'h', 'admin', 'local')",
+    ).run()
+
+    const res = await putAccount(2, { role: "write" })
+    expect(res.status).toBe(200)
+    const row = testDb.prepare("SELECT role FROM accounts WHERE id = 2").get() as { role: string }
+    expect(row.role).toBe("write")
   })
 
   it("clears MFA on a local account", async () => {

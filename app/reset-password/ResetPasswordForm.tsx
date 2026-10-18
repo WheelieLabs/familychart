@@ -15,7 +15,7 @@ export default function ResetPasswordForm({ passwordMinLength }: ResetPasswordFo
       passwordMinLength={passwordMinLength}
       heading="Set your password"
       subheading="Choose a password for your FamilyChart account."
-      invalidTokenMessage="This reset link is invalid or has expired. Ask your administrator to send a new one."
+      linkNoun="reset link"
       submitLabel="Set password and sign in"
       submittingLabel="Please wait…"
     />
