@@ -1200,7 +1200,7 @@ MIT License
 
 </details>
 
-### @zip.js/zip.js@2.23.0
+### @zip.js/zip.js@2.24.0
 
 - **Licence:** BSD-3-Clause
 - **Author:** Gildas Lormeau
