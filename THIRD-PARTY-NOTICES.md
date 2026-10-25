@@ -5573,7 +5573,7 @@ THE SOFTWARE.
 
 </details>
 
-### nodemailer@10.1.1
+### nodemailer@10.2.1
 
 - **Licence:** MIT-0
 - **Author:** Andris Reinman

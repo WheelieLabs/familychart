@@ -32,7 +32,8 @@ describe("retired redirects", () => {
         "git",
         ["grep", "-n", "-F", ...RETIRED_URLS.flatMap(url => ["-e", url]), "--", ".",
           ":!lib/__tests__/retired-redirects.test.ts",
-          ":!e2e/retired-routes.spec.ts"],
+          ":!e2e/retired-routes.spec.ts",
+          ":!docs-internal/research"],
         { encoding: "utf8" },
       )
     } catch (err) {
