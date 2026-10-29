@@ -12,6 +12,10 @@ Versions before 1.0.0 were internal development releases, not public installs; t
 
 ---
 
+## [1.1.4] - 2026-10-30
+
+- Maintenance update: the web framework and code-checking tools are on their latest security and bug-fix releases. Nothing changes in how the app looks or works.
+
 ## [1.1.0] - 2026-10-18
 
 - Test results: record a lab or imaging report with the report attached, choose values from a built-in list of about 60 common tests, and chart any value over time against the report's own reference range. A PDF can fill in the values for you to check.

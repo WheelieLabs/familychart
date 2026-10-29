@@ -6,6 +6,11 @@ User-facing release notes for the in-app What's New screen live in [`WHATS_NEW.m
 
 ---
 
+## [1.1.4] - 2026-10-30
+
+### Changed
+- Dependencies: `next` and `eslint-config-next` 16.4.2 to 16.4.3, `eslint-plugin-react-x` 5.28.4 to 5.28.8, `typescript-eslint` 8.71.1 to 8.72 (supersedes the open Dependabot minor-and-patch groups on this repo and the public mirror). `npm audit` reports no vulnerabilities.
+
 ## [1.1.0] - 2026-10-18
 
 ### Added

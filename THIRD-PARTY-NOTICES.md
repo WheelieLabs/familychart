@@ -309,58 +309,58 @@ _No bundled licence file found in package; see the SPDX identifier above._
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/env@16.4.2
+### @next/env@16.4.3
 
 - **Licence:** MIT
 - **Author:** Next.js Team <support@vercel.com>
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-darwin-arm64@16.4.2
+### @next/swc-darwin-arm64@16.4.3
 
-- **Licence:** MIT (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-darwin-x64@16.4.2
-
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-arm64-gnu@16.4.2
+### @next/swc-darwin-x64@16.4.3
 
-- **Licence:** MIT (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-arm64-musl@16.4.2
-
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-x64-gnu@16.4.2
+### @next/swc-linux-arm64-gnu@16.4.3
 
-- **Licence:** MIT (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-x64-musl@16.4.2
-
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-arm64-msvc@16.4.2
+### @next/swc-linux-arm64-musl@16.4.3
 
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-x64-msvc@16.4.2
+### @next/swc-linux-x64-gnu@16.4.3
 
-- **Licence:** MIT (optional platform dependency)
+- **Licence:** UNKNOWN (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-linux-x64-musl@16.4.3
+
+- **Licence:** UNKNOWN (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-arm64-msvc@16.4.3
+
+- **Licence:** UNKNOWN (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-x64-msvc@16.4.3
+
+- **Licence:** UNKNOWN (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
@@ -5486,7 +5486,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 </details>
 
-### next@16.4.2
+### next@16.4.3
 
 - **Licence:** MIT
 
