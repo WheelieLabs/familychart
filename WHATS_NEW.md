@@ -12,6 +12,10 @@ Versions before 1.0.0 were internal development releases, not public installs; t
 
 ---
 
+## [1.1.5] - 2026-11-05
+
+- Maintenance update: spreadsheet import, export files and the code-checking tools are on their latest security and bug-fix releases. Nothing changes in how the app looks or works.
+
 ## [1.1.4] - 2026-10-30
 
 - Maintenance update: the web framework and code-checking tools are on their latest security and bug-fix releases. Nothing changes in how the app looks or works.

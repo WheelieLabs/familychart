@@ -21,7 +21,7 @@ Durable decisions for the FamilyChart app (`familychart-dev`). Supersede with a 
 | [0015](0015-accounts-unification.md) | Canonical `accounts` table and invite-based onboarding | Accepted |
 | [0016](0016-app-lock-device-bound-credential.md) | App lock uses a device-bound credential, not a passkey | Accepted — implemented in 1.1.0 |
 | [0017](0017-dose-expectations.md) | Dose expectations — derived pending state, confirmed at the slot time | Accepted — implemented |
-| [0018](0018-dev-only-lint-chain-audit-exception.md) | Accept the dev-only `braces` advisory in the ESLint chain | Accepted — revisit when upstream fixes |
+| [0018](0018-dev-only-lint-chain-audit-exception.md) | Accept the dev-only `braces` advisory in the ESLint chain | Superseded by [0043](0043-minimatch-11-override-clears-audit-gate.md) |
 | [0019](0019-test-metric-catalogue.md) | Test metric catalogue — curated, alias-bearing, typed, with limit qualifiers | Accepted |
 | [0020](0020-text-layer-pdf-prefill.md) | Text-layer PDF prefill for Record Test Result runs on the phone with self-hosted pdf.js | Accepted |
 | [0021](0021-report-redaction-before-upload.md) | Report attachments are redacted on the phone before they are stored | Accepted — implemented |
@@ -34,6 +34,7 @@ Durable decisions for the FamilyChart app (`familychart-dev`). Supersede with a 
 | [0028](0028-export-format.md) | Exports are streamed, versioned zips led by a manifest | Accepted — Person and Household exports implemented |
 | [0029](0029-dose-timing-and-missed.md) | Dose timing is stored per slot, and Missed is information, never an alert | Accepted — 1.1.0 |
 | [0030](0030-self-dose-and-hydration-notifications.md) | The recorder's own notifications update and clear, quietly where they can | Accepted — 1.1.0 |
+| [0043](0043-minimatch-11-override-clears-audit-gate.md) | Override `minimatch` to 11 to clear the release audit gate | Accepted — 1.1.5 |
 
 **Active implementation:** App UI Settings project (internal issue tracker).
 

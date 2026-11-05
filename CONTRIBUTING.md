@@ -34,7 +34,7 @@ When you add or upgrade **production dependencies**, regenerate third-party lice
 node scripts/generate-third-party-notices.mjs
 ```
 
-**Dependency audit:** the release gate is `npm audit --omit=dev`, which must report zero vulnerabilities. A full `npm audit` currently also lists a dev-only advisory in the ESLint chain (`braces`) that has no upstream fix; it is an accepted exception — see [ADR-0018](docs/adr/0018-dev-only-lint-chain-audit-exception.md). Do not run `npm audit fix --force` to clear it.
+**Dependency audit:** the release gate is `npm audit --omit=dev`, which must report zero vulnerabilities; a full `npm audit` must report zero too. `package.json` `overrides` forces `minimatch` to ^11.0.1 under the packages that still declare ^10 (`readdir-glob` and the ESLint chain) — see [ADR-0043](docs/adr/0043-minimatch-11-override-clears-audit-gate.md). Do not run `npm audit fix --force`; it proposes major downgrades.
 
 If a batch of new `app/`, `components/`, or `lib/` files ever lands without the `SPDX-License-Identifier` header, `node scripts/add-spdx-headers.mjs` adds it to every first-party source missing one (skips `__tests__`). One-off tool, not run routinely.
 

@@ -1,6 +1,8 @@
 # ADR-0018: Accept the dev-only `braces` advisory in the ESLint chain
 
-**Status:** Accepted (decided 2026-10-04); revisit when upstream ships a fix
+**Status:** Superseded by [ADR-0043](0043-minimatch-11-override-clears-audit-gate.md) (2026-11-05) — the `braces` advisory was withdrawn on 2026-10-23
+
+Originally accepted 2026-10-04.
 
 ## Context
 

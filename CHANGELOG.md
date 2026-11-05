@@ -6,6 +6,14 @@ User-facing release notes for the in-app What's New screen live in [`WHATS_NEW.m
 
 ---
 
+## [1.1.5] - 2026-11-05
+
+### Security
+- `minimatch` ^11.0.1 override, scoped to the packages that declare ^10, clears GHSA-g3hv-75wg-m249 (reached in production through `archiver` → `readdir-glob`). `npm audit` and `npm audit --omit=dev` both report no vulnerabilities. [ADR-0043](docs/adr/0043-minimatch-11-override-clears-audit-gate.md) supersedes ADR-0018, whose `braces` advisory was withdrawn on 2026-10-23.
+
+### Changed
+- Dependencies: `read-excel-file` 9.3.12 to 9.3.14, `eslint` 10.13.0 to 10.14.0.
+
 ## [1.1.4] - 2026-10-30
 
 ### Changed
