@@ -6,6 +6,14 @@ User-facing release notes for the in-app What's New screen live in [`WHATS_NEW.m
 
 ---
 
+## [1.1.6] - 2026-11-11
+
+### Security
+- `next` and `eslint-config-next` 16.4.3 to 16.4.5: the November Next.js security release (cache disclosure and poisoning in `use cache`, forwarded-response injection, image optimiser SVG bypass, Edge HttpOnly cookie exposure). `npm audit` reports no vulnerabilities.
+
+### Changed
+- Dependencies: `otplib` 13.5.0 to 13.6.0, `pdfjs-dist` 6.4.299 to 6.5.438, `tailwindcss` and `@tailwindcss/postcss` 4.3.3 to 4.3.5, `@playwright/test` 1.64.1 to 1.65.0, `vitest` 5.0.5 to 5.1.0; supersedes the open Dependabot minor-and-patch groups on this repo and the public mirror.
+
 ## [1.1.5] - 2026-11-05
 
 ### Security

@@ -304,130 +304,130 @@ software or this license, under any kind of legal claim.***
 
 </details>
 
-### @napi-rs/canvas@1.0.10
+### @napi-rs/canvas@1.1.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @napi-rs/canvas-android-arm64@1.0.10
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @napi-rs/canvas-darwin-arm64@1.0.10
+### @napi-rs/canvas-android-arm64@1.1.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @napi-rs/canvas-darwin-x64@1.0.10
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @napi-rs/canvas-linux-arm-gnueabihf@1.0.10
+### @napi-rs/canvas-darwin-arm64@1.1.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @napi-rs/canvas-linux-arm64-gnu@1.0.10
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @napi-rs/canvas-linux-arm64-musl@1.0.10
+### @napi-rs/canvas-darwin-x64@1.1.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @napi-rs/canvas-linux-riscv64-gnu@1.0.10
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @napi-rs/canvas-linux-x64-gnu@1.0.10
+### @napi-rs/canvas-linux-arm-gnueabihf@1.1.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @napi-rs/canvas-linux-x64-musl@1.0.10
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @napi-rs/canvas-win32-arm64-msvc@1.0.10
+### @napi-rs/canvas-linux-arm64-gnu@1.1.0
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @napi-rs/canvas-win32-x64-msvc@1.0.10
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/env@16.4.3
+### @napi-rs/canvas-linux-arm64-musl@1.1.0
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @napi-rs/canvas-linux-riscv64-gnu@1.1.0
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @napi-rs/canvas-linux-x64-gnu@1.1.0
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @napi-rs/canvas-linux-x64-musl@1.1.0
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @napi-rs/canvas-win32-arm64-msvc@1.1.0
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @napi-rs/canvas-win32-x64-msvc@1.1.0
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/env@16.4.5
 
 - **Licence:** MIT
 - **Author:** Next.js Team <support@vercel.com>
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-darwin-arm64@16.4.3
+### @next/swc-darwin-arm64@16.4.5
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-darwin-x64@16.4.3
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-arm64-gnu@16.4.3
+### @next/swc-darwin-x64@16.4.5
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-arm64-musl@16.4.3
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-x64-gnu@16.4.3
+### @next/swc-linux-arm64-gnu@16.4.5
 
-- **Licence:** UNKNOWN (optional platform dependency)
-
-_No bundled licence file found in package; see the SPDX identifier above._
-
-### @next/swc-linux-x64-musl@16.4.3
-
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-arm64-msvc@16.4.3
+### @next/swc-linux-arm64-musl@16.4.5
 
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-x64-msvc@16.4.3
+### @next/swc-linux-x64-gnu@16.4.5
 
-- **Licence:** UNKNOWN (optional platform dependency)
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-linux-x64-musl@16.4.5
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-arm64-msvc@16.4.5
+
+- **Licence:** MIT (optional platform dependency)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
+### @next/swc-win32-x64-msvc@16.4.5
+
+- **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
@@ -500,7 +500,7 @@ THE SOFTWARE.
 
 </details>
 
-### @otplib/core@13.5.0
+### @otplib/core@13.6.0
 
 - **Licence:** MIT
 - **Author:** Gerald Yeo <support@yeojz.dev>
@@ -534,7 +534,7 @@ SOFTWARE.
 
 </details>
 
-### @otplib/hotp@13.5.0
+### @otplib/hotp@13.6.0
 
 - **Licence:** MIT
 - **Author:** Gerald Yeo <support@yeojz.dev>
@@ -568,7 +568,7 @@ SOFTWARE.
 
 </details>
 
-### @otplib/plugin-base32-scure@13.5.0
+### @otplib/plugin-base32-scure@13.6.0
 
 - **Licence:** MIT
 - **Author:** Gerald Yeo <support@yeojz.dev>
@@ -602,7 +602,7 @@ SOFTWARE.
 
 </details>
 
-### @otplib/plugin-crypto-noble@13.5.0
+### @otplib/plugin-crypto-noble@13.6.0
 
 - **Licence:** MIT
 - **Author:** Gerald Yeo <support@yeojz.dev>
@@ -636,7 +636,7 @@ SOFTWARE.
 
 </details>
 
-### @otplib/totp@13.5.0
+### @otplib/totp@13.6.0
 
 - **Licence:** MIT
 - **Author:** Gerald Yeo <support@yeojz.dev>
@@ -670,7 +670,7 @@ SOFTWARE.
 
 </details>
 
-### @otplib/uri@13.5.0
+### @otplib/uri@13.6.0
 
 - **Licence:** MIT
 - **Author:** Gerald Yeo <support@yeojz.dev>
@@ -738,7 +738,7 @@ SOFTWARE.
 
 </details>
 
-### @playwright/test@1.64.1
+### @playwright/test@1.65.0
 
 - **Licence:** Apache-2.0
 - **Author:** Microsoft Corporation
@@ -5553,7 +5553,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 </details>
 
-### next@16.4.3
+### next@16.4.5
 
 - **Licence:** MIT
 
@@ -5780,7 +5780,7 @@ SOFTWARE.
 
 </details>
 
-### otplib@13.5.0
+### otplib@13.6.0
 
 - **Licence:** MIT
 - **Author:** Gerald Yeo <support@yeojz.dev>
@@ -5875,7 +5875,7 @@ THE SOFTWARE.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### pdfjs-dist@6.4.299
+### pdfjs-dist@6.5.438
 
 - **Licence:** Apache-2.0
 
@@ -6112,7 +6112,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 </details>
 
-### playwright@1.64.1
+### playwright@1.65.0
 
 - **Licence:** Apache-2.0
 - **Author:** Microsoft Corporation
@@ -6327,7 +6327,7 @@ Apache License
 
 </details>
 
-### playwright-core@1.64.1
+### playwright-core@1.65.0
 
 - **Licence:** Apache-2.0
 - **Author:** Microsoft Corporation
