@@ -2,17 +2,15 @@ import Database from "better-sqlite3-multiple-ciphers"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("web-push", () => ({
-  default: {
-    setVapidDetails: vi.fn(),
-    sendNotification: vi.fn().mockResolvedValue(undefined),
-    generateVAPIDKeys: vi.fn(() => ({
-      publicKey: "BPtest-public-key-long-enough",
-      privateKey: "test-private-key-long-enough",
-    })),
-  },
+  setVapidDetails: vi.fn(),
+  sendNotification: vi.fn().mockResolvedValue(undefined),
+  generateVAPIDKeys: vi.fn(() => ({
+    publicKey: "BPtest-public-key-long-enough",
+    privateKey: "test-private-key-long-enough",
+  })),
 }))
 
-import webpush from "web-push"
+import * as webpush from "web-push"
 import { sendSelfDoseAcknowledgementPushes } from "@/lib/push"
 import { applyHydrationNotification } from "@/lib/hydration/hydration-notification"
 import { HYDRATION_KEY_LAST_NUDGE_AT, HYDRATION_KEY_LAST_RECORD_AT } from "@/lib/hydration/hydration-config"

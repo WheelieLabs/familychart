@@ -12,7 +12,7 @@ Generated from `package-lock.json`. Regenerate with:
 node scripts/generate-third-party-notices.mjs
 ```
 
-Total production packages: 203
+Total production packages: 205
 
 ---
 ### @auth/core@0.41.3
@@ -376,56 +376,56 @@ _No bundled licence file found in package; see the SPDX identifier above._
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/env@16.4.5
+### @next/env@16.4.6
 
 - **Licence:** MIT
 - **Author:** Next.js Team <support@vercel.com>
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-darwin-arm64@16.4.5
+### @next/swc-darwin-arm64@16.4.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-darwin-x64@16.4.5
+### @next/swc-darwin-x64@16.4.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-arm64-gnu@16.4.5
+### @next/swc-linux-arm64-gnu@16.4.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-arm64-musl@16.4.5
+### @next/swc-linux-arm64-musl@16.4.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-x64-gnu@16.4.5
+### @next/swc-linux-x64-gnu@16.4.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-linux-x64-musl@16.4.5
+### @next/swc-linux-x64-musl@16.4.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-arm64-msvc@16.4.5
+### @next/swc-win32-arm64-msvc@16.4.6
 
 - **Licence:** MIT (optional platform dependency)
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### @next/swc-win32-x64-msvc@16.4.5
+### @next/swc-win32-x64-msvc@16.4.6
 
 - **Licence:** MIT (optional platform dependency)
 
@@ -1234,6 +1234,39 @@ MIT License
 
 </details>
 
+### @types/react@19.3.0
+
+- **Licence:** MIT
+
+<details>
+<summary>Full licence text (LICENSE)</summary>
+
+```
+MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+```
+
+</details>
+
 ### @types/web-push@3.6.4
 
 - **Licence:** MIT
@@ -1267,7 +1300,7 @@ MIT License
 
 </details>
 
-### @zip.js/zip.js@2.24.0
+### @zip.js/zip.js@2.25.0
 
 - **Licence:** BSD-3-Clause
 - **Author:** Gildas Lormeau
@@ -1342,7 +1375,7 @@ SOFTWARE.
 
 </details>
 
-### agent-base@7.1.4
+### agent-base@9.0.0
 
 - **Licence:** MIT
 - **Author:** Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)
@@ -4149,6 +4182,38 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 </details>
 
+### csstype@3.2.3
+
+- **Licence:** MIT
+- **Author:** Fredrik Nicol <fredrik.nicol@gmail.com>
+
+<details>
+<summary>Full licence text (LICENSE)</summary>
+
+```
+Copyright (c) 2017-2018 Fredrik Nicol
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
+
 ### debug@4.4.3
 
 - **Licence:** MIT
@@ -5106,14 +5171,14 @@ IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 </details>
 
-### http_ece@1.2.0
+### http_ece@1.2.1
 
 - **Licence:** MIT
 - **Author:** Martin Thomson
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
-### https-proxy-agent@7.0.6
+### https-proxy-agent@9.1.0
 
 - **Licence:** MIT
 - **Author:** Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)
@@ -5483,37 +5548,6 @@ software or this license, under any kind of legal claim._**
 
 </details>
 
-### minimist@1.2.8
-
-- **Licence:** MIT
-- **Author:** James Halliday
-
-<details>
-<summary>Full licence text (LICENSE)</summary>
-
-```
-This software is released under the MIT license:
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-</details>
-
 ### ms@2.1.3
 
 - **Licence:** MIT
@@ -5553,7 +5587,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 </details>
 
-### next@16.4.5
+### next@16.4.6
 
 - **Licence:** MIT
 
@@ -6749,6 +6783,13 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 _No bundled licence file found in package; see the SPDX identifier above._
 
+### proxy-agent-negotiate@1.1.0
+
+- **Licence:** MIT
+- **Author:** Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)
+
+_No bundled licence file found in package; see the SPDX identifier above._
+
 ### qrcode@1.5.4
 
 - **Licence:** MIT
@@ -6822,7 +6863,7 @@ SOFTWARE.
 
 </details>
 
-### react-easy-crop@6.2.4
+### react-easy-crop@6.2.5
 
 - **Licence:** MIT
 - **Author:** Valentin Hervieu <valentin@hervi.eu>
@@ -6856,7 +6897,7 @@ SOFTWARE.
 
 </details>
 
-### read-excel-file@9.3.14
+### read-excel-file@9.3.15
 
 - **Licence:** MIT
 - **Author:** catamphetamine <purecatamphetamine@gmail.com>
@@ -8076,7 +8117,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 </details>
 
-### web-push@3.6.7
+### web-push@4.0.0
 
 - **Licence:** MPL-2.0
 - **Author:** Marco Castelluccio

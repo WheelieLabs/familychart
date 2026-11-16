@@ -4,17 +4,15 @@ import Database from "better-sqlite3-multiple-ciphers"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("web-push", () => ({
-  default: {
-    setVapidDetails: vi.fn(),
-    sendNotification: vi.fn().mockResolvedValue(undefined),
-    generateVAPIDKeys: vi.fn(() => ({
-      publicKey: "BPtest-public-key-long-enough",
-      privateKey: "test-private-key-long-enough",
-    })),
-  },
+  setVapidDetails: vi.fn(),
+  sendNotification: vi.fn().mockResolvedValue(undefined),
+  generateVAPIDKeys: vi.fn(() => ({
+    publicKey: "BPtest-public-key-long-enough",
+    privateKey: "test-private-key-long-enough",
+  })),
 }))
 
-import webpush from "web-push"
+import * as webpush from "web-push"
 import { alreadySent, dispatchPersonPush } from "@/lib/push"
 
 function createTestDb(): Database.Database {

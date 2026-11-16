@@ -6,6 +6,12 @@ User-facing release notes for the in-app What's New screen live in [`WHATS_NEW.m
 
 ---
 
+## [1.1.7] - 2026-11-16
+
+### Changed
+- Dependencies: `web-push` 3.6.7 to 4.0.0 (ESM-only with named exports; `lib/push.ts`, `lib/vapid-config.ts` and the push tests now use `import * as webpush`), `jsdom` 30.1.3 to 31.0.0 (`document.hasFocus()` now returns true, so `app-lock-overlay-reset.test.tsx` stubs it false), `next` and `eslint-config-next` 16.4.5 to 16.4.6, `@zip.js/zip.js` 2.24.0 to 2.25.0, `react-easy-crop` 6.2.4 to 6.2.5, `read-excel-file` 9.3.14 to 9.3.15, `eslint-plugin-react-x` 5.28.8 to 5.30.2, `typescript-eslint` 8.72.1 to 8.72.2.
+- `package.json`: install-script allowlist settled.
+
 ## [1.1.6] - 2026-11-11
 
 ### Security

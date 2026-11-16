@@ -2,7 +2,7 @@
 
 import { logger } from "@/lib/logger"
 
-import webpush from "web-push"
+import * as webpush from "web-push"
 import type Database from "better-sqlite3-multiple-ciphers"
 import { isManagedPlatformProfile } from "@/lib/platform-profile"
 import { writeAppSettingValue } from "@/lib/settings/app-settings-store"

@@ -34,6 +34,7 @@ let fetchMock: ReturnType<typeof vi.fn>
 let grantResponse: { ok: boolean; body: Record<string, unknown> }
 let createCalls = 0
 let getImpl: () => Promise<{ ok: true } | null>
+let hasFocusSpy: ReturnType<typeof vi.spyOn>
 
 function install(): void {
   const adapter: WebAuthnAdapter = {
@@ -52,6 +53,8 @@ function grantCalls(): unknown[][] {
 
 beforeEach(() => {
   localStorage.clear()
+  // jsdom 31 reports the document as focused; these tests drive the unlock button themselves.
+  hasFocusSpy = vi.spyOn(document, "hasFocus").mockReturnValue(false)
   createCalls = 0
   signInMock.mockReset()
   grantResponse = { ok: true, body: { granted: true } }
@@ -75,6 +78,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  hasFocusSpy.mockRestore()
   __setWebAuthnAdapterForTests(null)
   vi.unstubAllGlobals()
   window.history.replaceState(null, "", "/")
@@ -82,7 +86,7 @@ afterEach(() => {
 
 async function renderFailedUnlock(userId: string, onUnlocked = vi.fn()) {
   render(<AppLockOverlay userId={userId} onUnlocked={onUnlocked} onDisableAppLock={vi.fn()} />)
-  // jsdom has no focus, so the overlay's auto-unlock waits; tap the button instead.
+  // hasFocus is stubbed false, so the overlay's auto-unlock waits; tap the button instead.
   fireEvent.click(await screen.findByRole("button", { name: "Unlock with your device" }))
   await screen.findByRole("button", { name: /Reset and set up again/ })
   return onUnlocked

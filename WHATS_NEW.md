@@ -12,6 +12,10 @@ Versions before 1.0.0 were internal development releases, not public installs; t
 
 ---
 
+## [1.1.7] - 2026-11-16
+
+- Maintenance update: the web framework, spreadsheet import, photo cropping, export files and the push-notification library are on their latest releases. Nothing changes in how the app looks or works.
+
 ## [1.1.6] - 2026-11-11
 
 - Maintenance update: the web framework is on its latest security release, and report reading and sign-in codes are on their latest bug-fix releases. Nothing changes in how the app looks or works.
