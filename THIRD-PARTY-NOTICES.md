@@ -738,7 +738,7 @@ SOFTWARE.
 
 </details>
 
-### @playwright/test@1.65.0
+### @playwright/test@1.65.1
 
 - **Licence:** Apache-2.0
 - **Author:** Microsoft Corporation
@@ -3131,7 +3131,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 </details>
 
-### better-sqlite3-multiple-ciphers@13.0.3
+### better-sqlite3-multiple-ciphers@13.1.1
 
 - **Licence:** MIT
 - **Author:** Mahesh Bandara Wijerathna (m4heshd) <m4heshd@gmail.com>
@@ -3143,8 +3143,9 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 The MIT License (MIT)
 
-Copyright (c) 2021 Mahesh Bandara Wijerathna
+Copyright (c) 2021-2026 Mahesh Bandara Wijerathna
 Copyright (c) 2017 Joshua Wise
+Copyright (c) 2019-2026 Ulrich Telle
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -6146,7 +6147,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 </details>
 
-### playwright@1.65.0
+### playwright@1.65.1
 
 - **Licence:** Apache-2.0
 - **Author:** Microsoft Corporation
@@ -6361,7 +6362,7 @@ Apache License
 
 </details>
 
-### playwright-core@1.65.0
+### playwright-core@1.65.1
 
 - **Licence:** Apache-2.0
 - **Author:** Microsoft Corporation
@@ -6897,7 +6898,7 @@ SOFTWARE.
 
 </details>
 
-### read-excel-file@9.3.15
+### read-excel-file@9.3.17
 
 - **Licence:** MIT
 - **Author:** catamphetamine <purecatamphetamine@gmail.com>

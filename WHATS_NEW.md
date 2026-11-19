@@ -12,6 +12,10 @@ Versions before 1.0.0 were internal development releases, not public installs; t
 
 ---
 
+## [1.1.8] - 2026-11-19
+
+- Maintenance update: the database engine and spreadsheet import are on their latest releases. Nothing changes in how the app looks or works.
+
 ## [1.1.7] - 2026-11-16
 
 - Maintenance update: the web framework, spreadsheet import, photo cropping, export files and the push-notification library are on their latest releases. Nothing changes in how the app looks or works.

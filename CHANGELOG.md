@@ -6,6 +6,11 @@ User-facing release notes for the in-app What's New screen live in [`WHATS_NEW.m
 
 ---
 
+## [1.1.8] - 2026-11-19
+
+### Changed
+- Dependencies: `better-sqlite3-multiple-ciphers` 13.0.3 to 13.1.1 (bundles SQLite 3.54.1 and SQLite3 Multiple Ciphers 2.7.0), `read-excel-file` 9.3.15 to 9.3.17, `@playwright/test` 1.65.0 to 1.65.1, `eslint` 10.14.0 to 10.15.0, `jsdom` 31.0.0 to 31.0.1.
+
 ## [1.1.7] - 2026-11-16
 
 ### Changed
