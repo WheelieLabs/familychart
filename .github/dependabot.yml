@@ -5,6 +5,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    cooldown:
+      default-days: 3
     open-pull-requests-limit: 5
     ignore:
       # TypeScript 7 adopted via alias migration: `typescript` is aliased to the

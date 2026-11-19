@@ -3131,7 +3131,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 </details>
 
-### better-sqlite3-multiple-ciphers@13.1.1
+### better-sqlite3-multiple-ciphers@13.2.0
 
 - **Licence:** MIT
 - **Author:** Mahesh Bandara Wijerathna (m4heshd) <m4heshd@gmail.com>
@@ -5675,7 +5675,7 @@ THE SOFTWARE.
 
 </details>
 
-### nodemailer@10.2.1
+### nodemailer@10.6.0
 
 - **Licence:** MIT-0
 - **Author:** Andris Reinman

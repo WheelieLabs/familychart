@@ -12,6 +12,10 @@ Versions before 1.0.0 were internal development releases, not public installs; t
 
 ---
 
+## [1.1.9] - 2026-11-19
+
+- Maintenance update: the database engine and the email library are on their latest releases. Nothing changes in how the app looks or works.
+
 ## [1.1.8] - 2026-11-19
 
 - Maintenance update: the database engine and spreadsheet import are on their latest releases. Nothing changes in how the app looks or works.

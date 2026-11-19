@@ -6,6 +6,11 @@ User-facing release notes for the in-app What's New screen live in [`WHATS_NEW.m
 
 ---
 
+## [1.1.9] - 2026-11-19
+
+### Changed
+- Dependencies: `better-sqlite3-multiple-ciphers` 13.1.1 to 13.2.0, `nodemailer` 10.2.1 to 10.6.0 (dependency and override moved together), `eslint-plugin-react-x` 5.30.2 to 5.30.5, `typescript-eslint` 8.72.2 to 8.73.0, `vitest` 5.1.0 to 5.1.1, `postcss` 8.5.32 to 8.5.33.
+
 ## [1.1.8] - 2026-11-19
 
 ### Changed
