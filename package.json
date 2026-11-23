@@ -34,12 +34,12 @@
     "nodemailer": "^10.6.0",
     "otplib": "^13.6.0",
     "pdfjs-dist": "^6.5.438",
-    "pdfkit": "^0.20.2",
+    "pdfkit": "^0.21.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-easy-crop": "^6.2.5",
-    "read-excel-file": "^9.3.17",
+    "read-excel-file": "^9.3.20",
     "web-push": "^4.0.0"
   },
   "overrides": {
